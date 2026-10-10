@@ -1,0 +1,33 @@
+.app-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 20px;
+  pointer-events: none; /* Let clicks pass through transparent areas */
+}
+
+.robot-wrapper {
+  pointer-events: auto; /* Enable clicks on the robot */
+  z-index: 10;
+}
+
+.chat-panel-wrapper {
+  pointer-events: auto; /* Enable clicks on the chat panel */
+  margin-right: 20px;
+  z-index: 5;
+  animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(50px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}

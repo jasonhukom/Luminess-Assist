@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --color-bg-panel: rgba(20, 20, 25, 0.85);
+  --color-bg-panel-border: rgba(255, 255, 255, 0.1);
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-text: #ffffff;
+  --color-text-muted: #a1a1aa;
+  
+  --shadow-panel: 0 10px 40px rgba(0, 0, 0, 0.5);
+  
+  --robot-glow-joy: #fcd34d;
+  --robot-glow-sadness: #60a5fa;
+  --robot-glow-anger: #ef4444;
+  --robot-glow-fear: #86efac;
+  --robot-glow-surprise: #ffffff;
+  --robot-glow-disgust: #bef264;
+  --robot-glow-curiosity: #d8b4fe;
+  --robot-glow-confusion: #fb923c;
+  --robot-glow-love: #f472b6;
+  --robot-glow-embarrassment: #f43f5e;
+  --robot-glow-idle: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: transparent !important;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--color-text);
+}
+
+/* Base button reset */
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
