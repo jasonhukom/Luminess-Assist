@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
 import { AuraBootScreen } from './components/AuraBootScreen.tsx';
-import { AuraOnboarding } from './components/AuraOnboarding.tsx';
 import type { Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import {
@@ -15,6 +14,8 @@ import {
   setProviderApiKey,
   getSelectedProvider,
   setSelectedProvider,
+  hasAnyProviderKey,
+  setApiKey,
 } from './lib/gemini.ts';
 import type {
   Message,
@@ -24,6 +25,55 @@ import type {
   AIProvider,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  Sparkles,
+  Loader2,
+  LogOut,
+  CheckCircle2,
+  ArrowRight,
+  RefreshCw,
+  KeyRound,
+  Eye,
+  EyeOff,
+  ExternalLink,
+} from 'lucide-react';
+
+const PROVIDER_INFO: Record<
+  AIProvider,
+  {
+    name: string;
+    mark: string;
+    keyUrl: string;
+    btnLabel: string;
+    placeholder: string;
+    colorClass: string;
+  }
+> = {
+  gemini: {
+    name: 'Gemini',
+    mark: 'G',
+    keyUrl: 'https://aistudio.google.com/app/apikey',
+    btnLabel: 'Get Free Gemini API Key (Google AI Studio)',
+    placeholder: 'Paste Gemini API Key (AIzaSy...)',
+    colorClass: 'gemini',
+  },
+  claude: {
+    name: 'Claude',
+    mark: 'C',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    btnLabel: 'Get Anthropic Claude API Key',
+    placeholder: 'Paste Claude API Key (sk-ant-...)',
+    colorClass: 'claude',
+  },
+  codex: {
+    name: 'Codex',
+    mark: '⌘',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    btnLabel: 'Get OpenAI API Key (Codex)',
+    placeholder: 'Paste OpenAI API Key (sk-...)',
+    colorClass: 'codex',
+  },
+};
 
 function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
@@ -34,13 +84,11 @@ function App() {
     claude: getProviderApiKey('claude'),
     codex: getProviderApiKey('codex'),
   }));
-  const [showApiModal, setShowApiModal] = useState<boolean>(() => {
-    const provider = getSelectedProvider();
-    const hasSelectedProviderAccess = provider === 'gemini'
-      ? Boolean(getGoogleSession() || getProviderApiKey('gemini'))
-      : Boolean(getProviderApiKey(provider));
-    return !localStorage.getItem('LUMINESS_SETUP_COMPLETED') || !hasSelectedProviderAccess;
-  });
+  const [showKey, setShowKey] = useState<boolean>(false);
+  const [showApiModal, setShowApiModal] = useState<boolean>(() =>
+    !localStorage.getItem('LUMINNESS_SETUP_COMPLETED') ||
+    (!getGoogleSession() && !hasAnyProviderKey())
+  );
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>('');
 
@@ -66,6 +114,7 @@ function App() {
   const [pendingPermission, setPendingPermission] = useState<ToolPermissionRequest | null>(null);
   const permissionResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
+  const modalCardRef = useRef<HTMLDivElement>(null);
   const chatWrapRef = useRef<HTMLDivElement>(null);
   const robotWrapRef = useRef<HTMLDivElement>(null);
 
@@ -90,9 +139,6 @@ function App() {
     autoApproveRef.current = autoApprove;
   }, [autoApprove]);
 
-  // When the robot finishes gliding or being dragged to any quadrant of the screen:
-  // - If bot is left, chat goes right; if bot is right, chat goes left.
-  // - If bot is up, chat goes down; if bot is down, chat goes up.
   const handleScreenSideChange = useCallback(
     (botScreenSide: 'left' | 'right', botScreenVert: 'up' | 'down') => {
       manualSideOverrideRef.current = false;
@@ -113,12 +159,19 @@ function App() {
     setChatVert((prev) => (prev === 'up' ? 'down' : 'up'));
   }, []);
 
-  // Report interactive regions to Rust so transparent background is 100% click-through
   const syncInteractiveRegions = useCallback(() => {
     const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-    if (!bootComplete || showApiModal) {
+    if (!bootComplete) {
       rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+    } else if (showApiModal) {
+      const el = modalCardRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      } else {
+        rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+      }
     } else {
       if (chatOpen && chatWrapRef.current) {
         const r = chatWrapRef.current.getBoundingClientRect();
@@ -155,7 +208,6 @@ function App() {
     };
   }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert]);
 
-  // Dynamically enlarge window when chat/modal is open and shrink to ONLY the bot when closed
   useEffect(() => {
     const updateWindowGeometry = async () => {
       try {
@@ -175,13 +227,13 @@ function App() {
         }
 
         const targetCssW = showApiModal
-          ? 620
+          ? 520
           : chatOpen
             ? panelSize.width + 12 + robotSize + 144
             : robotSize + 144;
 
         const targetCssH = showApiModal
-          ? 740
+          ? 700
           : chatOpen
             ? Math.max(panelSize.height, robotSize) + 144
             : robotSize + 144;
@@ -191,8 +243,6 @@ function App() {
 
         const prev = prevModeRef.current;
 
-        // If showing API modal or just closed API modal -> start centered in the middle of the screen,
-        // and then let the Rust companion thread smoothly drag/glide the bot to the side of the app!
         if (showApiModal || (prev.showApiModal && !showApiModal)) {
           prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
           companionReadyRef.current = false;
@@ -209,8 +259,6 @@ function App() {
           return;
         }
 
-        // Determine the robot's current physical box on screen so the robot stays anchored in place
-        // whether chat opens/closes on the left/right or up/down.
         const newBotBoxW = Math.round((robotSize + 144) * dpr);
         const newBotBoxH = Math.round((robotSize + 144) * dpr);
         let botBoxLeft: number;
@@ -315,7 +363,6 @@ function App() {
     void updateWindowGeometry();
   }, [bootComplete, showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
 
-  // Press Esc to close chat and shrink back to only the bot
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !showApiModal) {
@@ -326,7 +373,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showApiModal]);
 
-  // Auto-refresh saved Google login session on startup
   useEffect(() => {
     if (googleUser) {
       void ensureValidGoogleSession().then((refreshed) => {
@@ -376,30 +422,23 @@ function App() {
   };
 
   const handleProviderKeyChange = (provider: AIProvider, key: string) => {
-    setProviderKeys((previous) => ({ ...previous, [provider]: key }));
+    setProviderKeys((prev) => ({ ...prev, [provider]: key }));
   };
 
-  const handleContinueSetup = () => {
-    const currentKey = providerKeys[selectedProvider].trim();
-    const canUseGoogleOAuth = selectedProvider === 'gemini' && Boolean(googleUser);
+  const handleSaveProviderConfig = () => {
+    const currentKey = (providerKeys[selectedProvider] || '').trim();
 
-    if (!currentKey && !canUseGoogleOAuth) {
-      setApiError(
-        selectedProvider === 'gemini'
-          ? 'Connect Google or enter a Gemini API key to continue.'
-          : `Enter your ${selectedProvider === 'claude' ? 'Claude' : 'OpenAI'} API key to continue.`
-      );
-      return;
-    }
-
-    (['gemini', 'claude', 'codex'] as AIProvider[]).forEach((provider) => {
-      setProviderApiKey(provider, providerKeys[provider]);
+    (['gemini', 'claude', 'codex'] as AIProvider[]).forEach((p) => {
+      setProviderApiKey(p, providerKeys[p] || '');
     });
     setSelectedProvider(selectedProvider);
+    if (selectedProvider === 'gemini' && currentKey) {
+      setApiKey(currentKey);
+    }
     localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
     setApiError('');
     setShowApiModal(false);
-    setEmotion('idle');
+    setEmotion('joy');
     setChatOpen(false);
   };
 
@@ -443,7 +482,6 @@ function App() {
     const userMsg: Message = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
 
-    // While the robot is broken, the AI is offline until the repair countdown finishes
     if (brokenSeconds > 0) {
       setMessages([
         ...newHistory,
@@ -515,18 +553,212 @@ function App() {
       }`}
     >
       {showApiModal ? (
-        <AuraOnboarding
-          googleUser={googleUser}
-          isLoggingIn={isLoggingIn}
-          error={apiError}
-          selectedProvider={selectedProvider}
-          providerKeys={providerKeys}
-          onProviderChange={setSelectedProviderState}
-          onProviderKeyChange={handleProviderKeyChange}
-          onGoogleLogin={handleGoogleLogin}
-          onGoogleLogout={handleGoogleLogout}
-          onContinue={handleContinueSetup}
-        />
+        <div className={`api-modal-backdrop emotion-border-${visualEmotion}`}>
+          <div ref={modalCardRef} className="api-modal-card">
+            <div className="api-modal-robot-preview">
+              <Robot
+                emotion={emotion}
+                size={118}
+                onResize={setRobotSize}
+                onClick={() => setEmotion('joy')}
+                onVisualEmotionChange={setVisualEmotion}
+                onDragStateChange={setIsDraggingBot}
+              />
+            </div>
+
+            <div className="api-modal-badge">
+              <Sparkles size={13} />
+              <span>Luminess Assist • AI Setup</span>
+            </div>
+
+            <h1 className="api-modal-title">
+              {selectedProvider === 'gemini' && googleUser
+                ? 'Connected with Google'
+                : 'Configure AI Provider'}
+            </h1>
+            <p className="api-modal-subtitle">
+              Choose your AI model provider or connect your credentials to activate Luminess Assist on your desktop.
+            </p>
+
+            {/* Provider Selection Tabs */}
+            <div className="provider-tabs">
+              {(['gemini', 'claude', 'codex'] as AIProvider[]).map((p) => {
+                const info = PROVIDER_INFO[p];
+                const isActive = selectedProvider === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`provider-tab ${isActive ? `active ${info.colorClass}` : ''}`}
+                    onClick={() => {
+                      setSelectedProviderState(p);
+                      setApiError('');
+                    }}
+                  >
+                    <span className="provider-tab-mark">{info.mark}</span>
+                    <span>{info.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedProvider === 'gemini' && googleUser && (
+              <div className="google-account-card">
+                {googleUser.picture ? (
+                  <img
+                    src={googleUser.picture}
+                    alt={googleUser.name || 'Google User'}
+                    className="google-avatar"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="google-avatar-fallback">
+                    {(googleUser.name || googleUser.email || 'G').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="google-account-info">
+                  <div className="google-account-name">
+                    <span>{googleUser.name || 'Google Account'}</span>
+                    <CheckCircle2 size={14} className="verified-icon" />
+                  </div>
+                  {googleUser.email && (
+                    <div className="google-account-email">{googleUser.email}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {apiError && <div className="api-error-msg">{apiError}</div>}
+
+            <div className="api-modal-form">
+              {selectedProvider === 'gemini' && (
+                <>
+                  {googleUser ? (
+                    <div className="google-secondary-actions">
+                      <button
+                        type="button"
+                        className="google-secondary-btn"
+                        onClick={handleGoogleLogin}
+                        disabled={isLoggingIn}
+                      >
+                        {isLoggingIn ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                        <span>Switch Account</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="google-secondary-btn danger"
+                        onClick={handleGoogleLogout}
+                        disabled={isLoggingIn}
+                      >
+                        <LogOut size={14} />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="google-login-btn"
+                      onClick={handleGoogleLogin}
+                      disabled={isLoggingIn}
+                    >
+                      {isLoggingIn ? (
+                        <>
+                          <Loader2 size={18} className="spin" />
+                          <span>Waiting for Google Sign-In in browser...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="google-g-icon" viewBox="0 0 24 24" width="18" height="18">
+                            <path
+                              fill="#4285F4"
+                              d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"
+                            />
+                            <path
+                              fill="#EA4335"
+                              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+                            />
+                          </svg>
+                          <span>Sign in with Google</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      margin: '2px 0',
+                      fontSize: '11px',
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                    <span>OR API KEY</span>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                  </div>
+                </>
+              )}
+
+              {/* Button for opening the provider's API key dashboard */}
+              <button
+                type="button"
+                className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
+                onClick={() =>
+                  void invoke('open_item', { target: PROVIDER_INFO[selectedProvider].keyUrl }).catch(() => {
+                    window.open(PROVIDER_INFO[selectedProvider].keyUrl, '_blank', 'noopener,noreferrer');
+                  })
+                }
+              >
+                <KeyRound size={14} />
+                <span>{PROVIDER_INFO[selectedProvider].btnLabel}</span>
+                <ExternalLink size={13} />
+              </button>
+
+              <div className="api-input-group">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  placeholder={PROVIDER_INFO[selectedProvider].placeholder}
+                  value={providerKeys[selectedProvider] || ''}
+                  onChange={(e) => handleProviderKeyChange(selectedProvider, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveProviderConfig();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="toggle-key-btn"
+                  onClick={() => setShowKey((s) => !s)}
+                  title={showKey ? 'Hide API Key' : 'Show API Key'}
+                >
+                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="api-submit-btn"
+                onClick={handleSaveProviderConfig}
+              >
+                <span>
+                  {selectedProvider === 'gemini' && googleUser
+                    ? `Continue as ${googleUser.name || googleUser.email || 'User'}`
+                    : 'Save & Continue'}
+                </span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           {chatOpen && (
@@ -538,7 +770,7 @@ function App() {
                 activeTool={activeTool}
                 pendingPermission={pendingPermission}
                 autoApprove={autoApprove}
-                onToggleAutoApprove={() => setAutoApprove((v) => !v)}
+                onToggleAutoApprove={() => setAutoApprove((value) => !value)}
                 onPermissionDecision={handlePermissionDecision}
                 onSendMessage={handleSendMessage}
                 onOpenApiModal={handleOpenApiModal}
