@@ -226,7 +226,7 @@ export function AuraOnboarding({
       <footer className="aura-setup-footer">
         <span><span className="aura-footer-dot" /> SYSTEM READY</span>
         <span>GOOGLE AUTH · GEMINI · CLAUDE · CODEX</span>
-        <span>SESSION DATA STAYS LOCAL</span>
+        <span>API KEYS STORED LOCALLY</span>
       </footer>
     </main>
   );
