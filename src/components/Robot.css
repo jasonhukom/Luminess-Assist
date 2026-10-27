@@ -812,7 +812,7 @@
   --current-glow: var(--robot-glow-broken);
 }
 .robot-container.is-broken {
-  cursor: not-allowed;
+  cursor: grab;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.6)) grayscale(0.55) brightness(0.8);
 }
 .robot-container.is-broken .robot-glow-bg {
@@ -869,4 +869,24 @@
   .robot-container.crack-stage-3 .robot-svg {
     animation: none;
   }
+}
+
+/* White Bot State (only appears after 15 minutes of zero interaction) */
+.emotion-white-bot {
+  --current-glow: var(--robot-glow-white-bot, #ffffff);
+}
+.robot-container.is-white-bot .robot-svg {
+  animation: whiteBotResting 5s ease-in-out infinite;
+}
+@keyframes whiteBotResting {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+.robot-container.is-broken.is-grabbed,
+.robot-container.is-broken.is-dragging {
+  cursor: grabbing;
 }

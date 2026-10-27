@@ -25,6 +25,7 @@ import type {
   AIProvider,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   Sparkles,
   Loader2,
@@ -194,9 +195,9 @@ function App() {
     void invoke('set_interactive_regions', {
       rects,
       forceInteractive: !bootComplete || showApiModal || isDraggingBot,
-      companionActive: bootComplete && !showApiModal && companionReadyRef.current,
+      companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
     }).catch(() => {});
-  }, [bootComplete, showApiModal, chatOpen, isDraggingBot]);
+  }, [bootComplete, showApiModal, chatOpen, isDraggingBot, brokenSeconds]);
 
   useEffect(() => {
     syncInteractiveRegions();
@@ -364,7 +365,50 @@ function App() {
   }, [bootComplete, showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen('open-chat', () => {
+      setChatOpen((prev) => !prev);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  // When broken, mascot cannot be refreshed and cannot be right clicked
+  useEffect(() => {
+    const handleBrokenKeys = (e: KeyboardEvent) => {
+      if (brokenSeconds > 0) {
+        if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    const handleContextMenu = (e: MouseEvent) => {
+      if (brokenSeconds > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', handleBrokenKeys, true);
+    window.addEventListener('contextmenu', handleContextMenu, true);
+    return () => {
+      window.removeEventListener('keydown', handleBrokenKeys, true);
+      window.removeEventListener('contextmenu', handleContextMenu, true);
+    };
+  }, [brokenSeconds]);
+
+  // Shortcut that is not in Windows to open chat (Ctrl+Alt+C or Alt+Shift+C), plus Escape to close
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey && e.altKey && (e.key === 'c' || e.key === 'C')) ||
+        (e.altKey && e.shiftKey && (e.key === 'c' || e.key === 'C'))
+      ) {
+        e.preventDefault();
+        setChatOpen((prev) => !prev);
+        return;
+      }
       if (e.key === 'Escape' && !showApiModal) {
         setChatOpen(false);
       }
@@ -372,6 +416,73 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showApiModal]);
+
+  // When chat is open, it can be moved with arrow keys! Up goes up from wherever left/right it is, in accordance to the placement of the chat.
+  useEffect(() => {
+    const handleArrowMove = async (e: KeyboardEvent) => {
+      if (!chatOpen || showApiModal) return;
+
+      const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+      if (!arrowKeys.includes(e.key)) return;
+
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
+      // If user is editing text with characters and no modifier, don't hijack left/right cursor inside text
+      if (isInput && (activeEl as HTMLInputElement).value && !e.altKey && !e.ctrlKey) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          return;
+        }
+      }
+
+      e.preventDefault();
+
+      let dx = 0;
+      let dy = 0;
+      const step = 32;
+
+      if (e.key === 'ArrowUp') {
+        manualVertOverrideRef.current = true;
+        setChatVert('up');
+        dy = -step;
+      } else if (e.key === 'ArrowDown') {
+        manualVertOverrideRef.current = true;
+        setChatVert('down');
+        dy = step;
+      } else if (e.key === 'ArrowLeft') {
+        manualSideOverrideRef.current = true;
+        setChatSide('left');
+        dx = -step;
+      } else if (e.key === 'ArrowRight') {
+        manualSideOverrideRef.current = true;
+        setChatSide('right');
+        dx = step;
+      }
+
+      try {
+        const bounds: any = await invoke('get_window_bounds');
+        const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
+        const glowAllowance = Math.round(56 * dpr);
+        const minX = bounds.monitor_x - glowAllowance;
+        const maxX = bounds.monitor_x + bounds.monitor_width - bounds.width + glowAllowance;
+        const minY = bounds.monitor_y - glowAllowance;
+        const maxY = bounds.monitor_y + bounds.monitor_height - bounds.height - Math.round(24 * dpr) + glowAllowance;
+
+        const nextX = Math.max(minX, Math.min(maxX, bounds.x + Math.round(dx * dpr)));
+        const nextY = Math.max(minY, Math.min(maxY, bounds.y + Math.round(dy * dpr)));
+
+        await invoke('set_window_pos', {
+          x: nextX,
+          y: nextY,
+        });
+      } catch {
+        // outside tauri
+      }
+    };
+
+    window.addEventListener('keydown', handleArrowMove);
+    return () => window.removeEventListener('keydown', handleArrowMove);
+  }, [chatOpen, showApiModal]);
 
   useEffect(() => {
     if (googleUser) {
@@ -446,7 +557,7 @@ function App() {
 
   const handleRobotClick = () => {
     if (showApiModal) return;
-    setChatOpen((prev) => !prev);
+    setChatOpen(true);
   };
 
   const requestUserPermission = (req: ToolPermissionRequest): Promise<boolean> => {

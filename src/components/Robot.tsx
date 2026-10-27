@@ -21,7 +21,7 @@ export type Emotion =
   | 'embarrassment'
   | 'idle';
 
-export type VisualEmotion = Emotion | 'dizzy' | 'broken';
+export type VisualEmotion = Emotion | 'dizzy' | 'broken' | 'white-bot';
 
 export type FrustrationStage = 0 | 1 | 2 | 3 | 4;
 export type CrackStage = 0 | 1 | 2 | 3 | 4;
@@ -182,6 +182,12 @@ const LEFT_SPIRAL_PATH =
 const RIGHT_SPIRAL_PATH =
   'M 125 94 m 0 -2.2 a 2.2 2.2 0 1 1 0 4.4 a 4.8 4.8 0 1 1 0 -9.6 a 7.8 7.8 0 1 1 0 15.6 a 11.2 11.2 0 1 1 0 -22.4 a 14.2 14.2 0 1 1 -10.5 4.5';
 
+const WHITE_BOT_FACE: FaceConfig = {
+  left: 'M 65 96 Q 75 90 85 96',
+  right: 'M 115 96 Q 125 90 135 96',
+  mouth: 'M 95 114 Q 100 117 105 114',
+};
+
 const BROKEN_FACE: FaceConfig = {
   left: 'M 64 83 L 86 105 M 86 83 L 64 105',
   right: 'M 114 83 L 136 105 M 136 83 L 114 105',
@@ -236,6 +242,9 @@ export function Robot({
   const [isBroken, setIsBroken] = useState<boolean>(false);
   const [brokenCountdown, setBrokenCountdown] = useState<number>(0);
   const [isLonelySad, setIsLonelySad] = useState<boolean>(false);
+  const [isWhiteBot, setIsWhiteBot] = useState<boolean>(false);
+  const hoverPettingDurationRef = useRef<number>(0);
+  const lastHoverTimeRef = useRef<number>(0);
   const [idleAction, setIdleAction] = useState<IdleAction>('none');
   const [isGliding, setIsGliding] = useState<boolean>(false);
   const [convEmotionActive, setConvEmotionActive] = useState<boolean>(false);
@@ -320,6 +329,7 @@ export function Robot({
 
   const recordUserActivity = useCallback(() => {
     lastActivityTimeRef.current = Date.now();
+    setIsWhiteBot(false);
     setIsLonelySad((prev) => (prev ? false : prev));
   }, []);
 
@@ -327,13 +337,13 @@ export function Robot({
     recordUserActivity();
   }, [emotion, recordUserActivity]);
 
-  // 15-minute loneliness check: only make the robot sad if left alone for 15 minutes
+  // 15-minute untouched check: white bot only shows if not interacted with at all for 15 whole minutes
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (Date.now() - lastActivityTimeRef.current >= LONELY_THRESHOLD_MS) {
-        setIsLonelySad(true);
+        setIsWhiteBot(true);
       }
-    }, 5000);
+    }, 4000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -594,6 +604,30 @@ export function Robot({
     [spawnHearts]
   );
 
+  // Prevent refresh and right-click when broken
+  useEffect(() => {
+    const handleKeyDownBroken = (e: KeyboardEvent) => {
+      if (isBroken) {
+        if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    const handleContextMenuBroken = (e: MouseEvent) => {
+      if (isBroken) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDownBroken, true);
+    window.addEventListener('contextmenu', handleContextMenuBroken, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDownBroken, true);
+      window.removeEventListener('contextmenu', handleContextMenuBroken, true);
+    };
+  }, [isBroken]);
+
   // Listen to Rust auto-glide events
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -843,12 +877,20 @@ export function Robot({
               setFrustration(nextFrust);
             }
 
-            hoverRubAccumRef.current += stepDist;
-            if (hoverRubAccumRef.current >= 28) {
+            const nowMove = performance.now();
+            const dtMove = nowMove - (lastHoverTimeRef.current || nowMove);
+            lastHoverTimeRef.current = nowMove;
+
+            if (dtMove < 350) {
+              hoverPettingDurationRef.current += dtMove;
+            }
+
+            // Only trigger love after moving mouse around for a couple of seconds (>= 2000ms)
+            if (hoverPettingDurationRef.current >= 2000) {
               if (!isPattingRef.current) {
                 setIsPatting(true);
                 isPattingRef.current = true;
-                spawnHearts(3, relX, relY);
+                spawnHearts(4, relX, relY);
                 const now = performance.now();
                 if (now - lastBounceTimeRef.current > 750) {
                   lastBounceTimeRef.current = now;
@@ -856,7 +898,7 @@ export function Robot({
                 }
               } else {
                 hoverHeartAccumRef.current += stepDist;
-                if (hoverHeartAccumRef.current >= 82) {
+                if (hoverHeartAccumRef.current >= 110) {
                   hoverHeartAccumRef.current = 0;
                   spawnHearts(2, relX, relY);
                   const now = performance.now();
@@ -873,9 +915,10 @@ export function Robot({
               patTimerRef.current = window.setTimeout(() => {
                 setIsPatting(false);
                 isPattingRef.current = false;
+                hoverPettingDurationRef.current = 0;
                 hoverRubAccumRef.current = 0;
                 hoverHeartAccumRef.current = 0;
-              }, 850);
+              }, 1600);
             }
           }
         }
@@ -1200,8 +1243,10 @@ export function Robot({
     visualEmotion = 'anger';
   } else if (isPatting) {
     visualEmotion = 'love';
+  } else if (isWhiteBot) {
+    visualEmotion = 'white-bot';
   } else if (isHovered) {
-    visualEmotion = 'joy';
+    visualEmotion = 'idle'; // Not love while hovered until a couple of seconds of mouse movement!
   } else if (activeIdleAction === 'happy') {
     visualEmotion = 'joy';
   } else if (activeIdleAction === 'look') {
@@ -1218,6 +1263,8 @@ export function Robot({
   let face: FaceConfig;
   if (visualEmotion === 'broken') {
     face = BROKEN_FACE;
+  } else if (visualEmotion === 'white-bot') {
+    face = WHITE_BOT_FACE;
   } else if (visualEmotion === 'dizzy') {
     face = {
       left: LEFT_SPIRAL_PATH,
@@ -1244,7 +1291,9 @@ export function Robot({
   // Status pill text
   let statusPillText: string | null = null;
   if (isBroken) {
-    statusPillText = isFlying ? '💥 *CRASH*' : `🔧 Repairing... ${brokenCountdown}s`;
+    statusPillText = isFlying ? '💥 *FALLING*' : `🔧 Broken! Repairing... ${brokenCountdown}s`;
+  } else if (isWhiteBot) {
+    statusPillText = '💤 Resting... (15m idle)';
   } else if (isDizzy) {
     statusPillText = '🌀 So dizzy...';
   } else if (isPatting) {
@@ -1271,6 +1320,7 @@ export function Robot({
         `crack-stage-${crackStage}`,
         activeIdleAction !== 'none' ? `idle-action-${activeIdleAction}` : '',
         isBroken ? 'is-broken' : '',
+        isWhiteBot ? 'is-white-bot' : '',
         isGliding ? 'is-gliding' : '',
         isLonelySad ? 'is-lonely' : '',
         isGrabbed ? 'is-grabbed' : '',

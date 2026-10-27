@@ -40,7 +40,79 @@ The robot already has a set of expressive faces and physical movement. More inte
 - **UI icons:** Lucide React
 - **Styling and animation:** CSS and SVG
 
-## Getting started
+## Instant Installation (One-Click PowerShell)
+
+Install Luminess Assist and generate a desktop shortcut with a single command in **Windows PowerShell** or **Terminal**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/install.ps1 | iex"
+```
+
+### What this script does:
+1. **Downloads release:** Fetches the official **v1.1.0** installer (`Luminess.Assist_1.1.0_x64-setup.exe` - only **2.11 MB**).
+2. **Installs cleanly:** Installs to `%LOCALAPPDATA%\Programs\Luminess Assist` without requiring Administrator privileges.
+3. **Creates desktop shortcut:** Places `Luminess Assist.lnk` on your Windows Desktop with the high-resolution robot icon.
+4. **Starts automatically:** Launches the floating robot companion right away. Double-clicking the desktop shortcut anytime starts the app!
+
+---
+
+## Storage & Dependency Footprint
+
+Luminess Assist is engineered with **Tauri v2 and Rust**, avoiding bloated bundled Chromium runtimes.
+
+| Component | Role | Download Size | Disk Footprint | Status on Typical Windows 10/11 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Luminess Assist Installer** | Core Application | **2.11 MB** | **9.5 MB** | Downloaded via installer script |
+| **Edge WebView2 Runtime** | Native Webview Engine | ~150 MB | ~150 MB | **Pre-installed** (>99.2% of PCs) |
+| **Git for Windows** *(Dev only)* | Version Control | ~55 MB | ~320 MB | Optional (Source builds only) |
+| **Node.js (v20+)** *(Dev only)* | Frontend Build Tool | ~32 MB | ~75 MB | Optional (Source builds only) |
+| **Rust & Cargo** *(Dev only)* | Native Compiler | ~180 MB | ~1.2 GB | Optional (Source builds only) |
+| **C++ Build Tools** *(Dev only)* | Windows MSVC Linker | ~1.5 GB | ~4.5 GB | Optional (Source builds only) |
+
+> [!TIP]
+> **Total download size for regular Windows users:** **2.11 MB**! Installation takes under 5 seconds.
+
+---
+
+## Web Showcase & Dependency Calculator (`/web`)
+
+The repository includes a web companion application located in [`/web`](file:///C:/Users/rynes/Documents/VSCODE/LuminessAssist/Luminess-Assist/web) built with **React 19**, **Vite**, and **Tailwind CSS**. It replicates the futuristic robot aesthetic with an interactive mascot, live emotion switching, audio synthesis, and a real-time disk storage calculator.
+
+### Run Web Locally
+```bash
+# From repository root:
+npm run web:dev
+
+# Or directly inside the web folder:
+cd web
+npm install
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Run Web with Docker
+```bash
+cd web
+docker compose up --build
+```
+Or build and run the Docker container directly:
+```bash
+docker build -t luminess-assist-web ./web
+docker run -p 3000:80 luminess-assist-web
+```
+The application will be served via high-performance Nginx at `http://localhost:3000`.
+
+### Deploy Web to Vercel
+Deploying to Vercel is seamless with the included `vercel.json`:
+- **Via Vercel CLI:**
+  ```bash
+  cd web && vercel
+  ```
+- **Via Git Integration:** Connect the repository to Vercel. Root directory can be set to either repository root or `web` (both have optimized `vercel.json` configurations).
+
+---
+
+## Getting started (Desktop App from Source)
 
 ### Requirements
 
@@ -100,14 +172,20 @@ Luminess Assist can connect a conversational request to desktop tools, including
 
 ```text
 Luminess-Assist/
-├── src/
+├── install.ps1                # Automated PowerShell installer & desktop shortcut maker
+├── web/                       # Cyberpunk showcase & dependency calculator website
+│   ├── src/                   # React 19 + Tailwind CSS + living robot mascot
+│   ├── Dockerfile             # Multi-stage Nginx container build
+│   ├── docker-compose.yml     # Containerized web deployment
+│   └── vercel.json            # Vercel deployment configuration
+├── src/                       # Desktop app React frontend
 │   ├── components/
 │   │   ├── Robot.tsx          # Robot SVG, expressions, and pointer interactions
 │   │   ├── Robot.css          # Robot appearance and animations
 │   │   ├── ChatPanel.tsx      # Conversation and permission UI
 │   │   └── ChatPanel.css      # Chat panel styling
 │   ├── lib/
-│   │   └── gemini.ts          # Gemini integration, agent tools, and session handling
+│   │   └── gemini.ts          # Gemini, Claude, Codex integration and tools
 │   ├── App.tsx                # Application state and desktop UI coordination
 │   ├── App.css
 │   └── main.tsx

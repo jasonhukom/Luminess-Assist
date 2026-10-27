@@ -64,6 +64,7 @@ mod win32 {
         pub fn GetClassNameW(hwnd: HWND, lp_class_name: *mut u16, n_max_count: i32) -> i32;
         pub fn GetWindowTextLengthW(hwnd: HWND) -> i32;
         pub fn GetCursorPos(lp_point: *mut POINT) -> BOOL;
+        pub fn GetAsyncKeyState(v_key: i32) -> i16;
     }
 
     #[link(name = "dwmapi")]
@@ -1121,6 +1122,7 @@ pub fn run() {
 
                 thread::spawn(move || {
                     let mut tick_count: u64 = 0;
+                    let mut last_hotkey_down = false;
                     loop {
                         let is_gliding = {
                             st_clone
@@ -1140,6 +1142,30 @@ pub fn run() {
                                 guard.is_ignoring_cursor,
                             )
                         };
+
+                        #[cfg(target_os = "windows")]
+                        {
+                            let (ctrl_down, alt_down, shift_down, c_down) = unsafe {
+                                (
+                                    (win32::GetAsyncKeyState(0x11) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x12) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x10) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x43) as u16 & 0x8000) != 0,
+                                )
+                            };
+
+                            let hotkey_pressed = (ctrl_down && alt_down && c_down) || (alt_down && shift_down && c_down);
+                            if hotkey_pressed {
+                                if !last_hotkey_down {
+                                    last_hotkey_down = true;
+                                    let _ = win_clone.show();
+                                    let _ = win_clone.set_focus();
+                                    let _ = win_clone.emit("open-chat", ());
+                                }
+                            } else {
+                                last_hotkey_down = false;
+                            }
+                        }
 
                         // 1. Step smooth auto-glide animation if active
                         if companion_active && !force_interactive {

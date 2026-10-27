@@ -14,13 +14,14 @@
   --robot-glow-sadness: #60a5fa;
   --robot-glow-anger: #ef4444;
   --robot-glow-fear: #86efac;
-  --robot-glow-surprise: #ffffff;
+  --robot-glow-surprise: #c084fc;
   --robot-glow-disgust: #bef264;
   --robot-glow-curiosity: #d8b4fe;
   --robot-glow-confusion: #fb923c;
   --robot-glow-love: #f472b6;
   --robot-glow-embarrassment: #f43f5e;
-  --robot-glow-idle: #ffffff;
+  --robot-glow-idle: #38bdf8;
+  --robot-glow-white-bot: #ffffff;
   --robot-glow-dizzy: #a78bfa;
   --robot-glow-annoyed: #fb923c;
   --robot-glow-furious: #ff2a2a;

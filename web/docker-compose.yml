@@ -1,0 +1,11 @@
+services:
+  luminess-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: luminess-assist-web
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
