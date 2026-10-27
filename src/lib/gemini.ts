@@ -141,6 +141,47 @@ export function hasApiKey(): boolean {
   return !!apiKey && apiKey.trim().length > 0;
 }
 
+export type AIProvider = 'gemini' | 'claude' | 'codex';
+
+const PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini'>, string> = {
+  claude: 'LUMINNESS_CLAUDE_API_KEY',
+  codex: 'LUMINNESS_CODEX_API_KEY',
+};
+const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINNESS_SELECTED_PROVIDER';
+
+export function getProviderApiKey(provider: AIProvider): string {
+  if (provider === 'gemini') return getApiKey();
+  return localStorage.getItem(PROVIDER_KEY_STORAGE[provider]) || '';
+}
+
+export function setProviderApiKey(provider: AIProvider, key: string): void {
+  const cleaned = key.trim();
+  if (provider === 'gemini') {
+    setApiKey(cleaned);
+    return;
+  }
+  const storageKey = PROVIDER_KEY_STORAGE[provider];
+  if (cleaned) localStorage.setItem(storageKey, cleaned);
+  else localStorage.removeItem(storageKey);
+}
+
+export function getSelectedProvider(): AIProvider {
+  const saved = localStorage.getItem(SELECTED_PROVIDER_STORAGE_KEY);
+  return saved === 'gemini' || saved === 'claude' || saved === 'codex' ? saved : 'gemini';
+}
+
+export function setSelectedProvider(provider: AIProvider): void {
+  localStorage.setItem(SELECTED_PROVIDER_STORAGE_KEY, provider);
+}
+
+export function hasAnyProviderKey(): boolean {
+  return Boolean(getProviderApiKey('gemini') || getProviderApiKey('claude') || getProviderApiKey('codex'));
+}
+
+export function hasAnyConfiguredProvider(): boolean {
+  return Boolean(getGoogleSession() || hasAnyProviderKey());
+}
+
 function extractProjectId(val: any): string | undefined {
   if (!val) return undefined;
   if (typeof val === 'string' && val.trim().length > 0) {
@@ -870,6 +911,219 @@ function createGenAIClient(key: string, vertexai = false): GoogleGenAI {
   });
 }
 
+
+function normalizeProviderSchema(value: any): any {
+  if (Array.isArray(value)) return value.map(normalizeProviderSchema);
+  if (!value || typeof value !== 'object') return value;
+  const normalized: Record<string, any> = {};
+  for (const [key, child] of Object.entries(value)) {
+    normalized[key] = key === 'type' && typeof child === 'string'
+      ? child.toLowerCase()
+      : normalizeProviderSchema(child);
+  }
+  return normalized;
+}
+
+function extractProviderError(body: any, fallback: string): string {
+  return String(body?.error?.message || body?.message || body?.error || fallback);
+}
+
+async function runAlternativeProviderAgent(
+  provider: Exclude<AIProvider, 'gemini'>,
+  key: string,
+  history: Message[],
+  onToolStart: (toolName: string | null) => void,
+  onEmotion: (emotion: Emotion) => void,
+  onRequestPermission: (req: ToolPermissionRequest) => Promise<boolean>,
+  onTimerComplete: ((label: string) => void) | undefined,
+  systemInstruction: string,
+  declarations: any[],
+): Promise<Message> {
+  const executedActions: string[] = [];
+  const maxTurns = 8;
+  const normalizedDeclarations = declarations.map((tool: any) => ({
+    ...tool,
+    parameters: normalizeProviderSchema(tool.parameters || { type: 'object', properties: {} }),
+  }));
+
+  const runTool = async (toolName: string, args: Record<string, any>): Promise<any> => {
+    const description = describeToolCall(toolName, args);
+    onEmotion('curiosity');
+    onToolStart(`Asking permission: ${toolName}`);
+    const approved = await onRequestPermission({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      toolName,
+      description,
+      args,
+    });
+
+    if (!approved) {
+      executedActions.push(`Denied: ${description}`);
+      return { error: 'User denied permission to execute this action.' };
+    }
+
+    onToolStart(`Running: ${toolName}`);
+    try {
+      const result = await executeToolOnPc(toolName, args, onTimerComplete);
+      executedActions.push(description);
+      return { result };
+    } catch (error: any) {
+      const message = typeof error === 'string' ? error : error?.message || String(error);
+      executedActions.push(`Failed: ${description} (${message})`);
+      return { error: message };
+    }
+  };
+
+  try {
+    if (provider === 'claude') {
+      const messages: any[] = history.map((item) => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: item.content,
+      }));
+      const providerTools = normalizedDeclarations.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.parameters,
+      }));
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        onToolStart(turn === 0 ? 'Connecting to Claude…' : 'Claude is continuing the task…');
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-5-5',
+            max_tokens: 4096,
+            system: systemInstruction,
+            messages,
+            tools: providerTools,
+          }),
+        });
+        const data: any = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(`Claude API error (${response.status}): ${extractProviderError(data, 'Request failed')}`);
+        }
+
+        const blocks: any[] = Array.isArray(data.content) ? data.content : [];
+        const calls = blocks.filter((block) => block?.type === 'tool_use');
+        if (calls.length === 0) {
+          const rawText = blocks.filter((block) => block?.type === 'text').map((block) => block.text || '').join('\n').trim();
+          const parsed = parseAssistantOutput(rawText);
+          onEmotion(parsed.emotion);
+          return {
+            role: 'assistant',
+            content: parsed.content,
+            emotion: parsed.emotion,
+            toolActions: executedActions.length ? executedActions : undefined,
+          };
+        }
+
+        messages.push({ role: 'assistant', content: blocks });
+        const results: any[] = [];
+        for (const call of calls) {
+          const args: Record<string, any> = call.input && typeof call.input === 'object' ? call.input : {};
+          const result = await runTool(String(call.name || ''), args);
+          results.push({
+            type: 'tool_result',
+            tool_use_id: call.id,
+            content: JSON.stringify(result),
+            is_error: Boolean(result?.error),
+          });
+        }
+        messages.push({ role: 'user', content: results });
+      }
+    } else {
+      const input: any[] = history.map((item) => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: item.content,
+      }));
+      const providerTools = normalizedDeclarations.map((tool) => ({
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        strict: false,
+      }));
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        onToolStart(turn === 0 ? 'Connecting to OpenAI…' : 'OpenAI is continuing the task…');
+        const response = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-5.5',
+            instructions: systemInstruction,
+            input,
+            tools: providerTools,
+            max_output_tokens: 4096,
+          }),
+        });
+        const data: any = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(`OpenAI API error (${response.status}): ${extractProviderError(data, 'Request failed')}`);
+        }
+
+        const output: any[] = Array.isArray(data.output) ? data.output : [];
+        const calls = output.filter((item) => item?.type === 'function_call');
+        if (calls.length === 0) {
+          const rawText = String(data.output_text || output
+            .filter((item) => item?.type === 'message')
+            .flatMap((item) => Array.isArray(item.content) ? item.content : [])
+            .filter((part) => part?.type === 'output_text' || part?.type === 'text')
+            .map((part) => part.text || '')
+            .join('\n')).trim();
+          const parsed = parseAssistantOutput(rawText);
+          onEmotion(parsed.emotion);
+          return {
+            role: 'assistant',
+            content: parsed.content,
+            emotion: parsed.emotion,
+            toolActions: executedActions.length ? executedActions : undefined,
+          };
+        }
+
+        input.push(...output);
+        for (const call of calls) {
+          let args: Record<string, any> = {};
+          try {
+            const decoded = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
+            if (decoded && typeof decoded === 'object') args = decoded;
+          } catch {
+            args = {};
+          }
+          const result = await runTool(String(call.name || ''), args);
+          input.push({
+            type: 'function_call_output',
+            call_id: call.call_id || call.id,
+            output: JSON.stringify(result),
+          });
+        }
+      }
+    }
+
+    return {
+      role: 'assistant',
+      content: 'I reached the maximum number of tool steps for that request. Please tell me what you would like me to do next.',
+      emotion: 'confusion',
+      toolActions: executedActions.length ? executedActions : undefined,
+    };
+  } catch (error: any) {
+    const message = typeof error === 'string' ? error : error?.message || String(error);
+    console.error(`${provider} provider error:`, error);
+    throw new Error(message);
+  } finally {
+    onToolStart(null);
+  }
+}
+
 export async function runAgent(
   history: Message[],
   onToolStart: (toolName: string | null) => void,
@@ -877,6 +1131,17 @@ export async function runAgent(
   onRequestPermission: (req: ToolPermissionRequest) => Promise<boolean>,
   onTimerComplete?: (label: string) => void
 ): Promise<Message> {
+  const selectedProvider = getSelectedProvider();
+  const selectedProviderKey = getProviderApiKey(selectedProvider);
+
+  if (selectedProvider !== 'gemini' && !selectedProviderKey) {
+    return {
+      role: 'assistant',
+      content: `Add your ${selectedProvider === 'claude' ? 'Claude' : 'OpenAI'} API key in AURA setup, or switch to a configured provider.`,
+      emotion: 'idle',
+    };
+  }
+
   let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
   let ai = apiKey ? createGenAIClient(apiKey, false) : null;
 
@@ -1057,6 +1322,20 @@ After finishing all necessary tool calls, return your final reply to the user as
 }
 Do not wrap the JSON in markdown code blocks.
 `;
+
+  if (selectedProvider !== 'gemini') {
+    return runAlternativeProviderAgent(
+      selectedProvider,
+      selectedProviderKey,
+      history,
+      onToolStart,
+      onEmotion,
+      onRequestPermission,
+      onTimerComplete,
+      systemInstruction,
+      tools[0]?.functionDeclarations || [],
+    );
+  }
 
   const executedActions: string[] = [];
 
