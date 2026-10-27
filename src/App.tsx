@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
+import { AuraBootScreen } from './components/AuraBootScreen.tsx';
+import { AuraOnboarding } from './components/AuraOnboarding.tsx';
 import type { Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import {
@@ -9,36 +11,33 @@ import {
   loginWithGoogle,
   logoutGoogle,
   ensureValidGoogleSession,
-  getApiKey,
-  setApiKey,
-  hasApiKey,
+  getProviderApiKey,
+  setProviderApiKey,
+  getSelectedProvider,
+  setSelectedProvider,
+  hasAnyProviderKey,
 } from './lib/gemini.ts';
 import type {
   Message,
   ToolPermissionRequest,
   PermissionDecision,
   GoogleUserSession,
+  AIProvider,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  Sparkles,
-  Loader2,
-  LogOut,
-  CheckCircle2,
-  ArrowRight,
-  RefreshCw,
-  KeyRound,
-  Eye,
-  EyeOff,
-  ExternalLink,
-} from 'lucide-react';
 
 function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
-  const [apiKeyInput, setApiKeyInput] = useState<string>(() => getApiKey());
-  const [showKey, setShowKey] = useState<boolean>(false);
-  const [showApiModal, setShowApiModal] = useState<boolean>(
-    () => !getGoogleSession() && !hasApiKey()
+  const [bootComplete, setBootComplete] = useState<boolean>(false);
+  const [selectedProvider, setSelectedProviderState] = useState<AIProvider>(() => getSelectedProvider());
+  const [providerKeys, setProviderKeys] = useState<Record<AIProvider, string>>(() => ({
+    gemini: getProviderApiKey('gemini'),
+    claude: getProviderApiKey('claude'),
+    codex: getProviderApiKey('codex'),
+  }));
+  const [showApiModal, setShowApiModal] = useState<boolean>(() =>
+    !localStorage.getItem('LUMINNESS_SETUP_COMPLETED') ||
+    (!getGoogleSession() && !hasAnyProviderKey())
   );
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>('');
@@ -65,7 +64,6 @@ function App() {
   const [pendingPermission, setPendingPermission] = useState<ToolPermissionRequest | null>(null);
   const permissionResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
-  const modalCardRef = useRef<HTMLDivElement>(null);
   const chatWrapRef = useRef<HTMLDivElement>(null);
   const robotWrapRef = useRef<HTMLDivElement>(null);
 
@@ -117,12 +115,8 @@ function App() {
   const syncInteractiveRegions = useCallback(() => {
     const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-    if (showApiModal) {
-      const el = modalCardRef.current;
-      if (el) {
-        const r = el.getBoundingClientRect();
-        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
-      }
+    if (!bootComplete || showApiModal) {
+      rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
     } else {
       if (chatOpen && chatWrapRef.current) {
         const r = chatWrapRef.current.getBoundingClientRect();
@@ -130,7 +124,6 @@ function App() {
       }
       if (robotWrapRef.current) {
         const r = robotWrapRef.current.getBoundingClientRect();
-        // Tighten hit box to the character model part itself
         const insetX = r.width * 0.12;
         const insetTop = r.height * 0.06;
         const insetBottom = r.height * 0.16;
@@ -145,10 +138,10 @@ function App() {
 
     void invoke('set_interactive_regions', {
       rects,
-      forceInteractive: isDraggingBot,
-      companionActive: !showApiModal && companionReadyRef.current,
+      forceInteractive: !bootComplete || showApiModal || isDraggingBot,
+      companionActive: bootComplete && !showApiModal && companionReadyRef.current,
     }).catch(() => {});
-  }, [showApiModal, chatOpen, isDraggingBot]);
+  }, [bootComplete, showApiModal, chatOpen, isDraggingBot]);
 
   useEffect(() => {
     syncInteractiveRegions();
@@ -166,6 +159,18 @@ function App() {
       try {
         const bounds: any = await invoke('get_window_bounds');
         const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
+
+        if (!bootComplete) {
+          companionReadyRef.current = false;
+          await invoke('set_window_rect', {
+            x: bounds.monitor_x,
+            y: bounds.monitor_y,
+            width: bounds.monitor_width,
+            height: bounds.monitor_height,
+          });
+          setTimeout(syncInteractiveRegions, 60);
+          return;
+        }
 
         const targetCssW = showApiModal
           ? 620
@@ -306,7 +311,7 @@ function App() {
     };
 
     void updateWindowGeometry();
-  }, [showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
+  }, [bootComplete, showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
 
   // Press Esc to close chat and shrink back to only the bot
   useEffect(() => {
@@ -338,9 +343,7 @@ function App() {
     try {
       const session = await loginWithGoogle();
       setGoogleUser(session);
-      setShowApiModal(false);
       setEmotion('joy');
-      setChatOpen(false);
     } catch (err: any) {
       const msg = typeof err === 'string' ? err : err?.message || String(err);
       setApiError(msg);
@@ -359,23 +362,46 @@ function App() {
 
   const handleOpenApiModal = async () => {
     setApiError('');
-    setApiKeyInput(getApiKey());
+    setProviderKeys({
+      gemini: getProviderApiKey('gemini'),
+      claude: getProviderApiKey('claude'),
+      codex: getProviderApiKey('codex'),
+    });
+    setSelectedProviderState(getSelectedProvider());
     setChatOpen(false);
     setShowApiModal(true);
     setEmotion('curiosity');
   };
 
-  const handleSaveApiKey = () => {
-    const trimmed = apiKeyInput.trim();
-    setApiKey(trimmed);
-    if (!trimmed && !googleUser) {
-      setApiError('Please sign in with Google or enter a free Gemini API Key.');
+  const handleProviderKeyChange = (provider: AIProvider, key: string) => {
+    setProviderKeys((previous) => ({ ...previous, [provider]: key }));
+  };
+
+  const handleContinueSetup = () => {
+    const currentKey = providerKeys[selectedProvider].trim();
+    const canUseGoogleOAuth = selectedProvider === 'gemini' && Boolean(googleUser);
+
+    if (!currentKey && !canUseGoogleOAuth) {
+      setApiError(
+        selectedProvider === 'gemini'
+          ? 'Connect Google or enter a Gemini API key to continue.'
+          : `Enter your ${selectedProvider === 'claude' ? 'Claude' : 'OpenAI'} API key to continue.`
+      );
       return;
     }
+
+    (['gemini', 'claude', 'codex'] as AIProvider[]).forEach((provider) => {
+      setProviderApiKey(provider, providerKeys[provider]);
+    });
+    setSelectedProvider(selectedProvider);
+    localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
     setApiError('');
     setShowApiModal(false);
-    setEmotion('joy');
+    setEmotion('idle');
+    setChatOpen(false);
   };
+
+  const handleBootComplete = useCallback(() => setBootComplete(true), []);
 
   const handleRobotClick = () => {
     if (showApiModal) return;
@@ -472,6 +498,10 @@ function App() {
     }
   };
 
+  if (!bootComplete) {
+    return <AuraBootScreen onComplete={handleBootComplete} />;
+  }
+
   return (
     <div
       className={`app-container ${
@@ -483,43 +513,19 @@ function App() {
       }`}
     >
       {showApiModal ? (
-        <div className={`api-modal-backdrop emotion-border-${visualEmotion}`}>
-          <div ref={modalCardRef} className="api-modal-card">
-            <div className="api-modal-robot-preview">
-              <Robot
-                emotion={emotion}
-                size={130}
-                onResize={setRobotSize}
-                onClick={() => setEmotion('joy')}
-                onVisualEmotionChange={setVisualEmotion}
-                onDragStateChange={setIsDraggingBot}
-              />
-            </div>
-
-            <div className="api-modal-badge">
-              <Sparkles size={13} />
-              <span>Luminess Assist • Google Auth</span>
-            </div>
-
-            <h1 className="api-modal-title">
-              {googleUser ? 'Connected with Google' : 'Sign in with Google'}
-            </h1>
-            <p className="api-modal-subtitle">
-              {googleUser
-                ? 'Your Google account is linked for automatic login. Luminess is ready to assist you on your PC.'
-                : 'Sign in with your Google account in one click—just like Antigravity. Luminess will automatically keep you signed in.'}
-            </p>
-
-            {googleUser && (
-              <div className="google-account-card">
-                {googleUser.picture ? (
-                  <img
-                    src={googleUser.picture}
-                    alt={googleUser.name || 'Google User'}
-                    className="google-avatar"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
+        <AuraOnboarding
+          googleUser={googleUser}
+          isLoggingIn={isLoggingIn}
+          error={apiError}
+          selectedProvider={selectedProvider}
+          providerKeys={providerKeys}
+          onProviderChange={setSelectedProviderState}
+          onProviderKeyChange={handleProviderKeyChange}
+          onGoogleLogin={handleGoogleLogin}
+          onGoogleLogout={handleGoogleLogout}
+          onContinue={handleContinueSetup}
+        />
+      ) : (
                   <div className="google-avatar-fallback">
                     {(googleUser.name || googleUser.email || 'G').charAt(0).toUpperCase()}
                   </div>
