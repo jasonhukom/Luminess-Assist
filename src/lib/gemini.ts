@@ -18,9 +18,113 @@ export interface ToolPermissionRequest {
 
 export type PermissionDecision = 'allow' | 'always_allow' | 'deny';
 
+export interface GoogleUserSession {
+  accessToken: string;
+  refreshToken?: string;
+  expiryDate: number;
+  email?: string;
+  name?: string;
+  picture?: string;
+  projectId?: string;
+}
+
 const STORAGE_KEY = 'GEMINI_API_KEY';
+const GOOGLE_AUTH_STORAGE_KEY = 'LUMINESS_GOOGLE_AUTH';
+const OAUTH_CLIENT_CACHE_KEY = 'LUMINESS_GOOGLE_OAUTH_CLIENT';
+const PUBLIC_GEMINI_CLI_OAUTH_URL =
+  'https://raw.githubusercontent.com/google-gemini/gemini-cli/main/packages/core/src/code_assist/oauth2.ts';
+const CODE_ASSIST_BASE_URL = 'https://cloudcode-pa.googleapis.com/v1internal';
+
+interface OAuthClientConfig {
+  clientId: string;
+  clientSecret: string;
+}
+
+async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
+  const envClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const envClientSecret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
+  if (envClientId && envClientSecret) {
+    return { clientId: String(envClientId), clientSecret: String(envClientSecret) };
+  }
+
+  try {
+    const cached = localStorage.getItem(OAUTH_CLIENT_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed?.clientId && parsed?.clientSecret) {
+        return parsed as OAuthClientConfig;
+      }
+    }
+  } catch {
+    // ignore cache error
+  }
+
+  const resp = await fetch(PUBLIC_GEMINI_CLI_OAUTH_URL);
+  if (!resp.ok) {
+    throw new Error('Failed to load Google OAuth configuration.');
+  }
+  const source = await resp.text();
+  const idMatch = source.match(/OAUTH_CLIENT_ID\s*=\s*['"]([^'"]+)['"]/);
+  const secretMatch = source.match(/OAUTH_CLIENT_SECRET\s*=\s*['"]([^'"]+)['"]/);
+
+  if (!idMatch?.[1] || !secretMatch?.[1]) {
+    throw new Error('Could not parse public OAuth client configuration.');
+  }
+
+  const config: OAuthClientConfig = {
+    clientId: idMatch[1],
+    clientSecret: secretMatch[1],
+  };
+
+  try {
+    localStorage.setItem(OAUTH_CLIENT_CACHE_KEY, JSON.stringify(config));
+  } catch {
+    // ignore
+  }
+
+  return config;
+}
 
 let apiKey = localStorage.getItem(STORAGE_KEY) || '';
+let googleSession: GoogleUserSession | null = loadSavedGoogleSession();
+
+function loadSavedGoogleSession(): GoogleUserSession | null {
+  try {
+    const raw = localStorage.getItem(GOOGLE_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.accessToken || parsed.refreshToken)) {
+      return parsed as GoogleUserSession;
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  return null;
+}
+
+function saveGoogleSession(session: GoogleUserSession | null) {
+  googleSession = session;
+  if (session) {
+    localStorage.setItem(GOOGLE_AUTH_STORAGE_KEY, JSON.stringify(session));
+  } else {
+    localStorage.removeItem(GOOGLE_AUTH_STORAGE_KEY);
+  }
+}
+
+export function getGoogleSession(): GoogleUserSession | null {
+  return googleSession;
+}
+
+export function logoutGoogle() {
+  saveGoogleSession(null);
+}
+
+export function hasAuthSession(): boolean {
+  return Boolean(
+    (googleSession && (googleSession.accessToken || googleSession.refreshToken)) ||
+      (apiKey && apiKey.trim().length > 0)
+  );
+}
 
 export function getApiKey(): string {
   return apiKey;
@@ -37,6 +141,280 @@ export function setApiKey(key: string) {
 
 export function hasApiKey(): boolean {
   return !!apiKey && apiKey.trim().length > 0;
+}
+
+async function resolveCodeAssistProject(accessToken: string): Promise<string | undefined> {
+  const coreMetadata = {
+    ideType: 'IDE_UNSPECIFIED',
+    platform: 'PLATFORM_UNSPECIFIED',
+    pluginType: 'GEMINI',
+  };
+
+  try {
+    const loadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        metadata: coreMetadata,
+      }),
+    });
+
+    if (!loadResp.ok) {
+      return undefined;
+    }
+
+    const loadData: any = await loadResp.json();
+    if (loadData?.cloudaicompanionProject) {
+      return String(loadData.cloudaicompanionProject);
+    }
+
+    // If user is not yet onboarded, onboard to the default tier (e.g. free-tier)
+    const allowedTiers: any[] = Array.isArray(loadData?.allowedTiers)
+      ? loadData.allowedTiers
+      : [];
+    const defaultTier =
+      allowedTiers.find((t) => t?.isDefault) ||
+      allowedTiers[0] || { id: 'free-tier' };
+    const tierId = defaultTier?.id || 'free-tier';
+
+    const onboardResp = await fetch(`${CODE_ASSIST_BASE_URL}:onboardUser`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tierId,
+        metadata: coreMetadata,
+      }),
+    });
+
+    if (!onboardResp.ok) {
+      return undefined;
+    }
+
+    let lro: any = await onboardResp.json();
+    let polls = 0;
+    while (!lro?.done && lro?.name && polls < 10) {
+      await new Promise((r) => setTimeout(r, 2500));
+      polls++;
+      const opResp = await fetch(`${CODE_ASSIST_BASE_URL}/${lro.name}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!opResp.ok) break;
+      lro = await opResp.json();
+    }
+
+    const projId = lro?.response?.cloudaicompanionProject?.id;
+    return projId ? String(projId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function loginWithGoogle(): Promise<GoogleUserSession> {
+  const oauthClient = await getOAuthClientConfig();
+  const oauthResult = await invoke<{ code: string; redirect_uri: string }>(
+    'start_google_oauth_login',
+    { clientId: oauthClient.clientId }
+  );
+
+  const tokenParams = new URLSearchParams({
+    client_id: oauthClient.clientId,
+    client_secret: oauthClient.clientSecret,
+    code: oauthResult.code,
+    grant_type: 'authorization_code',
+    redirect_uri: oauthResult.redirect_uri,
+  });
+
+  const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: tokenParams.toString(),
+  });
+
+  if (!tokenResp.ok) {
+    const errText = await tokenResp.text();
+    throw new Error(`Google token exchange failed: ${errText}`);
+  }
+
+  const tokenData: any = await tokenResp.json();
+  const accessToken = String(tokenData.access_token || '');
+  const refreshToken = tokenData.refresh_token
+    ? String(tokenData.refresh_token)
+    : googleSession?.refreshToken;
+  const expiresIn = Number(tokenData.expires_in) || 3600;
+  const expiryDate = Date.now() + expiresIn * 1000;
+
+  let email: string | undefined;
+  let name: string | undefined;
+  let picture: string | undefined;
+
+  try {
+    const userResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (userResp.ok) {
+      const profile: any = await userResp.json();
+      email = profile.email;
+      name = profile.name || profile.given_name;
+      picture = profile.picture;
+    }
+  } catch {
+    // Non-fatal if userinfo fails
+  }
+
+  const projectId = await resolveCodeAssistProject(accessToken);
+
+  const session: GoogleUserSession = {
+    accessToken,
+    refreshToken,
+    expiryDate,
+    email,
+    name,
+    picture,
+    projectId,
+  };
+
+  saveGoogleSession(session);
+  return session;
+}
+
+export async function ensureValidGoogleSession(): Promise<GoogleUserSession | null> {
+  if (!googleSession) return null;
+
+  const isExpiringSoon = Date.now() > googleSession.expiryDate - 90_000;
+  if (isExpiringSoon && googleSession.refreshToken) {
+    try {
+      const oauthClient = await getOAuthClientConfig();
+      const params = new URLSearchParams({
+        client_id: oauthClient.clientId,
+        client_secret: oauthClient.clientSecret,
+        refresh_token: googleSession.refreshToken,
+        grant_type: 'refresh_token',
+      });
+
+      const resp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+
+      if (resp.ok) {
+        const data: any = await resp.json();
+        if (data.access_token) {
+          googleSession = {
+            ...googleSession,
+            accessToken: String(data.access_token),
+            expiryDate: Date.now() + (Number(data.expires_in) || 3600) * 1000,
+          };
+          saveGoogleSession(googleSession);
+        }
+      }
+    } catch {
+      // Keep current session if offline/transient error
+    }
+  }
+
+  if (!googleSession.projectId && googleSession.accessToken) {
+    const projectId = await resolveCodeAssistProject(googleSession.accessToken);
+    if (projectId) {
+      googleSession = { ...googleSession, projectId };
+      saveGoogleSession(googleSession);
+    }
+  }
+
+  return googleSession;
+}
+
+async function generateWithGoogleOAuth(
+  session: GoogleUserSession,
+  model: string,
+  contents: any[],
+  systemInstruction: string,
+  tools: any[]
+): Promise<{ text: string; functionCalls: any[]; modelContent: any }> {
+  const promptId = `luminess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const caPayload: Record<string, any> = {
+    model,
+    project: session.projectId,
+    user_prompt_id: promptId,
+    request: {
+      contents,
+      systemInstruction: {
+        role: 'user',
+        parts: [{ text: systemInstruction }],
+      },
+      tools,
+      generationConfig: {
+        temperature: 0.6,
+      },
+    },
+  };
+
+  let resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(caPayload),
+  });
+
+  // If token expired (401), force refresh once and retry
+  if (resp.status === 401 && session.refreshToken) {
+    session.expiryDate = 0;
+    const refreshed = await ensureValidGoogleSession();
+    if (refreshed) {
+      resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${refreshed.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...caPayload,
+          project: refreshed.projectId,
+        }),
+      });
+    }
+  }
+
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Google AI request failed (${resp.status}): ${errBody}`);
+  }
+
+  const rawJson: any = await resp.json();
+  const inner = rawJson?.response || rawJson;
+  const candidates: any[] = inner?.candidates || [];
+  const modelContent = candidates[0]?.content;
+  const parts: any[] = modelContent?.parts || [];
+
+  const functionCalls = parts
+    .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
+    .map((p) => p.functionCall);
+
+  const text = parts
+    .filter((p) => p && typeof p.text === 'string' && !p.thought)
+    .map((p) => p.text)
+    .join('');
+
+  return { text, functionCalls, modelContent };
 }
 
 const VALID_EMOTIONS: Emotion[] = [
@@ -181,16 +559,18 @@ export async function runAgent(
   onRequestPermission: (req: ToolPermissionRequest) => Promise<boolean>,
   onTimerComplete?: (label: string) => void
 ): Promise<Message> {
-  if (!apiKey) {
+  const activeGoogleSession = await ensureValidGoogleSession();
+
+  if (!activeGoogleSession && !apiKey) {
     return {
       role: 'assistant',
-      content: 'I need an API key to function! Click the key/settings button to set your API key from Google AI Studio.',
-      emotion: 'sadness'
+      content: 'Please sign in with your Google account first so I can help you!',
+      emotion: 'sadness',
     };
   }
 
-  let useVertexAi = isVertexExpressKey(apiKey);
-  let ai = createGenAIClient(apiKey, useVertexAi);
+  let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
+  let ai = apiKey ? createGenAIClient(apiKey, useVertexAi) : null;
 
   // Fetch basic PC context automatically so the AI knows paths like Desktop, Documents, Username, Drives
   let pcSummary = '';
@@ -360,27 +740,25 @@ Do not wrap the JSON in markdown code blocks.
   try {
     let maxTurns = 10;
     while (maxTurns-- > 0) {
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+      let rawText = '';
+      let functionCalls: any[] | undefined;
+      let modelContent: any;
+
+      const latestGoogleSession = await ensureValidGoogleSession();
+      if (latestGoogleSession) {
+        const oauthRes = await generateWithGoogleOAuth(
+          latestGoogleSession,
+          'gemini-2.5-flash',
           contents,
-          config: {
-            systemInstruction,
-            tools,
-            temperature: 0.6,
-          }
-        });
-      } catch (reqErr: any) {
-        const msg = String(reqErr?.message || reqErr || '');
-        if (
-          msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
-          msg.includes('UNAUTHENTICATED') ||
-          msg.includes('API_KEY_INVALID') ||
-          msg.includes('401')
-        ) {
-          useVertexAi = !useVertexAi;
-          ai = createGenAIClient(apiKey, useVertexAi);
+          systemInstruction,
+          tools
+        );
+        rawText = oauthRes.text;
+        functionCalls = oauthRes.functionCalls;
+        modelContent = oauthRes.modelContent;
+      } else if (ai) {
+        let response;
+        try {
           response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents,
@@ -388,22 +766,43 @@ Do not wrap the JSON in markdown code blocks.
               systemInstruction,
               tools,
               temperature: 0.6,
-            }
+            },
           });
-        } else {
-          throw reqErr;
+        } catch (reqErr: any) {
+          const msg = String(reqErr?.message || reqErr || '');
+          if (
+            msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+            msg.includes('UNAUTHENTICATED') ||
+            msg.includes('API_KEY_INVALID') ||
+            msg.includes('401')
+          ) {
+            useVertexAi = !useVertexAi;
+            ai = createGenAIClient(apiKey, useVertexAi);
+            response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents,
+              config: {
+                systemInstruction,
+                tools,
+                temperature: 0.6,
+              },
+            });
+          } else {
+            throw reqErr;
+          }
         }
+        rawText = response.text || '';
+        functionCalls = response.functionCalls;
+        modelContent = response.candidates?.[0]?.content;
       }
 
-      const functionCalls = response.functionCalls;
       if (functionCalls && functionCalls.length > 0) {
-        const modelContent = response.candidates?.[0]?.content;
         if (modelContent) {
           contents.push(modelContent);
         } else {
           contents.push({
             role: 'model',
-            parts: functionCalls.map(fc => ({ functionCall: fc }))
+            parts: functionCalls.map((fc) => ({ functionCall: fc })),
           });
         }
 
@@ -464,7 +863,6 @@ Do not wrap the JSON in markdown code blocks.
         continue;
       }
 
-      const rawText = response.text || '';
       const parsed = parseAssistantOutput(rawText);
       onEmotion(parsed.emotion);
       return {

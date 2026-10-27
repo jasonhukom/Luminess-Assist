@@ -233,6 +233,142 @@
   transition: all 0.2s ease;
 }
 
+.google-login-btn {
+  width: 100%;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 14px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 6px 22px rgba(59, 130, 246, 0.35),
+    0 0 24px -4px color-mix(in oklch, var(--panel-glow) 65%, transparent);
+  transition: all 0.2s ease;
+}
+
+.google-login-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #f8fafc;
+  box-shadow:
+    0 8px 28px rgba(59, 130, 246, 0.5),
+    0 0 30px -2px color-mix(in oklch, var(--panel-glow) 80%, transparent);
+}
+
+.google-login-btn:disabled {
+  opacity: 0.85;
+  cursor: wait;
+}
+
+.google-g-icon {
+  flex-shrink: 0;
+}
+
+.google-account-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  text-align: left;
+}
+
+.google-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--panel-glow);
+  flex-shrink: 0;
+}
+
+.google-avatar-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.google-account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.google-account-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.verified-icon {
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.google-account-email {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-secondary-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.google-secondary-btn {
+  flex: 1;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  transition: all 0.2s ease;
+}
+
+.google-secondary-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.google-secondary-btn.danger {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.google-secondary-btn.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+}
+
 .api-submit-btn:hover {
   transform: translateY(-1px);
   filter: brightness(1.1);

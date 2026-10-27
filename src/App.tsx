@@ -1,28 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { FormEvent } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
 import type { Emotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import {
   runAgent,
-  getApiKey,
-  setApiKey,
+  getGoogleSession,
+  loginWithGoogle,
+  logoutGoogle,
+  ensureValidGoogleSession,
 } from './lib/gemini.ts';
 import type {
   Message,
   ToolPermissionRequest,
   PermissionDecision,
+  GoogleUserSession,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
-import { KeyRound, ExternalLink, Sparkles, Eye, EyeOff, ArrowRight } from 'lucide-react';
-
-const AI_STUDIO_URL = 'https://aistudio.google.com/app/apikey';
+import { Sparkles, Loader2, LogOut, CheckCircle2, ArrowRight, RefreshCw } from 'lucide-react';
 
 function App() {
-  const [showApiModal, setShowApiModal] = useState<boolean>(true);
-  const [apiKeyInput, setApiKeyInput] = useState<string>(() => getApiKey());
-  const [showKeyText, setShowKeyText] = useState<boolean>(false);
+  const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
+  const [showApiModal, setShowApiModal] = useState<boolean>(() => !getGoogleSession());
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>('');
 
   const [chatOpen, setChatOpen] = useState<boolean>(false);
@@ -191,31 +191,45 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showApiModal]);
 
-  const handleOpenAiStudio = async () => {
+  // Auto-refresh saved Google login session on startup
+  useEffect(() => {
+    if (googleUser) {
+      void ensureValidGoogleSession().then((refreshed) => {
+        if (refreshed) {
+          setGoogleUser({ ...refreshed });
+        }
+      });
+    }
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    setApiError('');
+    setEmotion('curiosity');
     try {
-      await invoke('open_item', { target: AI_STUDIO_URL });
-    } catch {
-      window.open(AI_STUDIO_URL, '_blank', 'noopener,noreferrer');
+      const session = await loginWithGoogle();
+      setGoogleUser(session);
+      setShowApiModal(false);
+      setEmotion('joy');
+      setChatOpen(false);
+    } catch (err: any) {
+      const msg = typeof err === 'string' ? err : err?.message || String(err);
+      setApiError(msg);
+      setEmotion('sadness');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
-  const handleApiSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = apiKeyInput.trim();
-    if (!trimmed) {
-      setApiError('Please enter your API key from Google AI Studio.');
-      setEmotion('confusion');
-      return;
-    }
-    setApiKey(trimmed);
+  const handleGoogleLogout = () => {
+    logoutGoogle();
+    setGoogleUser(null);
     setApiError('');
-    setShowApiModal(false);
-    setEmotion('joy');
-    setChatOpen(false);
+    setEmotion('idle');
   };
 
   const handleOpenApiModal = async () => {
-    setApiKeyInput(getApiKey());
     setApiError('');
     setChatOpen(false);
     setShowApiModal(true);
@@ -324,55 +338,120 @@ function App() {
 
             <div className="api-modal-badge">
               <Sparkles size={13} />
-              <span>Luminess Assist Setup</span>
+              <span>Luminess Assist • Google Auth</span>
             </div>
 
-            <h1 className="api-modal-title">Enter Your AI API Key</h1>
+            <h1 className="api-modal-title">
+              {googleUser ? 'Connected with Google' : 'Sign in with Google'}
+            </h1>
             <p className="api-modal-subtitle">
-              Connect your Google AI Studio or Vertex AI Express key so Luminess can chat, manage files, and help you on your PC.
+              {googleUser
+                ? 'Your Google account is linked for automatic login. Luminess is ready to assist you on your PC.'
+                : 'Sign in with your Google account in one click—just like Antigravity. Luminess will automatically keep you signed in.'}
             </p>
 
-            <button
-              type="button"
-              className="aistudio-link-btn"
-              onClick={handleOpenAiStudio}
-            >
-              <KeyRound size={15} />
-              <span>Get Free API Key on Google AI Studio</span>
-              <ExternalLink size={14} />
-            </button>
+            {googleUser && (
+              <div className="google-account-card">
+                {googleUser.picture ? (
+                  <img
+                    src={googleUser.picture}
+                    alt={googleUser.name || 'Google User'}
+                    className="google-avatar"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="google-avatar-fallback">
+                    {(googleUser.name || googleUser.email || 'G').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="google-account-info">
+                  <div className="google-account-name">
+                    <span>{googleUser.name || 'Google Account'}</span>
+                    <CheckCircle2 size={14} className="verified-icon" />
+                  </div>
+                  {googleUser.email && (
+                    <div className="google-account-email">{googleUser.email}</div>
+                  )}
+                </div>
+              </div>
+            )}
 
-            <form className="api-modal-form" onSubmit={handleApiSubmit}>
-              <div className="api-input-group">
-                <input
-                  type={showKeyText ? 'text' : 'password'}
-                  value={apiKeyInput}
-                  onChange={(e) => {
-                    setApiKeyInput(e.target.value);
-                    if (apiError) setApiError('');
-                  }}
-                  placeholder="Paste your API key (AQ... or AIza...)"
-                  autoFocus
-                />
+            {apiError && <div className="api-error-msg">{apiError}</div>}
+
+            <div className="api-modal-form">
+              {googleUser ? (
+                <>
+                  <button
+                    type="button"
+                    className="api-submit-btn"
+                    onClick={() => {
+                      setShowApiModal(false);
+                      setEmotion('joy');
+                    }}
+                  >
+                    <span>Continue as {googleUser.name || googleUser.email || 'User'}</span>
+                    <ArrowRight size={16} />
+                  </button>
+
+                  <div className="google-secondary-actions">
+                    <button
+                      type="button"
+                      className="google-secondary-btn"
+                      onClick={handleGoogleLogin}
+                      disabled={isLoggingIn}
+                    >
+                      {isLoggingIn ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                      <span>Switch Account</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="google-secondary-btn danger"
+                      onClick={handleGoogleLogout}
+                      disabled={isLoggingIn}
+                    >
+                      <LogOut size={14} />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
                 <button
                   type="button"
-                  className="toggle-key-btn"
-                  onClick={() => setShowKeyText((v) => !v)}
-                  title={showKeyText ? 'Hide API Key' : 'Show API Key'}
+                  className="google-login-btn"
+                  onClick={handleGoogleLogin}
+                  disabled={isLoggingIn}
                 >
-                  {showKeyText ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {isLoggingIn ? (
+                    <>
+                      <Loader2 size={18} className="spin" />
+                      <span>Waiting for Google Sign-In in browser...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="google-g-icon" viewBox="0 0 24 24" width="19" height="19">
+                        <path
+                          fill="#4285F4"
+                          d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+                        />
+                      </svg>
+                      <span>Sign in with Google</span>
+                    </>
+                  )}
                 </button>
-              </div>
-
-              {apiError && <div className="api-error-msg">{apiError}</div>}
-
-              <div className="api-modal-actions">
-                <button type="submit" className="api-submit-btn">
-                  <span>Start Luminess</span>
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            </form>
+              )}
+            </div>
           </div>
         </div>
       ) : (

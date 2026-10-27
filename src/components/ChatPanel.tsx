@@ -4,7 +4,6 @@ import './ChatPanel.css';
 import {
   Send,
   X,
-  KeyRound,
   Loader2,
   Bot,
   User,
@@ -207,9 +206,9 @@ export function ChatPanel({
             type="button"
             className="icon-btn"
             onClick={onOpenApiModal}
-            title="AI API Key Settings (Google AI Studio)"
+            title="Google Account & Sign-In Settings"
           >
-            <KeyRound size={15} />
+            <User size={15} />
           </button>
 
           <button type="button" className="icon-btn" onClick={onClose} title="Close chat">

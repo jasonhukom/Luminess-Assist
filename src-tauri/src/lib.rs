@@ -224,6 +224,159 @@ pub struct PcContext {
     pub drives: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GoogleOAuthCallbackResult {
+    pub code: String,
+    pub redirect_uri: String,
+}
+
+fn percent_decode(input: &str) -> String {
+    let mut bytes = Vec::with_capacity(input.len());
+    let raw = input.as_bytes();
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == b'%' && i + 2 < raw.len() {
+            if let (Some(h), Some(l)) = (
+                (raw[i + 1] as char).to_digit(16),
+                (raw[i + 2] as char).to_digit(16),
+            ) {
+                bytes.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        } else if raw[i] == b'+' {
+            bytes.push(b' ');
+            i += 1;
+            continue;
+        }
+        bytes.push(raw[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+#[tauri::command]
+async fn start_google_oauth_login(
+    window: tauri::Window,
+    client_id: String,
+) -> Result<GoogleOAuthCallbackResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .map_err(|e| format!("Failed to start local Google login listener: {}", e))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to read local port: {}", e))?
+            .port();
+        let _ = listener.set_nonblocking(true);
+
+        let redirect_uri = format!("http://127.0.0.1:{}/oauth2callback", port);
+        let redirect_encoded = format!("http%3A%2F%2F127.0.0.1%3A{}%2Foauth2callback", port);
+        let scopes_encoded = "https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile";
+
+        let auth_url = format!(
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=select_account",
+            client_id.trim(),
+            redirect_encoded,
+            scopes_encoded
+        );
+
+        if cfg!(target_os = "windows") {
+            let mut cmd = Command::new("rundll32");
+            cmd.args(["url.dll,FileProtocolHandler", &auth_url]);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.spawn()
+                .map_err(|e| format!("Failed to open Google Login in browser: {}", e))?;
+        } else {
+            Command::new("xdg-open")
+                .arg(&auth_url)
+                .spawn()
+                .map_err(|e| format!("Failed to open Google Login in browser: {}", e))?;
+        }
+
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(180);
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err("Google login timed out after 3 minutes. Please try again.".to_string());
+            }
+
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    let mut buf = [0u8; 4096];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        continue;
+                    }
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let first_line = req.lines().next().unwrap_or("");
+                    let path = first_line.split_whitespace().nth(1).unwrap_or("");
+
+                    if path.starts_with("/favicon") {
+                        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                        continue;
+                    }
+
+                    let query = path.splitn(2, '?').nth(1).unwrap_or("");
+                    let mut code: Option<String> = None;
+                    let mut err_msg: Option<String> = None;
+
+                    for pair in query.split('&') {
+                        let mut kv = pair.splitn(2, '=');
+                        let k = kv.next().unwrap_or("");
+                        let v = kv.next().unwrap_or("");
+                        if k == "code" && !v.is_empty() {
+                            code = Some(percent_decode(v));
+                        } else if k == "error" && !v.is_empty() {
+                            err_msg = Some(percent_decode(v));
+                        }
+                    }
+
+                    if let Some(auth_code) = code {
+                        let html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Luminess Assist - Signed In</title><style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#090a10;color:#fff;font-family:system-ui,-apple-system,sans-serif;}.card{background:rgba(20,22,34,0.95);border:1.5px solid #38bdf8;border-radius:24px;padding:36px 44px;text-align:center;box-shadow:0 0 40px rgba(56,189,248,0.35);}h1{margin:12px 0 8px;font-size:22px;}p{margin:0;color:#94a3b8;font-size:14px;}.badge{display:inline-flex;width:48px;height:48px;border-radius:50%;background:rgba(56,189,248,0.15);border:1.5px solid #38bdf8;align-items:center;justify-content:center;font-size:24px;color:#38bdf8;}</style></head><body><div class=\"card\"><div class=\"badge\">&#10003;</div><h1>Signed in to Luminess Assist!</h1><p>You can close this tab and return to your desktop companion.</p></div><script>setTimeout(()=>window.close(),1000);</script></body></html>";
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            html.len(),
+                            html
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        return Ok(GoogleOAuthCallbackResult {
+                            code: auth_code,
+                            redirect_uri,
+                        });
+                    } else if let Some(err) = err_msg {
+                        let html = format!(
+                            "<!DOCTYPE html><html><body style=\"background:#090a10;color:#fca5a5;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;\"><div><h2>Google Sign-In Cancelled ({})</h2><p>You can close this window and try again in Luminess Assist.</p></div></body></html>",
+                            err
+                        );
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            html.len(),
+                            html
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                        return Err(format!("Google sign-in failed or was cancelled: {}", err));
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => {
+                    return Err(format!("Local OAuth server error: {}", e));
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("Google login task error: {}", e))?
+}
+
 fn expand_path(raw: &str) -> PathBuf {
     let trimmed = raw.trim();
     let user_profile = env::var("USERPROFILE")
@@ -912,7 +1065,8 @@ pub fn run() {
             fs_delete_path,
             fs_copy_or_move,
             execute_pc_command,
-            open_item
+            open_item,
+            start_google_oauth_login
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
