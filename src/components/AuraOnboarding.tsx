@@ -9,7 +9,6 @@ import {
   LoaderCircle,
   LockKeyhole,
   LogOut,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   TerminalSquare,
