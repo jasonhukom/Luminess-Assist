@@ -1142,9 +1142,6 @@ export async function runAgent(
     };
   }
 
-  let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
-  let ai = apiKey ? createGenAIClient(apiKey, false) : null;
-
   // Fetch basic PC context automatically so the AI knows paths like Desktop, Documents, Username, Drives
   let pcSummary = '';
   try {
