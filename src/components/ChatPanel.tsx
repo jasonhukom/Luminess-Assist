@@ -14,13 +14,15 @@ import {
   Maximize2,
   Minimize2,
   Terminal,
+  ArrowLeftRight,
+  ArrowUpDown,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision } from '../lib/gemini.ts';
-import type { Emotion } from './Robot.tsx';
+import type { VisualEmotion } from './Robot.tsx';
 
 interface ChatPanelProps {
   messages: Message[];
-  emotion: Emotion;
+  emotion: VisualEmotion;
   isProcessing: boolean;
   activeTool: string | null;
   pendingPermission: ToolPermissionRequest | null;
@@ -34,6 +36,11 @@ interface ChatPanelProps {
   onResizePanel: (size: { width: number; height: number }) => void;
   robotSize: number;
   onResizeRobot: (size: number) => void;
+  chatSide: 'left' | 'right';
+  onToggleChatSide: () => void;
+  chatVert: 'up' | 'down';
+  onToggleChatVert: () => void;
+  brokenCountdown?: number;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -54,6 +61,11 @@ export function ChatPanel({
   onResizePanel,
   robotSize,
   onResizeRobot,
+  chatSide,
+  onToggleChatSide,
+  chatVert,
+  onToggleChatVert,
+  brokenCountdown = 0,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [isResizing, setIsResizing] = useState(false);
@@ -145,7 +157,7 @@ export function ChatPanel({
 
   return (
     <div
-      className={`chat-panel emotion-border-${emotion} ${isResizing ? 'is-resizing' : ''}`}
+      className={`chat-panel chat-side-${chatSide} chat-vert-${chatVert} emotion-border-${emotion} ${isResizing ? 'is-resizing' : ''}`}
       style={{
         width: `${panelSize.width}px`,
         height: `${panelSize.height}px`,
@@ -182,6 +194,24 @@ export function ChatPanel({
           >
             {autoApprove ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
             <span>{autoApprove ? 'Auto PC' : 'Ask First'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onToggleChatSide}
+            title={`Horizontal: ${chatSide === 'left' ? 'Left of Bot' : 'Right of Bot'} (Click to switch left/right)`}
+          >
+            <ArrowLeftRight size={14} />
+          </button>
+
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onToggleChatVert}
+            title={`Vertical: ${chatVert === 'up' ? 'Up from Bot' : 'Down from Bot'} (Click to switch up/down)`}
+          >
+            <ArrowUpDown size={14} />
           </button>
 
           <button
@@ -326,11 +356,11 @@ export function ChatPanel({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask me to do anything on your PC..."
-          disabled={isProcessing}
+          placeholder={brokenCountdown > 0 ? `💥 Broken from wall impacts! Repairing in ${brokenCountdown}s...` : "Ask me to do anything on your PC..."}
+          disabled={isProcessing || brokenCountdown > 0}
           autoFocus
         />
-        <button type="submit" disabled={!input.trim() || isProcessing} className="send-btn">
+        <button type="submit" disabled={!input.trim() || isProcessing || brokenCountdown > 0} className="send-btn">
           <Send size={16} />
         </button>
       </form>

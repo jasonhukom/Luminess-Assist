@@ -13,7 +13,7 @@ use std::os::windows::process::CommandExt;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, PhysicalPosition, PhysicalSize};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -30,7 +30,9 @@ mod win32 {
     pub const GWL_EXSTYLE: i32 = -20;
     pub const WS_EX_TOOLWINDOW: i32 = 0x00000080;
     pub const WS_EX_NOACTIVATE: i32 = 0x08000000;
+    pub const GW_HWNDNEXT: u32 = 2;
     pub const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
+    pub const DWMWA_CLOAKED: u32 = 14;
 
     #[repr(C)]
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -51,6 +53,8 @@ mod win32 {
     #[link(name = "user32")]
     unsafe extern "system" {
         pub fn GetForegroundWindow() -> HWND;
+        pub fn GetTopWindow(hwnd: HWND) -> HWND;
+        pub fn GetWindow(hwnd: HWND, u_cmd: u32) -> HWND;
         pub fn GetWindowThreadProcessId(hwnd: HWND, lpdw_process_id: *mut DWORD) -> DWORD;
         pub fn IsWindowVisible(hwnd: HWND) -> BOOL;
         pub fn IsIconic(hwnd: HWND) -> BOOL;
@@ -88,80 +92,120 @@ mod win32 {
         pub is_maximized: bool,
     }
 
-    pub fn get_active_external_app(self_pid: u32) -> Option<ActiveAppInfo> {
+    unsafe fn inspect_external_window(hwnd: HWND, self_pid: u32) -> Option<ActiveAppInfo> {
+        if hwnd == 0 {
+            return None;
+        }
+
+        let mut pid: DWORD = 0;
         unsafe {
-            let hwnd = GetForegroundWindow();
-            if hwnd == 0 {
-                return None;
-            }
-
-            let mut pid: DWORD = 0;
             GetWindowThreadProcessId(hwnd, &mut pid);
-            if pid == 0 || pid == self_pid {
+        }
+        if pid == 0 || pid == self_pid {
+            return None;
+        }
+
+        if unsafe { IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 } {
+            return None;
+        }
+
+        let mut cloaked: u32 = 0;
+        let cloak_res = unsafe {
+            DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_CLOAKED,
+                &mut cloaked as *mut u32 as *mut c_void,
+                std::mem::size_of::<u32>() as DWORD,
+            )
+        };
+        if cloak_res == 0 && cloaked != 0 {
+            return None;
+        }
+
+        let ex_style = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) };
+        if (ex_style & WS_EX_TOOLWINDOW) != 0 || (ex_style & WS_EX_NOACTIVATE) != 0 {
+            return None;
+        }
+
+        let title_len = unsafe { GetWindowTextLengthW(hwnd) };
+        if title_len <= 0 {
+            return None;
+        }
+
+        let mut class_buf = [0u16; 256];
+        let class_len = unsafe { GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32) };
+        if class_len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+            let ignored_classes = [
+                "Progman",
+                "WorkerW",
+                "Shell_TrayWnd",
+                "Shell_SecondaryTrayWnd",
+                "NotifyIconOverflowWindow",
+                "Windows.UI.Core.CoreWindow",
+                "XamlExplorerHostIslandWindow",
+                "TopLevelWindowForOverflowXamlIsland",
+                "MultitaskingViewFrame",
+                "TaskListThumbnailWnd",
+                "ForegroundStaging",
+            ];
+            if ignored_classes.iter().any(|c| class_name.eq_ignore_ascii_case(c)) {
                 return None;
             }
+        }
 
-            if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
-                return None;
-            }
-
-            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            if (ex_style & WS_EX_TOOLWINDOW) != 0 || (ex_style & WS_EX_NOACTIVATE) != 0 {
-                return None;
-            }
-
-            let title_len = GetWindowTextLengthW(hwnd);
-            if title_len <= 0 {
-                return None;
-            }
-
-            let mut class_buf = [0u16; 256];
-            let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
-            if class_len > 0 {
-                let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
-                let ignored_classes = [
-                    "Progman",
-                    "WorkerW",
-                    "Shell_TrayWnd",
-                    "Shell_SecondaryTrayWnd",
-                    "NotifyIconOverflowWindow",
-                    "Windows.UI.Core.CoreWindow",
-                    "XamlExplorerHostIslandWindow",
-                    "TopLevelWindowForOverflowXamlIsland",
-                    "MultitaskingViewFrame",
-                    "TaskListThumbnailWnd",
-                    "ForegroundStaging",
-                ];
-                if ignored_classes.iter().any(|c| class_name.eq_ignore_ascii_case(c)) {
-                    return None;
-                }
-            }
-
-            let mut rect = RECT::default();
-            let dwm_res = DwmGetWindowAttribute(
+        let mut rect = RECT::default();
+        let dwm_res = unsafe {
+            DwmGetWindowAttribute(
                 hwnd,
                 DWMWA_EXTENDED_FRAME_BOUNDS,
                 &mut rect as *mut RECT as *mut c_void,
                 std::mem::size_of::<RECT>() as DWORD,
-            );
-            if dwm_res != 0 {
-                if GetWindowRect(hwnd, &mut rect) == 0 {
-                    return None;
-                }
-            }
-
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
-            if width < 180 || height < 180 {
+            )
+        };
+        if dwm_res != 0 {
+            if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
                 return None;
             }
+        }
 
-            let is_maximized = IsZoomed(hwnd) != 0;
-            Some(ActiveAppInfo {
-                hwnd,
-                rect,
-                is_maximized,
-            })
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        if width < 180 || height < 180 {
+            return None;
+        }
+
+        let is_maximized = unsafe { IsZoomed(hwnd) != 0 };
+        Some(ActiveAppInfo {
+            hwnd,
+            rect,
+            is_maximized,
+        })
+    }
+
+    pub fn get_active_external_app(self_pid: u32) -> Option<ActiveAppInfo> {
+        unsafe {
+            let fg = GetForegroundWindow();
+            if let Some(info) = inspect_external_window(fg, self_pid) {
+                return Some(info);
+            }
+
+            // If our own companion window is currently foreground (e.g., right when opened),
+            // find the topmost visible external app window behind it in Z-order.
+            let mut curr = if fg != 0 {
+                GetWindow(fg, GW_HWNDNEXT)
+            } else {
+                GetTopWindow(0)
+            };
+            let mut steps = 0;
+            while curr != 0 && steps < 64 {
+                if let Some(info) = inspect_external_window(curr, self_pid) {
+                    return Some(info);
+                }
+                curr = GetWindow(curr, GW_HWNDNEXT);
+                steps += 1;
+            }
+            None
         }
     }
 }
@@ -174,6 +218,29 @@ pub struct InteractiveRect {
     pub height: f64,
 }
 
+#[derive(Clone, Debug)]
+pub struct AutoGlide {
+    pub start_x: f64,
+    pub start_y: f64,
+    pub last_x: f64,
+    pub last_y: f64,
+    pub target_x: f64,
+    pub target_y: f64,
+    pub start_time: std::time::Instant,
+    pub duration_ms: f64,
+    pub screen_side: String,
+    pub screen_vert: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BotGlidePayload {
+    pub active: bool,
+    pub vx: f64,
+    pub vy: f64,
+    pub screen_side: String,
+    pub screen_vert: String,
+}
+
 #[derive(Default)]
 pub struct CompanionState {
     pub rects: Vec<InteractiveRect>,
@@ -182,6 +249,8 @@ pub struct CompanionState {
     pub is_ignoring_cursor: Option<bool>,
     pub last_app_hwnd: isize,
     pub last_app_bounds: (i32, i32, i32, i32),
+    pub has_initial_docked: bool,
+    pub auto_glide: Option<AutoGlide>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -421,9 +490,19 @@ fn set_interactive_regions(
     companion_active: bool,
 ) -> Result<(), String> {
     if let Ok(mut st) = state.lock() {
+        let was_active = st.companion_active;
         st.rects = rects;
         st.force_interactive = force_interactive;
         st.companion_active = companion_active;
+        if force_interactive {
+            st.auto_glide = None;
+        }
+        if !companion_active && was_active {
+            st.last_app_hwnd = 0;
+            st.last_app_bounds = (0, 0, 0, 0);
+            st.has_initial_docked = false;
+            st.auto_glide = None;
+        }
     }
     Ok(())
 }
@@ -466,7 +545,15 @@ fn get_window_bounds(window: tauri::Window) -> Result<WindowBounds, String> {
 }
 
 #[tauri::command]
-fn set_window_pos(window: tauri::Window, x: i32, y: i32) -> Result<(), String> {
+fn set_window_pos(
+    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
+    window: tauri::Window,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    if let Ok(mut st) = state.lock() {
+        st.auto_glide = None;
+    }
     window
         .set_position(tauri::Position::Physical(PhysicalPosition { x, y }))
         .map_err(|e| e.to_string())
@@ -480,7 +567,17 @@ fn set_window_size(window: tauri::Window, width: u32, height: u32) -> Result<(),
 }
 
 #[tauri::command]
-fn set_window_rect(window: tauri::Window, x: i32, y: i32, width: u32, height: u32) -> Result<WindowBounds, String> {
+fn set_window_rect(
+    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
+    window: tauri::Window,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<WindowBounds, String> {
+    if let Ok(mut st) = state.lock() {
+        st.auto_glide = None;
+    }
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize { width, height }));
     let _ = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y }));
     get_window_bounds(window)
@@ -532,6 +629,97 @@ fn move_to_corner(window: tauri::Window) -> Result<WindowBounds, String> {
     get_window_bounds(window)
 }
 
+#[tauri::command]
+fn glide_to_cursor(
+    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
+    window: tauri::Window,
+) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let Some((cx, cy)) = win32::get_cursor_pos() else {
+            return Ok(false);
+        };
+        let monitor = window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten());
+        let (Some(m), Ok(win_size), Ok(win_pos)) = (
+            monitor,
+            window.outer_size(),
+            window.outer_position(),
+        ) else {
+            return Ok(false);
+        };
+
+        let m_pos = m.position();
+        let m_size = m.size();
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let pad = (56.0 * scale).round() as i32;
+        let taskbar_margin = (56.0 * scale).round() as i32;
+        let win_w = win_size.width as i32;
+        let win_h = win_size.height as i32;
+
+        let min_win_x = m_pos.x - pad + (10.0 * scale).round() as i32;
+        let max_win_x = (m_pos.x + m_size.width as i32 - win_w + pad - (14.0 * scale).round() as i32).max(min_win_x);
+        let min_win_y = m_pos.y - pad + (12.0 * scale).round() as i32;
+        let max_win_y = (m_pos.y + m_size.height as i32 - taskbar_margin - win_h + pad - (8.0 * scale).round() as i32).max(min_win_y);
+
+        // Aim slightly beside the cursor so the robot visits the cursor playfully without covering the pointer tip
+        let offset_x = if cx > m_pos.x + (m_size.width as i32 / 2) {
+            -(win_w / 2 + (28.0 * scale).round() as i32)
+        } else {
+            -(win_w / 2 - (28.0 * scale).round() as i32)
+        };
+        let target_x = (cx + offset_x).clamp(min_win_x, max_win_x);
+        let target_y = (cy - win_h / 2).clamp(min_win_y, max_win_y);
+
+        let dist = ((target_x - win_pos.x) as f64).hypot((target_y - win_pos.y) as f64);
+        if dist < 24.0 {
+            return Ok(false);
+        }
+
+        let center_x = target_x + win_w / 2;
+        let center_y = target_y + win_h / 2;
+        let side = if center_x < m_pos.x + (m_size.width as i32 / 2) {
+            "left".to_string()
+        } else {
+            "right".to_string()
+        };
+        let vert = if center_y < m_pos.y + (m_size.height as i32 / 2) {
+            "up".to_string()
+        } else {
+            "down".to_string()
+        };
+
+        if let Ok(mut guard) = state.lock() {
+            if !guard.companion_active || guard.force_interactive {
+                return Ok(false);
+            }
+            let duration_ms = (dist * 0.65).clamp(480.0, 950.0);
+            guard.auto_glide = Some(AutoGlide {
+                start_x: win_pos.x as f64,
+                start_y: win_pos.y as f64,
+                last_x: win_pos.x as f64,
+                last_y: win_pos.y as f64,
+                target_x: target_x as f64,
+                target_y: target_y as f64,
+                start_time: std::time::Instant::now(),
+                duration_ms,
+                screen_side: side,
+                screen_vert: vert,
+            });
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (state, window);
+        Ok(false)
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn compute_position_for_app(
     app_info: &win32::ActiveAppInfo,
@@ -541,11 +729,13 @@ fn compute_position_for_app(
     mon_h: i32,
     win_w: i32,
     win_h: i32,
-) -> (i32, i32) {
+    scale_factor: f64,
+) -> (i32, i32, String, String) {
     let mon_right = mon_x + mon_w;
     let mon_bottom = mon_y + mon_h;
-    let taskbar_margin = 56;
+    let taskbar_margin = (56.0 * scale_factor).round() as i32;
     let safe_bottom = mon_bottom - taskbar_margin;
+    let pad = (56.0 * scale_factor).round() as i32;
 
     let app_left = app_info.rect.left.max(mon_x);
     let app_right = app_info.rect.right.min(mon_right);
@@ -554,34 +744,50 @@ fn compute_position_for_app(
 
     let space_left = app_left - mon_x;
     let space_right = mon_right - app_right;
-    let gap = 10;
+    let gap = (8.0 * scale_factor).round() as i32;
+    let min_side_space = (95.0 * scale_factor).round() as i32;
+
+    let min_win_x = mon_x - pad + (10.0 * scale_factor).round() as i32;
+    let max_win_x = (mon_right - win_w + pad - (14.0 * scale_factor).round() as i32).max(min_win_x);
+    let min_win_y = mon_y - pad + (12.0 * scale_factor).round() as i32;
+    let max_win_y = (safe_bottom - win_h + pad - (8.0 * scale_factor).round() as i32).max(min_win_y);
 
     // If the app is maximized or takes up nearly the full width of the screen,
-    // place the bot in the bottom-right corner.
+    // place the bot at the bottom-right side of the app.
     let is_full_width = app_info.is_maximized
-        || app_width >= (mon_w * 82 / 100)
-        || (space_left < 120 && space_right < 120);
+        || app_width >= (mon_w * 84 / 100)
+        || (space_left < min_side_space && space_right < min_side_space);
 
     if is_full_width {
-        let x = mon_right - win_w - 16;
-        let y = safe_bottom - win_h - 8;
-        return (x, y);
+        return (max_win_x, max_win_y, "right".to_string(), "down".to_string());
     }
 
     // App is not full width (e.g. half on the right, half on the left, or floating window).
-    // Place the bot right next to the opened app!
-    let target_x = if space_left >= space_right && space_left >= 100 {
+    // Place the bot right next to the side of the opened app!
+    let (target_x, side) = if space_left >= space_right && space_left >= min_side_space {
         // App is on the right half (or has more room on its left) -> put bot to the left of the app
-        (app_left - win_w - gap).max(mon_x + 8)
-    } else if space_right >= 100 {
+        let x = (app_left - win_w + pad - gap).clamp(min_win_x, max_win_x);
+        let center_x = x + win_w / 2;
+        let s = if center_x < mon_x + mon_w / 2 { "left" } else { "right" };
+        (x, s.to_string())
+    } else if space_right >= min_side_space {
         // App is on the left half (or has room on its right) -> put bot to the right of the app
-        (app_right + gap).min(mon_right - win_w - 8)
+        let x = (app_right - pad + gap).clamp(min_win_x, max_win_x);
+        let center_x = x + win_w / 2;
+        let s = if center_x < mon_x + mon_w / 2 { "left" } else { "right" };
+        (x, s.to_string())
     } else {
-        mon_right - win_w - 16
+        (max_win_x, "right".to_string())
     };
 
-    let target_y = (app_bottom - win_h).clamp(mon_y + 16, (safe_bottom - win_h - 8).max(mon_y + 16));
-    (target_x, target_y)
+    let target_y = (app_bottom - win_h + pad).clamp(min_win_y, max_win_y);
+    let center_y = target_y + win_h / 2;
+    let vert = if center_y < mon_y + mon_h / 2 {
+        "up".to_string()
+    } else {
+        "down".to_string()
+    };
+    (target_x, target_y, side, vert)
 }
 
 #[tauri::command]
@@ -916,7 +1122,13 @@ pub fn run() {
                 thread::spawn(move || {
                     let mut tick_count: u64 = 0;
                     loop {
-                        thread::sleep(Duration::from_millis(25));
+                        let is_gliding = {
+                            st_clone
+                                .lock()
+                                .map(|g| g.auto_glide.is_some())
+                                .unwrap_or(false)
+                        };
+                        thread::sleep(Duration::from_millis(if is_gliding { 15 } else { 25 }));
                         tick_count = tick_count.wrapping_add(1);
 
                         let (rects, force_interactive, companion_active, last_ignore) = {
@@ -929,7 +1141,67 @@ pub fn run() {
                             )
                         };
 
-                        // 1. Update click-through state based on cursor position vs interactive rects
+                        // 1. Step smooth auto-glide animation if active
+                        if companion_active && !force_interactive {
+                            let mut glide_step: Option<(i32, i32, BotGlidePayload)> = None;
+                            if let Ok(mut guard) = st_clone.lock() {
+                                if let Some(mut glide) = guard.auto_glide.clone() {
+                                    let elapsed = glide.start_time.elapsed().as_secs_f64() * 1000.0;
+                                    let t = (elapsed / glide.duration_ms).clamp(0.0, 1.0);
+                                    // Smooth cubic ease-in-out so it drags smoothly to the side of the app
+                                    let ease = if t < 0.5 {
+                                        4.0 * t * t * t
+                                    } else {
+                                        1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                                    };
+
+                                    let curr_x = glide.start_x + (glide.target_x - glide.start_x) * ease;
+                                    let curr_y = glide.start_y + (glide.target_y - glide.start_y) * ease;
+                                    let vx = curr_x - glide.last_x;
+                                    let vy = curr_y - glide.last_y;
+
+                                    glide.last_x = curr_x;
+                                    glide.last_y = curr_y;
+
+                                    if t >= 1.0 {
+                                        guard.auto_glide = None;
+                                        glide_step = Some((
+                                            glide.target_x.round() as i32,
+                                            glide.target_y.round() as i32,
+                                            BotGlidePayload {
+                                                active: false,
+                                                vx: 0.0,
+                                                vy: 0.0,
+                                                screen_side: glide.screen_side,
+                                                screen_vert: glide.screen_vert,
+                                            },
+                                        ));
+                                    } else {
+                                        guard.auto_glide = Some(glide.clone());
+                                        glide_step = Some((
+                                            curr_x.round() as i32,
+                                            curr_y.round() as i32,
+                                            BotGlidePayload {
+                                                active: true,
+                                                vx,
+                                                vy,
+                                                screen_side: glide.screen_side,
+                                                screen_vert: glide.screen_vert,
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+
+                            if let Some((gx, gy, payload)) = glide_step {
+                                let _ = win_clone.set_position(tauri::Position::Physical(
+                                    PhysicalPosition { x: gx, y: gy },
+                                ));
+                                let _ = win_clone.emit("bot-glide", payload);
+                            }
+                        }
+
+                        // 2. Update click-through state based on cursor position vs interactive rects
                         if let (Some((cx, cy)), Ok(win_pos), Ok(scale)) = (
                             win32::get_cursor_pos(),
                             win_clone.outer_position(),
@@ -958,7 +1230,7 @@ pub fn run() {
                             }
                         }
 
-                        // 2. Check active external app every ~200ms (8 ticks) when companion mode is active
+                        // 3. Check active external app every ~200ms (8 ticks) when companion mode is active
                         if companion_active && !force_interactive && tick_count % 8 == 0 {
                             if let Some(app_info) = win32::get_active_external_app(self_pid) {
                                 let current_bounds = (
@@ -982,21 +1254,21 @@ pub fn run() {
                                 };
 
                                 if should_reposition {
-                                    if let Ok(mut guard) = st_clone.lock() {
-                                        guard.last_app_hwnd = app_info.hwnd;
-                                        guard.last_app_bounds = current_bounds;
-                                    }
-
                                     let monitor = win_clone
                                         .current_monitor()
                                         .ok()
                                         .flatten()
                                         .or_else(|| win_clone.primary_monitor().ok().flatten());
 
-                                    if let (Some(m), Ok(win_size)) = (monitor, win_clone.outer_size()) {
+                                    if let (Some(m), Ok(win_size), Ok(win_pos)) = (
+                                        monitor,
+                                        win_clone.outer_size(),
+                                        win_clone.outer_position(),
+                                    ) {
                                         let m_pos = m.position();
                                         let m_size = m.size();
-                                        let (target_x, target_y) = compute_position_for_app(
+                                        let scale = win_clone.scale_factor().unwrap_or(1.0);
+                                        let (target_x, target_y, side, vert) = compute_position_for_app(
                                             &app_info,
                                             m_pos.x,
                                             m_pos.y,
@@ -1004,13 +1276,91 @@ pub fn run() {
                                             m_size.height as i32,
                                             win_size.width as i32,
                                             win_size.height as i32,
+                                            scale,
                                         );
-                                        let _ = win_clone.set_position(tauri::Position::Physical(
-                                            PhysicalPosition {
-                                                x: target_x,
-                                                y: target_y,
-                                            },
-                                        ));
+
+                                        let dist = ((target_x - win_pos.x) as f64)
+                                            .hypot((target_y - win_pos.y) as f64);
+
+                                        if let Ok(mut guard) = st_clone.lock() {
+                                            guard.last_app_hwnd = app_info.hwnd;
+                                            guard.last_app_bounds = current_bounds;
+                                            guard.has_initial_docked = true;
+                                            if dist > 4.0 {
+                                                let duration_ms = (dist * 0.55).clamp(440.0, 820.0);
+                                                guard.auto_glide = Some(AutoGlide {
+                                                    start_x: win_pos.x as f64,
+                                                    start_y: win_pos.y as f64,
+                                                    last_x: win_pos.x as f64,
+                                                    last_y: win_pos.y as f64,
+                                                    target_x: target_x as f64,
+                                                    target_y: target_y as f64,
+                                                    start_time: std::time::Instant::now(),
+                                                    duration_ms,
+                                                    screen_side: side,
+                                                    screen_vert: vert,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No external app window is visible (e.g. only Desktop is open on startup):
+                                // smoothly glide from center to the side of the screen once.
+                                let needs_initial_dock = {
+                                    st_clone
+                                        .lock()
+                                        .map(|g| !g.has_initial_docked)
+                                        .unwrap_or(false)
+                                };
+                                if needs_initial_dock {
+                                    let monitor = win_clone
+                                        .current_monitor()
+                                        .ok()
+                                        .flatten()
+                                        .or_else(|| win_clone.primary_monitor().ok().flatten());
+
+                                    if let (Some(m), Ok(win_size), Ok(win_pos)) = (
+                                        monitor,
+                                        win_clone.outer_size(),
+                                        win_clone.outer_position(),
+                                    ) {
+                                        let m_pos = m.position();
+                                        let m_size = m.size();
+                                        let scale = win_clone.scale_factor().unwrap_or(1.0);
+                                        let pad = (56.0 * scale).round() as i32;
+                                        let taskbar_margin = (56.0 * scale).round() as i32;
+                                        let target_x = m_pos.x + m_size.width as i32
+                                            - win_size.width as i32
+                                            + pad
+                                            - (16.0 * scale).round() as i32;
+                                        let target_y = m_pos.y + m_size.height as i32
+                                            - taskbar_margin
+                                            - win_size.height as i32
+                                            + pad
+                                            - (8.0 * scale).round() as i32;
+
+                                        let dist = ((target_x - win_pos.x) as f64)
+                                            .hypot((target_y - win_pos.y) as f64);
+
+                                        if let Ok(mut guard) = st_clone.lock() {
+                                            guard.has_initial_docked = true;
+                                            if dist > 4.0 {
+                                                let duration_ms = (dist * 0.55).clamp(440.0, 820.0);
+                                                guard.auto_glide = Some(AutoGlide {
+                                                    start_x: win_pos.x as f64,
+                                                    start_y: win_pos.y as f64,
+                                                    last_x: win_pos.x as f64,
+                                                    last_y: win_pos.y as f64,
+                                                    target_x: target_x as f64,
+                                                    target_y: target_y as f64,
+                                                    start_time: std::time::Instant::now(),
+                                                    duration_ms,
+                                                    screen_side: "right".to_string(),
+                                                    screen_vert: "down".to_string(),
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1057,6 +1407,7 @@ pub fn run() {
             set_window_rect,
             center_window,
             move_to_corner,
+            glide_to_cursor,
             get_pc_context,
             fs_read_file,
             fs_write_file,

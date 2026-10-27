@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
-import type { Emotion } from './components/Robot.tsx';
+import type { Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import {
   runAgent,
@@ -9,6 +9,9 @@ import {
   loginWithGoogle,
   logoutGoogle,
   ensureValidGoogleSession,
+  getApiKey,
+  setApiKey,
+  hasApiKey,
 } from './lib/gemini.ts';
 import type {
   Message,
@@ -17,16 +20,35 @@ import type {
   GoogleUserSession,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
-import { Sparkles, Loader2, LogOut, CheckCircle2, ArrowRight, RefreshCw } from 'lucide-react';
+import {
+  Sparkles,
+  Loader2,
+  LogOut,
+  CheckCircle2,
+  ArrowRight,
+  RefreshCw,
+  KeyRound,
+  Eye,
+  EyeOff,
+  ExternalLink,
+} from 'lucide-react';
 
 function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
-  const [showApiModal, setShowApiModal] = useState<boolean>(() => !getGoogleSession());
+  const [apiKeyInput, setApiKeyInput] = useState<string>(() => getApiKey());
+  const [showKey, setShowKey] = useState<boolean>(false);
+  const [showApiModal, setShowApiModal] = useState<boolean>(
+    () => !getGoogleSession() && !hasApiKey()
+  );
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>('');
 
   const [chatOpen, setChatOpen] = useState<boolean>(false);
+  const [chatSide, setChatSide] = useState<'left' | 'right'>('left');
+  const [chatVert, setChatVert] = useState<'up' | 'down'>('up');
   const [emotion, setEmotion] = useState<Emotion>('idle');
+  const [visualEmotion, setVisualEmotion] = useState<VisualEmotion>('idle');
+  const [brokenSeconds, setBrokenSeconds] = useState<number>(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
@@ -47,14 +69,49 @@ function App() {
   const chatWrapRef = useRef<HTMLDivElement>(null);
   const robotWrapRef = useRef<HTMLDivElement>(null);
 
-  const prevModeRef = useRef<{ showApiModal: boolean; chatOpen: boolean }>({
+  const companionReadyRef = useRef<boolean>(false);
+  const manualSideOverrideRef = useRef<boolean>(false);
+  const manualVertOverrideRef = useRef<boolean>(false);
+  const prevModeRef = useRef<{
+    showApiModal: boolean;
+    chatOpen: boolean;
+    chatSide: 'left' | 'right';
+    chatVert: 'up' | 'down';
+    robotSize: number;
+  }>({
     showApiModal: true,
     chatOpen: false,
+    chatSide: 'left',
+    chatVert: 'up',
+    robotSize: 180,
   });
 
   useEffect(() => {
     autoApproveRef.current = autoApprove;
   }, [autoApprove]);
+
+  // When the robot finishes gliding or being dragged to any quadrant of the screen:
+  // - If bot is left, chat goes right; if bot is right, chat goes left.
+  // - If bot is up, chat goes down; if bot is down, chat goes up.
+  const handleScreenSideChange = useCallback(
+    (botScreenSide: 'left' | 'right', botScreenVert: 'up' | 'down') => {
+      manualSideOverrideRef.current = false;
+      manualVertOverrideRef.current = false;
+      setChatSide(botScreenSide === 'left' ? 'right' : 'left');
+      setChatVert(botScreenVert === 'up' ? 'down' : 'up');
+    },
+    []
+  );
+
+  const handleToggleChatSide = useCallback(() => {
+    manualSideOverrideRef.current = true;
+    setChatSide((prev) => (prev === 'left' ? 'right' : 'left'));
+  }, []);
+
+  const handleToggleChatVert = useCallback(() => {
+    manualVertOverrideRef.current = true;
+    setChatVert((prev) => (prev === 'up' ? 'down' : 'up'));
+  }, []);
 
   // Report interactive regions to Rust so transparent background is 100% click-through
   const syncInteractiveRegions = useCallback(() => {
@@ -89,7 +146,7 @@ function App() {
     void invoke('set_interactive_regions', {
       rects,
       forceInteractive: isDraggingBot,
-      companionActive: !showApiModal,
+      companionActive: !showApiModal && companionReadyRef.current,
     }).catch(() => {});
   }, [showApiModal, chatOpen, isDraggingBot]);
 
@@ -101,7 +158,7 @@ function App() {
       window.clearInterval(timer);
       window.removeEventListener('resize', syncInteractiveRegions);
     };
-  }, [syncInteractiveRegions, panelSize, robotSize]);
+  }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert]);
 
   // Dynamically enlarge window when chat/modal is open and shrink to ONLY the bot when closed
   useEffect(() => {
@@ -113,23 +170,25 @@ function App() {
         const targetCssW = showApiModal
           ? 620
           : chatOpen
-            ? panelSize.width + robotSize + 160
-            : robotSize + 160;
+            ? panelSize.width + 12 + robotSize + 144
+            : robotSize + 144;
 
         const targetCssH = showApiModal
           ? 740
           : chatOpen
-            ? Math.max(panelSize.height + 144, robotSize + 144)
-            : robotSize + 160;
+            ? Math.max(panelSize.height, robotSize) + 144
+            : robotSize + 144;
 
         const targetW = Math.round(targetCssW * dpr);
         const targetH = Math.round(targetCssH * dpr);
 
         const prev = prevModeRef.current;
-        prevModeRef.current = { showApiModal, chatOpen };
 
-        // If showing API modal or just closed API modal -> keep centered in the middle of the screen
+        // If showing API modal or just closed API modal -> start centered in the middle of the screen,
+        // and then let the Rust companion thread smoothly drag/glide the bot to the side of the app!
         if (showApiModal || (prev.showApiModal && !showApiModal)) {
+          prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
+          companionReadyRef.current = false;
           const centerX = bounds.monitor_x + Math.round((bounds.monitor_width - targetW) / 2);
           const centerY = bounds.monitor_y + Math.round((bounds.monitor_height - targetH) / 2);
           await invoke('set_window_rect', {
@@ -138,17 +197,84 @@ function App() {
             width: targetW,
             height: targetH,
           });
+          companionReadyRef.current = !showApiModal;
           setTimeout(syncInteractiveRegions, 40);
           return;
         }
 
-        // When toggling chatOpen (or resizing while in companion mode), anchor the bot's bottom-right corner
-        // so the bot stays in place while the window largens for chat or smallens back to only the bot
-        const botRightX = bounds.x + bounds.width;
-        const botBottomY = bounds.y + bounds.height;
+        // Determine the robot's current physical box on screen so the robot stays anchored in place
+        // whether chat opens/closes on the left/right or up/down.
+        const newBotBoxW = Math.round((robotSize + 144) * dpr);
+        const newBotBoxH = Math.round((robotSize + 144) * dpr);
+        let botBoxLeft: number;
+        let botBoxRight: number;
+        let botBoxTop: number;
+        let botBoxBottom: number;
 
-        let newX = botRightX - targetW;
-        let newY = botBottomY - targetH;
+        if (!prev.chatOpen) {
+          botBoxRight = bounds.x + bounds.width;
+          botBoxLeft = botBoxRight - newBotBoxW;
+          botBoxBottom = bounds.y + bounds.height;
+          botBoxTop = botBoxBottom - newBotBoxH;
+        } else {
+          if (prev.chatSide === 'left') {
+            botBoxRight = bounds.x + bounds.width;
+            botBoxLeft = botBoxRight - newBotBoxW;
+          } else {
+            botBoxLeft = bounds.x;
+            botBoxRight = botBoxLeft + newBotBoxW;
+          }
+
+          if (prev.chatVert === 'up') {
+            botBoxBottom = bounds.y + bounds.height;
+            botBoxTop = botBoxBottom - newBotBoxH;
+          } else {
+            botBoxTop = bounds.y;
+            botBoxBottom = botBoxTop + newBotBoxH;
+          }
+        }
+
+        let effectiveSide = chatSide;
+        let effectiveVert = chatVert;
+        if (!prev.chatOpen && chatOpen) {
+          const botCenterX = (botBoxLeft + botBoxRight) / 2;
+          const botCenterY = (botBoxTop + botBoxBottom) / 2;
+          const monitorCenterX = bounds.monitor_x + bounds.monitor_width / 2;
+          const monitorCenterY = bounds.monitor_y + bounds.monitor_height / 2;
+
+          if (!manualSideOverrideRef.current) {
+            effectiveSide = botCenterX < monitorCenterX ? 'right' : 'left';
+            if (effectiveSide !== chatSide) {
+              setChatSide(effectiveSide);
+            }
+          }
+          if (!manualVertOverrideRef.current) {
+            effectiveVert = botCenterY < monitorCenterY ? 'down' : 'up';
+            if (effectiveVert !== chatVert) {
+              setChatVert(effectiveVert);
+            }
+          }
+        }
+
+        prevModeRef.current = {
+          showApiModal,
+          chatOpen,
+          chatSide: effectiveSide,
+          chatVert: effectiveVert,
+          robotSize,
+        };
+
+        let newX = !chatOpen
+          ? botBoxLeft
+          : effectiveSide === 'left'
+            ? botBoxRight - targetW
+            : botBoxLeft;
+
+        let newY = !chatOpen
+          ? botBoxTop
+          : effectiveVert === 'up'
+            ? botBoxBottom - targetH
+            : botBoxTop;
 
         const glowAllowance = Math.round(56 * dpr);
         const minX = bounds.monitor_x - glowAllowance;
@@ -162,7 +288,9 @@ function App() {
         if (
           Math.abs(targetW - bounds.width) > 4 ||
           Math.abs(targetH - bounds.height) > 4 ||
-          prev.chatOpen !== chatOpen
+          prev.chatOpen !== chatOpen ||
+          prev.chatSide !== effectiveSide ||
+          prev.chatVert !== effectiveVert
         ) {
           await invoke('set_window_rect', {
             x: Math.round(newX),
@@ -178,7 +306,7 @@ function App() {
     };
 
     void updateWindowGeometry();
-  }, [showApiModal, chatOpen, panelSize, robotSize, syncInteractiveRegions]);
+  }, [showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
 
   // Press Esc to close chat and shrink back to only the bot
   useEffect(() => {
@@ -216,7 +344,7 @@ function App() {
     } catch (err: any) {
       const msg = typeof err === 'string' ? err : err?.message || String(err);
       setApiError(msg);
-      setEmotion('sadness');
+      setEmotion('confusion');
     } finally {
       setIsLoggingIn(false);
     }
@@ -231,9 +359,22 @@ function App() {
 
   const handleOpenApiModal = async () => {
     setApiError('');
+    setApiKeyInput(getApiKey());
     setChatOpen(false);
     setShowApiModal(true);
     setEmotion('curiosity');
+  };
+
+  const handleSaveApiKey = () => {
+    const trimmed = apiKeyInput.trim();
+    setApiKey(trimmed);
+    if (!trimmed && !googleUser) {
+      setApiError('Please sign in with Google or enter a free Gemini API Key.');
+      return;
+    }
+    setApiError('');
+    setShowApiModal(false);
+    setEmotion('joy');
   };
 
   const handleRobotClick = () => {
@@ -273,6 +414,20 @@ function App() {
 
     const userMsg: Message = { role: 'user', content: text };
     const newHistory = [...messages, userMsg];
+
+    // While the robot is broken, the AI is offline until the repair countdown finishes
+    if (brokenSeconds > 0) {
+      setMessages([
+        ...newHistory,
+        {
+          role: 'assistant',
+          content: `💥 I'm broken from being thrown into the walls! Repairing... I'll be back in ${brokenSeconds}s.`,
+          emotion: 'idle',
+        },
+      ]);
+      return;
+    }
+
     setMessages(newHistory);
     setIsProcessing(true);
     setEmotion('curiosity');
@@ -297,18 +452,19 @@ function App() {
         }
       );
       setMessages([...newHistory, responseMsg]);
-      if (responseMsg.emotion) setEmotion(responseMsg.emotion);
-      else setEmotion('joy');
+      if (responseMsg.emotion) {
+        setEmotion(responseMsg.emotion);
+      }
     } catch (e: any) {
       setMessages([
         ...newHistory,
         {
           role: 'assistant',
           content: `Error: ${e?.message || String(e)}`,
-          emotion: 'sadness',
+          emotion: 'confusion',
         },
       ]);
-      setEmotion('sadness');
+      setEmotion('confusion');
     } finally {
       setIsProcessing(false);
       setActiveTool(null);
@@ -319,11 +475,15 @@ function App() {
   return (
     <div
       className={`app-container ${
-        showApiModal ? 'centered-mode' : chatOpen ? 'companion-chat-open' : 'companion-bot-only'
+        showApiModal
+          ? 'centered-mode'
+          : chatOpen
+            ? `companion-chat-open chat-side-${chatSide} chat-vert-${chatVert}`
+            : 'companion-bot-only'
       }`}
     >
       {showApiModal ? (
-        <div className={`api-modal-backdrop emotion-border-${emotion}`}>
+        <div className={`api-modal-backdrop emotion-border-${visualEmotion}`}>
           <div ref={modalCardRef} className="api-modal-card">
             <div className="api-modal-robot-preview">
               <Robot
@@ -331,7 +491,7 @@ function App() {
                 size={130}
                 onResize={setRobotSize}
                 onClick={() => setEmotion('joy')}
-                onEmotionChange={setEmotion}
+                onVisualEmotionChange={setVisualEmotion}
                 onDragStateChange={setIsDraggingBot}
               />
             </div>
@@ -451,16 +611,70 @@ function App() {
                   )}
                 </button>
               )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  margin: '4px 0 2px',
+                  fontSize: '11.5px',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                <span>OR FREE AI STUDIO KEY (IF #3501)</span>
+                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+              </div>
+
+              <button
+                type="button"
+                className="aistudio-link-btn"
+                onClick={() =>
+                  void invoke('open_item', { target: 'https://aistudio.google.com/app/apikey' })
+                }
+              >
+                <KeyRound size={14} />
+                <span>Get Free Gemini API Key (Google AI Studio)</span>
+                <ExternalLink size={13} />
+              </button>
+
+              <div className="api-input-group">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  placeholder="Paste Gemini API Key (AIzaSy...)"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveApiKey();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="toggle-key-btn"
+                  onClick={() => setShowKey((s) => !s)}
+                  title={showKey ? 'Hide API Key' : 'Show API Key'}
+                >
+                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+
+              {apiKeyInput.trim().length > 0 && (
+                <button type="button" className="api-submit-btn" onClick={handleSaveApiKey}>
+                  <span>Save API Key & Continue</span>
+                  <ArrowRight size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>
       ) : (
         <>
           {chatOpen && (
-            <div ref={chatWrapRef} className="chat-panel-wrapper">
+            <div ref={chatWrapRef} className={`chat-panel-wrapper side-${chatSide} vert-${chatVert}`}>
               <ChatPanel
                 messages={messages}
-                emotion={emotion}
+                emotion={visualEmotion}
                 isProcessing={isProcessing}
                 activeTool={activeTool}
                 pendingPermission={pendingPermission}
@@ -474,6 +688,11 @@ function App() {
                 onResizePanel={setPanelSize}
                 robotSize={robotSize}
                 onResizeRobot={setRobotSize}
+                chatSide={chatSide}
+                onToggleChatSide={handleToggleChatSide}
+                chatVert={chatVert}
+                onToggleChatVert={handleToggleChatVert}
+                brokenCountdown={brokenSeconds}
               />
             </div>
           )}
@@ -484,8 +703,10 @@ function App() {
               size={robotSize}
               onResize={setRobotSize}
               onClick={handleRobotClick}
-              onEmotionChange={setEmotion}
+              onVisualEmotionChange={setVisualEmotion}
               onDragStateChange={setIsDraggingBot}
+              onScreenSideChange={handleScreenSideChange}
+              onBrokenCountdownChange={setBrokenSeconds}
             />
           </div>
         </>

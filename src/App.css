@@ -20,13 +20,28 @@
 .app-container.companion-bot-only {
   justify-content: center;
   align-items: center;
-  padding: 80px;
+  padding: 72px;
 }
 
 .app-container.companion-chat-open {
-  justify-content: flex-end;
-  align-items: flex-end;
   padding: 72px;
+  gap: 12px;
+}
+
+.app-container.companion-chat-open.chat-side-left {
+  justify-content: flex-end;
+}
+
+.app-container.companion-chat-open.chat-side-right {
+  justify-content: flex-start;
+}
+
+.app-container.companion-chat-open.chat-vert-up {
+  align-items: flex-end;
+}
+
+.app-container.companion-chat-open.chat-vert-down {
+  align-items: flex-start;
 }
 
 .robot-wrapper {
@@ -37,21 +52,84 @@
   border: none !important;
 }
 
-.chat-panel-wrapper {
-  pointer-events: auto;
-  margin-right: 12px;
-  z-index: 5;
-  animation: slideIn 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+.app-container.companion-chat-open.chat-side-left .chat-panel-wrapper {
+  order: 1;
 }
 
-@keyframes slideIn {
+.app-container.companion-chat-open.chat-side-left .robot-wrapper {
+  order: 2;
+}
+
+.app-container.companion-chat-open.chat-side-right .robot-wrapper {
+  order: 1;
+}
+
+.app-container.companion-chat-open.chat-side-right .chat-panel-wrapper {
+  order: 2;
+}
+
+.chat-panel-wrapper {
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.chat-panel-wrapper.side-left.vert-up {
+  animation: slideInLeftUp 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.chat-panel-wrapper.side-left.vert-down {
+  animation: slideInLeftDown 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.chat-panel-wrapper.side-right.vert-up {
+  animation: slideInRightUp 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.chat-panel-wrapper.side-right.vert-down {
+  animation: slideInRightDown 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes slideInLeftUp {
   from {
     opacity: 0;
-    transform: translateX(30px) scale(0.94);
+    transform: translate(26px, 16px) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes slideInLeftDown {
+  from {
+    opacity: 0;
+    transform: translate(26px, -16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes slideInRightUp {
+  from {
+    opacity: 0;
+    transform: translate(-26px, 16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes slideInRightDown {
+  from {
+    opacity: 0;
+    transform: translate(-26px, -16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
   }
 }
 

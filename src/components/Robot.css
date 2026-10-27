@@ -10,14 +10,34 @@
   filter:
     drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55))
     drop-shadow(0 0 14px color-mix(in oklch, var(--current-glow) 50%, transparent));
-  transition: filter 0.35s ease, width 0.15s ease, height 0.15s ease;
+  transition:
+    filter 0.35s ease,
+    width 0.15s ease,
+    height 0.15s ease,
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
   isolation: isolate;
 }
 
-.robot-container:hover {
+.robot-container.is-dragging,
+.robot-container.is-flying {
+  transition:
+    filter 0.25s ease,
+    width 0.15s ease,
+    height 0.15s ease;
+}
+
+.robot-container:hover,
+.robot-container.is-hovered {
   filter:
     drop-shadow(0 8px 18px rgba(0, 0, 0, 0.65))
-    drop-shadow(0 0 20px color-mix(in oklch, var(--current-glow) 70%, transparent));
+    drop-shadow(0 0 22px color-mix(in oklch, var(--current-glow) 78%, #ffffff));
+}
+
+.robot-container.is-grabbed {
+  cursor: grabbing;
+  filter:
+    drop-shadow(0 12px 22px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 26px var(--current-glow));
 }
 
 .robot-container.is-dragging {
@@ -47,7 +67,13 @@
   opacity: 0.62;
   z-index: -2;
   pointer-events: none;
-  transition: background-color 0.45s ease, opacity 0.45s ease;
+  transition: background-color 0.4s ease, opacity 0.4s ease, transform 0.4s ease;
+}
+
+.robot-container.is-hovered .robot-glow-bg,
+.robot-container.is-patting .robot-glow-bg {
+  opacity: 0.78;
+  transform: translate(-50%, -50%) scale(1.08);
 }
 
 .robot-glow-core {
@@ -63,25 +89,73 @@
   opacity: 0.52;
   z-index: -1;
   pointer-events: none;
-  transition: background 0.45s ease;
+  transition: background 0.4s ease, opacity 0.4s ease;
+}
+
+/* Floating Heart Particles Layer */
+.robot-hearts-layer {
+  position: absolute;
+  inset: -16px;
+  pointer-events: none;
+  z-index: 30;
+  overflow: visible;
+}
+
+.floating-heart {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.85));
+  animation: heartFloatUp var(--heart-duration, 1100ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes heartFloatUp {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -20%) scale(0.35) rotate(-10deg);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--heart-drift-x, 0px) * 0.3), -75%) scale(1.08) rotate(8deg);
+  }
+  75% {
+    opacity: 0.9;
+    transform: translate(calc(-50% + var(--heart-drift-x, 0px) * 0.85), -190%) scale(0.95) rotate(-6deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--heart-drift-x, 0px)), -255%) scale(0.65) rotate(10deg);
+  }
 }
 
 .robot-status-pill {
   position: absolute;
-  top: 2px;
+  top: -2px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.92);
   border: 1px solid var(--current-glow);
   box-shadow: 0 0 12px var(--current-glow);
   color: #fff;
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 25;
+  animation: pillPop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes pillPop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 
 .robot-svg {
@@ -96,19 +170,86 @@
   animation: none;
 }
 
+.robot-svg.pat-bounce-anim {
+  animation: patBounce 0.48s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes patBounce {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  30% {
+    transform: translateY(5px) scale(1.07, 0.92) rotate(-3deg);
+  }
+  65% {
+    transform: translateY(-6px) scale(0.96, 1.05) rotate(3deg);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1) rotate(0deg);
+  }
+}
+
+.robot-head-group {
+  transform-origin: 100px 105px;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.robot-antenna-group {
+  transform-origin: 100px 44px;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Startled pickup response */
+.robot-container.is-grabbed .robot-antenna-group {
+  animation: antennaStartle 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes antennaStartle {
+  0% {
+    transform: translateY(0) scaleY(1);
+  }
+  40% {
+    transform: translateY(-7px) scaleY(1.16);
+  }
+  75% {
+    transform: translateY(2px) scaleY(0.94);
+  }
+  100% {
+    transform: translateY(-3px) scaleY(1.04);
+  }
+}
+
+/* Hover & Pat Antenna Perks */
+.robot-container.is-hovered .robot-antenna-group {
+  transform: translateY(-3px) rotate(5deg);
+}
+
+.robot-container.is-patting .robot-antenna-group {
+  animation: antennaHappyWiggle 0.45s ease-in-out infinite;
+}
+
+@keyframes antennaHappyWiggle {
+  0%, 100% {
+    transform: rotate(-10deg) translateY(-3px);
+  }
+  50% {
+    transform: rotate(10deg) translateY(-5px);
+  }
+}
+
 .robot-head {
   fill: url(#head-shell);
   stroke: var(--current-glow);
   stroke-width: 2.8;
   filter: drop-shadow(0 0 8px color-mix(in oklch, var(--current-glow) 60%, transparent));
-  transition: stroke 0.45s ease, fill 0.45s ease;
+  transition: stroke 0.38s ease, fill 0.38s ease;
 }
 
 .robot-ear {
   fill: #232438;
   stroke: var(--current-glow);
   stroke-width: 2.2;
-  transition: stroke 0.45s ease;
+  transition: stroke 0.38s ease, transform 0.3s ease;
 }
 
 .robot-antenna-stem {
@@ -117,7 +258,7 @@
 
 .robot-antenna-bulb {
   fill: var(--current-glow);
-  transition: fill 0.45s ease, transform 0.3s ease;
+  transition: fill 0.38s ease, transform 0.3s ease;
   filter: drop-shadow(0 0 10px var(--current-glow));
 }
 
@@ -125,52 +266,177 @@
   fill: #090a10;
   stroke: color-mix(in oklch, var(--current-glow) 80%, #6366f1);
   stroke-width: 3.2;
-  transition: stroke 0.45s ease;
+  transition: stroke 0.38s ease;
 }
 
 .eyes-container {
   transform-origin: 100px 95px;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .eye {
   fill: var(--current-glow);
   filter: drop-shadow(0 0 6px var(--current-glow));
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: d 0.26s cubic-bezier(0.4, 0, 0.2, 1), fill 0.35s ease, transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: center;
-  animation: blink 5s infinite;
+  animation: blink 4.8s infinite;
 }
 
 .left-eye {
-  transform-origin: 75px 95px;
+  transform-origin: 75px 94px;
 }
 
 .right-eye {
-  transform-origin: 125px 95px;
+  transform-origin: 125px 94px;
+}
+
+.brow {
+  fill: none;
+  stroke: var(--current-glow);
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px var(--current-glow));
+  transition: d 0.26s ease, stroke 0.35s ease, transform 0.28s ease;
 }
 
 .mouth {
   fill: none;
   stroke: var(--current-glow);
-  stroke-width: 4;
+  stroke-width: 3.8;
   stroke-linecap: round;
+  stroke-linejoin: round;
   filter: drop-shadow(0 0 6px var(--current-glow));
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: d 0.26s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.35s ease, opacity 0.25s ease;
   opacity: 0;
 }
 
-/* Animations */
+.cheek-blush {
+  fill: #f472b6;
+  opacity: 0.48;
+  filter: blur(2.5px);
+  animation: blushPulse 2s ease-in-out infinite;
+}
+
+@keyframes blushPulse {
+  0%, 100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.68;
+  }
+}
+
+.sweat-drop {
+  fill: #38bdf8;
+  opacity: 0.9;
+  animation: sweatDrip 1.4s ease-in-out infinite;
+}
+
+@keyframes sweatDrip {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(4px);
+    opacity: 1;
+  }
+}
+
+.anger-vein-mark path {
+  fill: none;
+  stroke: #ff3b3b;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  animation: veinPulse 0.42s ease-in-out infinite;
+}
+
+@keyframes veinPulse {
+  0%, 100% {
+    transform: scale(1);
+    transform-origin: 142px 52px;
+  }
+  50% {
+    transform: scale(1.18);
+    transform-origin: 142px 52px;
+  }
+}
+
+/* Swirling Spiral Eyes for Dizzy State */
+.eye-spiral {
+  fill: none;
+  stroke: var(--current-glow);
+  stroke-width: 3.3;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--current-glow));
+}
+
+.left-spiral {
+  transform-origin: 75px 94px;
+  animation: spiralSpinCW 0.72s linear infinite;
+}
+
+.right-spiral {
+  transform-origin: 125px 94px;
+  animation: spiralSpinCCW 0.72s linear infinite;
+}
+
+@keyframes spiralSpinCW {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spiralSpinCCW {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.dizzy-stars {
+  transform-origin: 100px 12px;
+  animation: dizzyOrbit 1.1s ease-in-out infinite;
+}
+
+.dizzy-star {
+  fill: #fde047;
+}
+
+@keyframes dizzyOrbit {
+  0%, 100% {
+    transform: translateX(-5px) rotate(-8deg);
+  }
+  50% {
+    transform: translateX(5px) rotate(8deg);
+  }
+}
+
+/* Base Idle & Blink Animations */
 @keyframes blink {
-  0%, 95%, 100% { transform: scaleY(1); }
-  97.5% { transform: scaleY(0.08); }
+  0%, 94%, 100% {
+    transform: scaleY(1);
+  }
+  97% {
+    transform: scaleY(0.08);
+  }
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 
-/* Emotion Theme Bindings */
+/* Emotion Theme Bindings & Coordinated Body Language */
 .emotion-idle {
   --current-glow: var(--robot-glow-idle);
 }
@@ -181,15 +447,26 @@
 .emotion-joy .robot-antenna-bulb {
   transform: translateY(-4px);
 }
-.emotion-joy .eyes-container {
-  transform: translateY(-4px);
+.emotion-joy .robot-head-group {
+  animation: joyBob 2.2s ease-in-out infinite;
+}
+@keyframes joyBob {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(1.5deg);
+  }
 }
 
 .emotion-sadness {
   --current-glow: var(--robot-glow-sadness);
 }
-.emotion-sadness .eyes-container {
-  transform: translateY(9px);
+.emotion-sadness .robot-head-group {
+  transform: translateY(5px) rotate(-2deg);
+}
+.emotion-sadness .robot-antenna-group {
+  transform: translateY(4px) rotate(-8deg);
 }
 .emotion-sadness .robot-svg {
   animation: float 6s ease-in-out infinite;
@@ -199,12 +476,109 @@
   --current-glow: var(--robot-glow-anger);
 }
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2.5px); }
-  75% { transform: translateX(2.5px); }
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2.5px) rotate(-1deg);
+  }
+  75% {
+    transform: translateX(2.5px) rotate(1deg);
+  }
 }
 .emotion-anger .robot-svg {
+  animation: shake 0.42s infinite;
+}
+
+/* Frustration Stage Progressions (0 to 4) */
+.frustration-stage-1.emotion-anger {
+  --current-glow: var(--robot-glow-annoyed, #fb923c);
+}
+.frustration-stage-1.emotion-anger .robot-svg {
+  animation: float 3.2s ease-in-out infinite;
+}
+.frustration-stage-1 .robot-antenna-group {
+  animation: annoyedTwitch 1.6s ease-in-out infinite;
+}
+@keyframes annoyedTwitch {
+  0%, 80%, 100% {
+    transform: rotate(0deg);
+  }
+  86% {
+    transform: rotate(-11deg);
+  }
+  93% {
+    transform: rotate(9deg);
+  }
+}
+
+.frustration-stage-2.emotion-anger {
+  --current-glow: #f97316;
+}
+.frustration-stage-2.emotion-anger .robot-svg {
   animation: shake 0.45s infinite;
+}
+
+.frustration-stage-3.emotion-anger {
+  --current-glow: var(--robot-glow-anger);
+}
+.frustration-stage-3.emotion-anger .robot-svg {
+  animation: angryStomp 0.34s infinite;
+}
+@keyframes angryStomp {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate(-3.5px, -1.5px) rotate(-2deg);
+  }
+  75% {
+    transform: translate(3.5px, 1.5px) rotate(2deg);
+  }
+}
+
+.frustration-stage-4.emotion-anger {
+  --current-glow: var(--robot-glow-furious, #ff2a2a);
+}
+.frustration-stage-4.emotion-anger .robot-glow-bg {
+  opacity: 0.88;
+  transform: translate(-50%, -50%) scale(1.16);
+}
+.frustration-stage-4.emotion-anger .robot-svg {
+  animation: furiousRage 0.24s infinite;
+}
+@keyframes furiousRage {
+  0%, 100% {
+    transform: translate(0, 0) scale(1.03, 0.98) rotate(0deg);
+  }
+  25% {
+    transform: translate(-4.5px, 1.5px) scale(0.98, 1.03) rotate(-3deg);
+  }
+  50% {
+    transform: translate(4.5px, -2px) scale(1.03, 0.98) rotate(3deg);
+  }
+  75% {
+    transform: translate(-3px, -1.5px) scale(0.99, 1.02) rotate(-2deg);
+  }
+}
+
+/* Wall Impact Immediate Shake */
+.robot-container.is-impact-shaking .robot-head-group {
+  animation: wallImpactJolt 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes wallImpactJolt {
+  0% {
+    transform: scale(1.12, 0.88);
+  }
+  30% {
+    transform: translateX(-6px) scale(0.92, 1.08);
+  }
+  60% {
+    transform: translateX(6px) scale(1.05, 0.96);
+  }
+  100% {
+    transform: translateX(0) scale(1, 1);
+  }
 }
 
 .emotion-fear {
@@ -214,67 +588,285 @@
   animation: none;
 }
 @keyframes shiver {
-  0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-1.5px, 1.5px); }
-  50% { transform: translate(1.5px, -1.5px); }
-  75% { transform: translate(1.5px, 1.5px); }
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-1.8px, 1.5px);
+  }
+  50% {
+    transform: translate(1.8px, -1.5px);
+  }
+  75% {
+    transform: translate(1.5px, 1.5px);
+  }
 }
-.emotion-fear .eyes-container {
-  animation: shiver 0.2s infinite;
+.emotion-fear .robot-head-group {
+  animation: shiver 0.22s infinite;
 }
 
 .emotion-surprise {
   --current-glow: var(--robot-glow-surprise);
 }
+.emotion-surprise .eye {
+  animation: none;
+}
 .emotion-surprise .left-eye,
 .emotion-surprise .right-eye {
-  transform: scale(1.18);
+  transform: scale(1.15);
 }
-.emotion-surprise .eyes-container {
-  transform: translateY(-8px);
+.emotion-surprise .robot-head-group {
+  transform: translateY(-4px) scale(0.97, 1.04);
 }
 
 .emotion-disgust {
   --current-glow: var(--robot-glow-disgust);
 }
-.emotion-disgust .eyes-container {
-  transform: translateX(-4px) rotate(-5deg);
+.emotion-disgust .robot-head-group {
+  transform: translateX(-3px) rotate(-4deg);
 }
 
 .emotion-curiosity {
   --current-glow: var(--robot-glow-curiosity);
 }
-.emotion-curiosity .left-eye {
-  transform: scale(1.28);
+.emotion-curiosity .robot-head-group {
+  transform: rotate(6deg) translateY(-2px);
 }
-.emotion-curiosity .eyes-container {
-  transform: rotate(9deg);
+.emotion-curiosity .robot-antenna-group {
+  transform: rotate(10deg) translateY(-3px);
 }
 
 .emotion-confusion {
   --current-glow: var(--robot-glow-confusion);
 }
 .emotion-confusion .left-eye {
-  transform: rotate(45deg);
-  transform-origin: 75px 95px;
+  transform: rotate(15deg);
+  transform-origin: 75px 94px;
+}
+.emotion-confusion .robot-head-group {
+  transform: rotate(-5deg);
 }
 
 .emotion-love {
   --current-glow: var(--robot-glow-love);
 }
 @keyframes heartbeat {
-  0%, 100% { transform: scale(1); }
-  15% { transform: scale(1.14); }
-  30% { transform: scale(1); }
-  45% { transform: scale(1.14); }
+  0%, 100% {
+    transform: scale(1);
+  }
+  18% {
+    transform: scale(1.14);
+  }
+  36% {
+    transform: scale(1);
+  }
+  54% {
+    transform: scale(1.12);
+  }
 }
 .emotion-love .eye {
-  animation: heartbeat 1.4s infinite;
+  animation: heartbeat 1.35s infinite;
+}
+.emotion-love .robot-head-group {
+  animation: loveSway 2.4s ease-in-out infinite;
+}
+@keyframes loveSway {
+  0%, 100% {
+    transform: rotate(-2.5deg) translateY(-1px);
+  }
+  50% {
+    transform: rotate(2.5deg) translateY(-4px);
+  }
 }
 
 .emotion-embarrassment {
   --current-glow: var(--robot-glow-embarrassment);
 }
-.emotion-embarrassment .eyes-container {
-  transform: translateY(13px);
+.emotion-embarrassment .robot-head-group {
+  transform: translateY(4px) rotate(3deg);
+}
+
+/* Dizzy Visual State */
+.emotion-dizzy {
+  --current-glow: var(--robot-glow-dizzy, #a78bfa);
+}
+.emotion-dizzy .robot-svg {
+  animation: dizzyWobble 0.95s ease-in-out infinite;
+}
+.emotion-dizzy .robot-antenna-group {
+  animation: antennaDizzyWobble 0.65s ease-in-out infinite;
+}
+@keyframes dizzyWobble {
+  0%, 100% {
+    transform: translate(-3px, 1px) rotate(-6deg);
+  }
+  50% {
+    transform: translate(3px, -2px) rotate(6deg);
+  }
+}
+@keyframes antennaDizzyWobble {
+  0%, 100% {
+    transform: rotate(-16deg) translateY(2px);
+  }
+  50% {
+    transform: rotate(16deg) translateY(2px);
+  }
+}
+
+/* Recovery Transition */
+.robot-container.is-recovering .robot-head-group {
+  animation: headRecoverShakeOff 0.36s ease-out;
+}
+@keyframes headRecoverShakeOff {
+  0% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+/* Respect Reduced Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+  .robot-svg,
+  .emotion-anger .robot-svg,
+  .frustration-stage-2.emotion-anger .robot-svg,
+  .frustration-stage-3.emotion-anger .robot-svg,
+  .frustration-stage-4.emotion-anger .robot-svg,
+  .emotion-fear .robot-head-group,
+  .emotion-dizzy .robot-svg {
+    animation-duration: 4s;
+  }
+  .left-spiral,
+  .right-spiral {
+    animation-duration: 2.5s;
+  }
+}
+
+/* ===== Random Idle Animations (neutral white robot) ===== */
+.robot-container.idle-action-spin .robot-svg {
+  animation: idleSpin 1.1s cubic-bezier(0.45, 0, 0.25, 1);
+}
+@keyframes idleSpin {
+  0% { transform: rotate(0deg) scale(1); }
+  20% { transform: rotate(-20deg) scale(0.95, 1.04); }
+  80% { transform: rotate(370deg) scale(1.03, 0.97); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.robot-container.idle-action-hop .robot-svg {
+  animation: idleHop 0.95s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes idleHop {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(4px) scale(1.08, 0.9); }
+  50% { transform: translateY(-18px) scale(0.95, 1.06); }
+  75% { transform: translateY(2px) scale(1.05, 0.95); }
+}
+
+.robot-container.idle-action-happy .robot-svg {
+  animation: idleHappyWiggle 0.6s ease-in-out 4;
+}
+@keyframes idleHappyWiggle {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-6deg) translateY(-3px); }
+  75% { transform: rotate(6deg) translateY(-3px); }
+}
+.robot-container.idle-action-happy .robot-antenna-group {
+  animation: antennaHappyWiggle 0.4s ease-in-out 6;
+}
+@keyframes antennaHappyWiggle {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(12deg); }
+}
+
+/* ===== Cracks & Breaking ===== */
+.robot-cracks path {
+  fill: none;
+  stroke: rgba(226, 232, 240, 0.85);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: crackSpread 0.35s ease-out forwards;
+}
+@keyframes crackSpread {
+  to { stroke-dashoffset: 0; }
+}
+
+.robot-container.crack-stage-3:not(.is-broken) .robot-svg {
+  animation: crackedJitter 2.4s steps(2, end) infinite;
+}
+@keyframes crackedJitter {
+  0%, 92%, 100% { transform: translate(0, 0); }
+  94% { transform: translate(-1.5px, 0.5px) rotate(-1deg); }
+  97% { transform: translate(1.5px, -0.5px) rotate(1deg); }
+}
+
+.emotion-broken {
+  --current-glow: var(--robot-glow-broken);
+}
+.robot-container.is-broken {
+  cursor: not-allowed;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.6)) grayscale(0.55) brightness(0.8);
+}
+.robot-container.is-broken .robot-glow-bg {
+  opacity: 0.22;
+  animation: brokenFlicker 1.6s steps(1, end) infinite;
+}
+.robot-container.is-broken .robot-svg {
+  animation: none;
+}
+.robot-container.is-broken .robot-antenna-group {
+  transform: rotate(38deg) translate(6px, 8px);
+}
+.robot-container.is-broken .robot-head-group {
+  transform: translateY(4px);
+}
+@keyframes brokenFlicker {
+  0%, 40%, 100% { opacity: 0.22; }
+  42% { opacity: 0.5; }
+  44% { opacity: 0.1; }
+  70% { opacity: 0.35; }
+}
+
+.eye-broken {
+  fill: none;
+  stroke: var(--current-glow);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.broken-sparks .spark {
+  fill: #fde047;
+  opacity: 0;
+  filter: drop-shadow(0 0 4px #facc15);
+  animation: sparkPop 1.4s ease-out infinite;
+}
+.broken-sparks .spark-2 { animation-delay: 0.45s; }
+.broken-sparks .spark-3 { animation-delay: 0.9s; }
+@keyframes sparkPop {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.4); }
+  15% { opacity: 1; transform: translate(0, -2px) scale(1.3); }
+  45% { opacity: 0; transform: translate(3px, -8px) scale(0.5); }
+  100% { opacity: 0; }
+}
+
+/* Lonely (left alone for 15 minutes) */
+.robot-container.is-lonely .robot-svg {
+  animation: float 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot-container.idle-action-spin .robot-svg,
+  .robot-container.idle-action-hop .robot-svg,
+  .robot-container.idle-action-happy .robot-svg,
+  .robot-container.crack-stage-3 .robot-svg {
+    animation: none;
+  }
 }

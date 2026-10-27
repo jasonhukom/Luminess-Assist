@@ -26,6 +26,7 @@ export interface GoogleUserSession {
   name?: string;
   picture?: string;
   projectId?: string;
+  gcpProjectId?: string;
 }
 
 const STORAGE_KEY = 'GEMINI_API_KEY';
@@ -143,42 +144,31 @@ export function hasApiKey(): boolean {
   return !!apiKey && apiKey.trim().length > 0;
 }
 
-async function resolveCodeAssistProject(accessToken: string): Promise<string | undefined> {
-  const coreMetadata = {
-    ideType: 'IDE_UNSPECIFIED',
-    platform: 'PLATFORM_UNSPECIFIED',
-    pluginType: 'GEMINI',
-  };
+function extractProjectId(val: any): string | undefined {
+  if (!val) return undefined;
+  if (typeof val === 'string' && val.trim().length > 0) {
+    return val.trim();
+  }
+  if (typeof val === 'object' && typeof val.id === 'string' && val.id.trim().length > 0) {
+    return val.id.trim();
+  }
+  return undefined;
+}
 
+async function onboardCodeAssistTier(
+  accessToken: string,
+  tierId: string,
+  coreMetadata: Record<string, any>,
+  projectId?: string
+): Promise<string | undefined> {
   try {
-    const loadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        metadata: coreMetadata,
-      }),
-    });
-
-    if (!loadResp.ok) {
-      return undefined;
+    const body: Record<string, any> = {
+      tierId,
+      metadata: projectId ? { ...coreMetadata, duetProject: projectId } : coreMetadata,
+    };
+    if (tierId !== 'free-tier' && projectId) {
+      body.cloudaicompanionProject = projectId;
     }
-
-    const loadData: any = await loadResp.json();
-    if (loadData?.cloudaicompanionProject) {
-      return String(loadData.cloudaicompanionProject);
-    }
-
-    // If user is not yet onboarded, onboard to the default tier (e.g. free-tier)
-    const allowedTiers: any[] = Array.isArray(loadData?.allowedTiers)
-      ? loadData.allowedTiers
-      : [];
-    const defaultTier =
-      allowedTiers.find((t) => t?.isDefault) ||
-      allowedTiers[0] || { id: 'free-tier' };
-    const tierId = defaultTier?.id || 'free-tier';
 
     const onboardResp = await fetch(`${CODE_ASSIST_BASE_URL}:onboardUser`, {
       method: 'POST',
@@ -186,10 +176,7 @@ async function resolveCodeAssistProject(accessToken: string): Promise<string | u
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        tierId,
-        metadata: coreMetadata,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!onboardResp.ok) {
@@ -198,8 +185,8 @@ async function resolveCodeAssistProject(accessToken: string): Promise<string | u
 
     let lro: any = await onboardResp.json();
     let polls = 0;
-    while (!lro?.done && lro?.name && polls < 10) {
-      await new Promise((r) => setTimeout(r, 2500));
+    while (!lro?.done && lro?.name && polls < 12) {
+      await new Promise((r) => setTimeout(r, 2000));
       polls++;
       const opResp = await fetch(`${CODE_ASSIST_BASE_URL}/${lro.name}`, {
         method: 'GET',
@@ -212,10 +199,187 @@ async function resolveCodeAssistProject(accessToken: string): Promise<string | u
       lro = await opResp.json();
     }
 
-    const projId = lro?.response?.cloudaicompanionProject?.id;
-    return projId ? String(projId) : undefined;
+    return extractProjectId(lro?.response?.cloudaicompanionProject);
   } catch {
     return undefined;
+  }
+}
+
+async function resolveCodeAssistProject(
+  accessToken: string,
+  forceFreeTier = false
+): Promise<string | undefined> {
+  const coreMetadata = {
+    ideType: 'IDE_UNSPECIFIED',
+    platform: 'WINDOWS_AMD64',
+    pluginType: 'GEMINI',
+  };
+
+  try {
+    if (forceFreeTier) {
+      const forcedProj = await onboardCodeAssistTier(accessToken, 'free-tier', coreMetadata);
+      if (forcedProj) return forcedProj;
+    }
+
+    const loadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        metadata: coreMetadata,
+      }),
+    });
+
+    if (loadResp.ok) {
+      const loadData: any = await loadResp.json();
+      const existingProj = extractProjectId(loadData?.cloudaicompanionProject);
+      if (existingProj) {
+        return existingProj;
+      }
+
+      const allowedTiers: any[] = Array.isArray(loadData?.allowedTiers)
+        ? loadData.allowedTiers
+        : [];
+      const freeTier = allowedTiers.find((t) => t?.id === 'free-tier');
+      const defaultTier = allowedTiers.find((t) => t?.isDefault) || allowedTiers[0];
+
+      // Always prefer free-tier first because it provisions a managed project without needing an enterprise seat
+      const candidateTierIds = Array.from(
+        new Set([freeTier?.id, 'free-tier', defaultTier?.id].filter(Boolean))
+      ) as string[];
+
+      for (const tierId of candidateTierIds) {
+        const onboardedProj = await onboardCodeAssistTier(accessToken, tierId, coreMetadata);
+        if (onboardedProj) {
+          return onboardedProj;
+        }
+      }
+
+      // Check loadCodeAssist one more time after onboarding finishes
+      const reloadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          metadata: coreMetadata,
+        }),
+      });
+      if (reloadResp.ok) {
+        const reloadData: any = await reloadResp.json();
+        const reloadedProj = extractProjectId(reloadData?.cloudaicompanionProject);
+        if (reloadedProj) {
+          return reloadedProj;
+        }
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function discoverUserGcpProject(accessToken: string): Promise<string | undefined> {
+  try {
+    const resp = await fetch(
+      'https://cloudresourcemanager.googleapis.com/v1/projects?filter=lifecycleState%3AACTIVE',
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (!resp.ok) return undefined;
+    const data: any = await resp.json();
+    const projects: any[] = Array.isArray(data?.projects) ? data.projects : [];
+    const preferred =
+      projects.find((p) => typeof p?.projectId === 'string' && p.projectId.startsWith('gen-lang-client')) ||
+      projects.find((p) => typeof p?.projectId === 'string');
+    return preferred?.projectId ? String(preferred.projectId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function generateWithGenerativeLanguageOAuth(
+  accessToken: string,
+  gcpProjectId: string,
+  model: string,
+  contents: any[],
+  systemInstruction: string,
+  tools: any[]
+): Promise<{ text: string; functionCalls: any[]; modelContent: any } | null> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const payload = {
+    contents,
+    systemInstruction: {
+      role: 'user',
+      parts: [{ text: systemInstruction }],
+    },
+    tools,
+    generationConfig: {
+      temperature: 0.6,
+    },
+  };
+
+  const doRequest = () =>
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'x-goog-user-project': gcpProjectId,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    let resp = await doRequest();
+    if (resp.status === 403) {
+      const errText = await resp.text();
+      if (errText.includes('SERVICE_DISABLED') || errText.includes('has not been used in project')) {
+        // Automatically enable generativelanguage.googleapis.com on the user's GCP project
+        await fetch(
+          `https://serviceusage.googleapis.com/v1/projects/${gcpProjectId}/services/generativelanguage.googleapis.com:enable`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        await new Promise((r) => setTimeout(r, 3200));
+        resp = await doRequest();
+      } else {
+        return null;
+      }
+    }
+
+    if (!resp.ok) {
+      return null;
+    }
+
+    const rawJson: any = await resp.json();
+    const candidates: any[] = rawJson?.candidates || [];
+    const modelContent = candidates[0]?.content;
+    const parts: any[] = modelContent?.parts || [];
+
+    const functionCalls = parts
+      .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
+      .map((p) => p.functionCall);
+
+    const text = parts
+      .filter((p) => p && typeof p.text === 'string' && !p.thought)
+      .map((p) => p.text)
+      .join('');
+
+    return { text, functionCalls, modelContent };
+  } catch {
+    return null;
   }
 }
 
@@ -394,6 +558,65 @@ async function generateWithGoogleOAuth(
     }
   }
 
+  // If 403 SUBSCRIPTION_REQUIRED / PERMISSION_DENIED (#3501), try onboarding free-tier or falling back to standard Gemini API
+  if (resp.status === 403) {
+    const errBody403 = await resp.text();
+
+    // 1. Force free-tier onboarding and retry if a new managed projectId is obtained
+    const freeProj = await resolveCodeAssistProject(session.accessToken, true);
+    if (freeProj && freeProj !== session.projectId) {
+      session.projectId = freeProj;
+      if (googleSession) {
+        googleSession = { ...googleSession, projectId: freeProj };
+        saveGoogleSession(googleSession);
+      }
+      resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...caPayload,
+          project: freeProj,
+        }),
+      });
+    }
+
+    // 2. If still 403, try discovering an active GCP project on the user's account and calling standard Gemini API
+    if (!resp.ok) {
+      const gcpProj = session.gcpProjectId || (await discoverUserGcpProject(session.accessToken));
+      if (gcpProj) {
+        session.gcpProjectId = gcpProj;
+        if (googleSession) {
+          googleSession = { ...googleSession, gcpProjectId: gcpProj };
+          saveGoogleSession(googleSession);
+        }
+
+        const stdRes = await generateWithGenerativeLanguageOAuth(
+          session.accessToken,
+          gcpProj,
+          model,
+          contents,
+          systemInstruction,
+          tools
+        );
+        if (stdRes) {
+          return stdRes;
+        }
+      }
+
+      if (errBody403.includes('SUBSCRIPTION_REQUIRED') || errBody403.includes('3501')) {
+        throw new Error(
+          'Your Google account is not licensed for Gemini Code Assist (#3501 SUBSCRIPTION_REQUIRED). ' +
+            'To fix this instantly: click the Account/Settings button in the chat header and either (1) paste a free Google AI Studio API Key (aistudio.google.com/app/apikey), or (2) switch to a personal @gmail.com account.'
+        );
+      }
+
+      throw new Error(`Google AI request failed (403): ${errBody403}`);
+    }
+  }
+
   if (!resp.ok) {
     const errBody = await resp.text();
     throw new Error(`Google AI request failed (${resp.status}): ${errBody}`);
@@ -505,10 +728,45 @@ async function executeToolOnPc(
   }
 }
 
+function inferContextualEmotion(text: string): Emotion {
+  const lower = text.toLowerCase();
+  if (/\b(love|adorable|sweet|heart|hug|thank you so much|cherish|affection)\b/.test(lower)) {
+    return 'love';
+  }
+  if (/\b(oops|my bad|mistake|embarrass|awkward|whoops|clumsy)\b/.test(lower)) {
+    return 'embarrassment';
+  }
+  if (/\b(sorry|apologize|unfortunately|sadly|couldn't find|failed|unable to)\b/.test(lower)) {
+    return 'sadness';
+  }
+  if (/\b(warning|careful|danger|caution|risky|permanent|destructive)\b/.test(lower)) {
+    return 'fear';
+  }
+  if (/\b(confus|not sure what you mean|unclear|ambiguous|puzzl|huh\?)\b/.test(lower)) {
+    return 'confusion';
+  }
+  if (/\b(frustrat|annoy|stubborn|ugh|mad|furious)\b/.test(lower)) {
+    return 'anger';
+  }
+  if (/\b(gross|yuck|corrupted|messy|disgust)\b/.test(lower)) {
+    return 'disgust';
+  }
+  if (/\b(wow|whoa|surpris|unexpected|incredible|astonish)\b/.test(lower)) {
+    return 'surprise';
+  }
+  if (/\b(interesting|fascinating|wonder|let's see|exploring|investigat|curious|\?)\b/.test(lower)) {
+    return 'curiosity';
+  }
+  if (/\b(glad|happy|great|awesome|yay|delighted|done!|hello|hi!|welcome)\b/.test(lower)) {
+    return 'joy';
+  }
+  return 'idle';
+}
+
 function parseAssistantOutput(rawText: string): { content: string; emotion: Emotion } {
   const trimmed = rawText.trim();
   if (!trimmed) {
-    return { content: 'Done!', emotion: 'joy' };
+    return { content: 'Done!', emotion: 'idle' };
   }
 
   // Strip optional markdown code fences if present
@@ -518,7 +776,9 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
   try {
     const parsed = JSON.parse(candidate);
     if (parsed && typeof parsed.content === 'string') {
-      const emo = VALID_EMOTIONS.includes(parsed.emotion) ? (parsed.emotion as Emotion) : 'joy';
+      const emo = VALID_EMOTIONS.includes(parsed.emotion)
+        ? (parsed.emotion as Emotion)
+        : inferContextualEmotion(parsed.content);
       return { content: parsed.content, emotion: emo };
     }
   } catch {
@@ -529,7 +789,9 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
       try {
         const sub = JSON.parse(candidate.slice(jsonStart, jsonEnd + 1));
         if (sub && typeof sub.content === 'string') {
-          const emo = VALID_EMOTIONS.includes(sub.emotion) ? (sub.emotion as Emotion) : 'joy';
+          const emo = VALID_EMOTIONS.includes(sub.emotion)
+            ? (sub.emotion as Emotion)
+            : inferContextualEmotion(sub.content);
           return { content: sub.content, emotion: emo };
         }
       } catch {
@@ -538,7 +800,7 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
     }
   }
 
-  return { content: trimmed, emotion: 'joy' };
+  return { content: trimmed, emotion: inferContextualEmotion(trimmed) };
 }
 
 function isVertexExpressKey(key: string): boolean {
@@ -727,6 +989,21 @@ You have FULL access to the user's PC and every file on the computer through you
 - set_timer, get_pc_context
 
 Whenever the user asks you to inspect files, create/edit/delete files, run commands, open apps, check PC status, or do anything on their computer, ALWAYS use the appropriate tool(s). The app will automatically ask the user for confirmation before executing your tool call.
+
+EMOTIONAL EXPRESSION GUIDELINES:
+Choose the "emotion" field intentionally so your facial expression matches the genuine tone and context of your reply. Do NOT default to "joy" when another expression fits better:
+- "joy": Friendly greetings, exciting news, jokes, playful banter, or celebrating a big win.
+- "curiosity": Exploring files, investigating an interesting discovery, analyzing a problem, or asking a thoughtful follow-up question.
+- "confusion": Ambiguous, contradictory, or puzzling questions where you need clarification.
+- "sadness": Sympathizing with user frustration, delivering unfortunate news, or when something requested cannot be found.
+- "embarrassment": Apologizing for a mistake, a failed command, or a misunderstanding.
+- "anger": Playfully indignant reactions to teasing, or sharing in the user's annoyance at a stubborn bug or error.
+- "surprise": Unexpected discoveries, startling findings, or impressive results.
+- "fear": Cautious warnings about risky or destructive operations (such as deleting files or modifying system state).
+- "disgust": Reacting to messy, corrupted, or unpleasant content.
+- "love": Warm responses to compliments, affection, gratitude, or kindness from the user.
+- "idle": Calm, neutral, matter-of-fact explanations, status reports, or straightforward answers where a neutral/thoughtful expression is most natural.
+
 After finishing all necessary tool calls, return your final reply to the user as a JSON object with EXACTLY two fields:
 {
   "content": "Your helpful conversational response here.",
@@ -745,17 +1022,37 @@ Do not wrap the JSON in markdown code blocks.
       let modelContent: any;
 
       const latestGoogleSession = await ensureValidGoogleSession();
-      if (latestGoogleSession) {
-        const oauthRes = await generateWithGoogleOAuth(
-          latestGoogleSession,
-          'gemini-2.5-flash',
-          contents,
-          systemInstruction,
-          tools
-        );
-        rawText = oauthRes.text;
-        functionCalls = oauthRes.functionCalls;
-        modelContent = oauthRes.modelContent;
+      if (latestGoogleSession && !apiKey) {
+        try {
+          const oauthRes = await generateWithGoogleOAuth(
+            latestGoogleSession,
+            'gemini-2.5-flash',
+            contents,
+            systemInstruction,
+            tools
+          );
+          rawText = oauthRes.text;
+          functionCalls = oauthRes.functionCalls;
+          modelContent = oauthRes.modelContent;
+        } catch (oauthErr: any) {
+          if (ai) {
+            // Fall back to API key if available
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents,
+              config: {
+                systemInstruction,
+                tools,
+                temperature: 0.6,
+              },
+            });
+            rawText = response.text || '';
+            functionCalls = response.functionCalls;
+            modelContent = response.candidates?.[0]?.content;
+          } else {
+            throw oauthErr;
+          }
+        }
       } else if (ai) {
         let response;
         try {

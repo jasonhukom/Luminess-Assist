@@ -20,7 +20,11 @@
   --robot-glow-confusion: #fb923c;
   --robot-glow-love: #f472b6;
   --robot-glow-embarrassment: #f43f5e;
-  --robot-glow-idle: #38bdf8;
+  --robot-glow-idle: #ffffff;
+  --robot-glow-dizzy: #a78bfa;
+  --robot-glow-annoyed: #fb923c;
+  --robot-glow-furious: #ff2a2a;
+  --robot-glow-broken: #94a3b8;
 }
 
 * {
