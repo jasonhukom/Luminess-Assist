@@ -147,10 +147,10 @@ export function hasApiKey(): boolean {
 export type AIProvider = 'gemini' | 'claude' | 'codex';
 
 const PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini'>, string> = {
-  claude: 'LUMINNESS_CLAUDE_API_KEY',
-  codex: 'LUMINNESS_CODEX_API_KEY',
+  claude: 'LUMINESS_CLAUDE_API_KEY',
+  codex: 'LUMINESS_CODEX_API_KEY',
 };
-const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINNESS_SELECTED_PROVIDER';
+const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINESS_SELECTED_PROVIDER';
 
 export function getProviderApiKey(provider: AIProvider): string {
   if (provider === 'gemini') return getApiKey();
@@ -1285,6 +1285,9 @@ Do not wrap the JSON in markdown code blocks.
       tools[0]?.functionDeclarations || [],
     );
   }
+
+  let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
+  let ai = apiKey ? createGenAIClient(apiKey, useVertexAi) : null;
 
   const executedActions: string[] = [];
 
