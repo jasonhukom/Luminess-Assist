@@ -1,62 +1,140 @@
 # Luminess Assist
 
-Luminess Assist is an emotional desktop AI agent designed as a small, animated robotic companion that lives on your Windows desktop. Powered by the Google Gemini API, it provides intelligent assistance, natural conversations, and real desktop integration—all wrapped in a sleek, transparent, and always-on-top interface.
+**A small, expressive AI robot that lives on your Windows desktop.**
 
-## Features
+Luminess Assist is a floating desktop companion powered by Google Gemini. It combines an animated SVG robot, a conversational chat panel, and Tauri-powered desktop integration in a lightweight, transparent window that stays above your other apps.
 
-- **Expressive Companion**: The robot displays 11 unique emotional states (Joy, Sadness, Anger, Fear, Surprise, Disgust, Curiosity, Confusion, Love, Embarrassment, Idle) with smooth, vector-based SVG animations.
-- **Floating Interface**: A frameless, transparent window that sits quietly in the bottom-right corner of your screen.
-- **Gemini Intelligence**: Leverages the Gemini API with structured function calling to understand natural language.
-- **Desktop Actions**: Ask the robot to set a timer or open an application. (Currently mocked in UI with backend extensions planned).
-- **System Tray Integration**: Easily hide, show, or quit the application via the Windows system tray.
-- **Beautiful Chat Panel**: A modern, glossy chat UI that slides out when you click the mascot.
+[**View the repository**](https://github.com/jasonhukom/Luminess-Assist) · [Releases](https://github.com/jasonhukom/Luminess-Assist/releases)
 
-## Installation
+## What it can do
 
-You can download the compiled installer for Windows directly from GitHub Releases:
-1. Navigate to the **Releases** page on this repository.
-2. Download the `Luminess Assist_x.x.x_x64_en-US.msi` or `.exe` installer.
-3. Run the installer to install the application to your computer.
-4. Launch "Luminess Assist" from your Start Menu.
+- **Expressive robot:** 11 conversational expressions—joy, sadness, anger, fear, surprise, disgust, curiosity, confusion, love, embarrassment, and idle—with emotion-specific eye shapes, neon glow, and animations.
+- **Floating desktop companion:** A frameless, transparent, always-on-top window that stays out of the taskbar.
+- **Natural conversations:** Gemini-powered responses with structured function calling.
+- **Desktop tools:** The agent can request supported actions such as inspecting files, opening items, and running PC commands. Permission prompts let you review tool actions before they run.
+- **Drag and flick physics:** Pick up the robot, move it around the screen, and flick it to give it momentum. The robot reacts to fast movement and returns to a safe on-screen area.
+- **Resizable mascot:** Use the mouse wheel over the robot to change its size.
+- **Expandable chat panel:** Click the robot to open or close its chat interface.
+- **Google sign-in:** Connect through the app's Google sign-in flow.
+- **System tray controls:** Hide, show, or quit the app from the Windows system tray.
 
-**To uninstall:**
-Navigate to Windows Settings > Apps > Installed Apps, search for "Luminess Assist", and click Uninstall.
+## Interacting with the robot
 
-## API Key Setup
+| Action | Result |
+| --- | --- |
+| Click the robot | Open or close the chat panel |
+| Click and drag | Move the companion around the desktop |
+| Flick the robot | Give it momentum and watch it return toward the safe screen area |
+| Scroll the mouse wheel over the robot | Increase or decrease its size |
+| Chat with Luminess | Receive a response with a corresponding conversational expression |
 
-Luminess Assist requires a Google Gemini API key to function.
-1. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
-2. Open the Luminess Assist chat panel.
-3. If no key is configured, the assistant will prompt you. (Currently in this scaffold, open the Developer Tools or add it to `localStorage` as `GEMINI_API_KEY`, or build the settings UI extension).
-*Note: Your API key is stored locally on your machine and never transmitted to our servers.*
+The robot already has a set of expressive faces and physical movement. More interaction-specific reactions—such as spiral-eyed dizziness, escalating frustration from repeated impacts, and floating hearts for head pats—can be added as a further animation layer without replacing the existing emotion system.
 
-## Developer Setup
+## Technology
 
-To build and run Luminess Assist locally, you need:
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://rustup.rs/) (v1.70+)
-- Windows Build Tools (C++ workloads)
+- **Frontend:** React, TypeScript, Vite
+- **Desktop runtime:** Tauri 2 and Rust
+- **AI integration:** Google GenAI SDK and Gemini
+- **UI icons:** Lucide React
+- **Styling and animation:** CSS and SVG
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/jasonhukom/Luminess-Assist.git
-   cd Luminess-Assist
-   ```
-2. Install frontend dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the development server (with Tauri):
-   ```bash
-   npx tauri dev
-   ```
+## Getting started
 
-## Automated Builds
+### Requirements
 
-This project uses **GitHub Actions** to automatically build and release the Windows application. Whenever a new tag (e.g. `v1.0.0`) is pushed, the `.github/workflows/release.yml` workflow will compile the Rust backend, bundle the React frontend, generate the installer, and publish it to the Releases page.
+For local development on Windows, install:
+
+- [Node.js](https://nodejs.org/) — Node.js 24 is used by the release workflow.
+- [Rust](https://www.rust-lang.org/tools/install) — the Tauri backend specifies Rust 1.90 or newer.
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) — required for native Windows builds.
+- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) — normally available on current Windows installations.
+
+### Run locally
+
+Clone the repository and install the dependencies:
+
+```bash
+git clone https://github.com/jasonhukom/Luminess-Assist.git
+cd Luminess-Assist
+npm ci
+```
+
+Run the desktop app in development mode:
+
+```bash
+npx tauri dev
+```
+
+Tauri starts the Vite development server and opens the desktop application.
+
+### Useful commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Run the frontend development server |
+| `npx tauri dev` | Run the desktop app in development mode |
+| `npm run build` | Type-check and build the frontend |
+| `npm run lint` | Run Oxlint |
+| `npx tauri build` | Build the desktop application and available bundles |
+
+## Signing in and using Gemini
+
+1. Launch Luminess Assist.
+2. Choose **Sign in with Google** and complete the browser sign-in flow.
+3. Return to the app and start a conversation from the robot's chat panel.
+
+Gemini access depends on the Google authentication setup being correctly configured for the environment. If sign-in or AI requests fail, check the displayed error and the Google/Gemini configuration before trying again.
+
+## Desktop-action permissions
+
+Luminess Assist can connect a conversational request to desktop tools, including filesystem operations and command execution. Review permission prompts carefully and approve only actions you understand. Automatic approval is available as an option, but leaving it disabled is the safer default—especially when a request can modify files or run commands.
+
+## Project layout
+
+```text
+Luminess-Assist/
+├── src/
+│   ├── components/
+│   │   ├── Robot.tsx          # Robot SVG, expressions, and pointer interactions
+│   │   ├── Robot.css          # Robot appearance and animations
+│   │   ├── ChatPanel.tsx      # Conversation and permission UI
+│   │   └── ChatPanel.css      # Chat panel styling
+│   ├── lib/
+│   │   └── gemini.ts          # Gemini integration, agent tools, and session handling
+│   ├── App.tsx                # Application state and desktop UI coordination
+│   ├── App.css
+│   └── main.tsx
+├── src-tauri/
+│   ├── src/                   # Rust desktop commands and system tray
+│   ├── capabilities/
+│   └── tauri.conf.json        # Tauri window and bundling configuration
+├── .github/workflows/
+│   └── release.yml            # Windows release workflow
+├── package.json
+└── README.md
+```
+
+## Building releases
+
+The GitHub Actions workflow at `.github/workflows/release.yml` builds the Windows application when a version tag matching `v*` is pushed. It also supports manual workflow dispatch.
+
+For a published installer, visit the [GitHub Releases page](https://github.com/jasonhukom/Luminess-Assist/releases). Available downloads depend on the releases that have been published.
 
 ## Troubleshooting
 
-- **Robot is not visible**: Ensure your graphics drivers support transparency. Check the Windows system tray for the Luminess Assist icon, right-click, and select "Show Mascot".
-- **API Errors**: Ensure your Gemini API key is valid and has not exceeded quota.
-- **Build Errors**: Ensure you have installed the "Desktop development with C++" workload via the Visual Studio Installer.
+**The robot is not visible**
+- Check that Luminess Assist is running and look for its system tray icon.
+- If the window is invisible or incorrectly rendered, check Windows graphics drivers and restart the app.
+
+**Google sign-in or Gemini requests fail**
+- Confirm that the Google sign-in flow completes successfully and the configured Gemini access is valid.
+- Check the app's displayed error and retry after resolving any authentication or quota issue.
+
+**The desktop build fails**
+- Run `npm ci` again if dependencies are incomplete.
+- Confirm that Node.js, Rust, and the Windows C++ build tools are installed.
+- Run `npm run build` to check frontend TypeScript/build errors before retrying `npx tauri dev` or `npx tauri build`.
+
+---
+
+Built as an expressive desktop companion by [Jason Hukom](https://github.com/jasonhukom).
