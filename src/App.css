@@ -3,37 +3,51 @@
   width: 100vw;
   height: 100vh;
   display: flex;
-  padding: 20px;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
   pointer-events: none;
-}
-
-.app-container.companion-mode {
-  justify-content: flex-end;
-  align-items: flex-end;
+  overflow: hidden;
 }
 
 .app-container.centered-mode {
   justify-content: center;
   align-items: center;
+  padding: 10px;
+}
+
+.app-container.companion-bot-only {
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+}
+
+.app-container.companion-chat-open {
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 10px;
 }
 
 .robot-wrapper {
   pointer-events: auto;
   z-index: 10;
   flex-shrink: 0;
+  background: transparent !important;
+  border: none !important;
 }
 
 .chat-panel-wrapper {
   pointer-events: auto;
-  margin-right: 18px;
+  margin-right: 12px;
   z-index: 5;
-  animation: slideIn 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  animation: slideIn 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @keyframes slideIn {
   from {
     opacity: 0;
-    transform: translateX(40px) scale(0.92);
+    transform: translateX(30px) scale(0.94);
   }
   to {
     opacity: 1;
@@ -44,48 +58,35 @@
 /* Centered Initial AI API Key Modal */
 .api-modal-backdrop {
   --panel-glow: var(--robot-glow-idle);
-  pointer-events: auto;
+  pointer-events: none;
+  background: transparent !important;
+  border: none !important;
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
   height: 100%;
-  animation: fadeScaleIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes fadeScaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 .api-modal-card {
-  width: clamp(300px, 88vw, 440px);
+  pointer-events: auto;
+  width: clamp(300px, 92vw, 430px);
   max-height: 94vh;
   overflow-y: auto;
-  resize: both;
-  min-width: 280px;
-  min-height: 360px;
   background: rgba(16, 17, 26, 0.92);
   backdrop-filter: blur(26px);
   -webkit-backdrop-filter: blur(26px);
   border: 1.5px solid color-mix(in oklch, var(--panel-glow) 70%, rgba(255, 255, 255, 0.22));
   border-radius: 26px;
-  padding: 24px 26px;
+  padding: 22px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 12px;
+  gap: 11px;
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.78),
-    0 0 42px -4px color-mix(in oklch, var(--panel-glow) 60%, transparent),
-    inset 0 0 24px -10px color-mix(in oklch, var(--panel-glow) 50%, transparent);
+    0 14px 36px rgba(0, 0, 0, 0.72),
+    0 0 28px -4px color-mix(in oklch, var(--panel-glow) 55%, transparent);
 }
 
 .api-modal-robot-preview {
@@ -110,7 +111,7 @@
 
 .api-modal-title {
   margin: 2px 0 0;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #ffffff;
@@ -121,7 +122,7 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--color-text-muted);
-  max-width: 360px;
+  max-width: 350px;
 }
 
 .aistudio-link-btn {

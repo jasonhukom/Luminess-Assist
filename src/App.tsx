@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
@@ -30,59 +30,156 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [isDraggingBot, setIsDraggingBot] = useState<boolean>(false);
 
-  // Responsive sizes for Chat Panel border and Robot
   const [panelSize, setPanelSize] = useState<{ width: number; height: number }>({
     width: 380,
-    height: 520,
+    height: 500,
   });
-  const [robotSize, setRobotSize] = useState<number>(190);
+  const [robotSize, setRobotSize] = useState<number>(180);
 
-  // User permission state for PC & File access
   const [autoApprove, setAutoApprove] = useState<boolean>(false);
   const autoApproveRef = useRef<boolean>(false);
   const [pendingPermission, setPendingPermission] = useState<ToolPermissionRequest | null>(null);
   const permissionResolverRef = useRef<((approved: boolean) => void) | null>(null);
 
+  const modalCardRef = useRef<HTMLDivElement>(null);
+  const chatWrapRef = useRef<HTMLDivElement>(null);
+  const robotWrapRef = useRef<HTMLDivElement>(null);
+
+  const prevModeRef = useRef<{ showApiModal: boolean; chatOpen: boolean }>({
+    showApiModal: true,
+    chatOpen: false,
+  });
+
   useEffect(() => {
     autoApproveRef.current = autoApprove;
   }, [autoApprove]);
 
-  // Center window on startup when asking for the AI API key in the middle
-  useEffect(() => {
-    void invoke('center_window').catch(() => {});
-  }, []);
+  // Report interactive regions to Rust so transparent background is 100% click-through
+  const syncInteractiveRegions = useCallback(() => {
+    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-  // Dynamically grow Tauri window if user resizes the border or robot larger than current window
+    if (showApiModal) {
+      const el = modalCardRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
+    } else {
+      if (chatOpen && chatWrapRef.current) {
+        const r = chatWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
+      if (robotWrapRef.current) {
+        const r = robotWrapRef.current.getBoundingClientRect();
+        // Tighten hit box to the character model part itself
+        const insetX = r.width * 0.12;
+        const insetTop = r.height * 0.06;
+        const insetBottom = r.height * 0.16;
+        rects.push({
+          x: r.left + insetX,
+          y: r.top + insetTop,
+          width: Math.max(40, r.width - insetX * 2),
+          height: Math.max(40, r.height - insetTop - insetBottom),
+        });
+      }
+    }
+
+    void invoke('set_interactive_regions', {
+      rects,
+      forceInteractive: isDraggingBot,
+      companionActive: !showApiModal,
+    }).catch(() => {});
+  }, [showApiModal, chatOpen, isDraggingBot]);
+
   useEffect(() => {
-    const syncWindowSize = async () => {
+    syncInteractiveRegions();
+    const timer = window.setInterval(syncInteractiveRegions, 120);
+    window.addEventListener('resize', syncInteractiveRegions);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('resize', syncInteractiveRegions);
+    };
+  }, [syncInteractiveRegions, panelSize, robotSize]);
+
+  // Dynamically enlarge window when chat/modal is open and shrink to ONLY the bot when closed
+  useEffect(() => {
+    const updateWindowGeometry = async () => {
       try {
-        const dpr = window.devicePixelRatio || 1;
-        const neededWidthCss = showApiModal
-          ? 760
-          : chatOpen
-            ? panelSize.width + robotSize + 90
-            : Math.max(520, robotSize + 140);
-        const neededHeightCss = showApiModal
-          ? 660
-          : chatOpen
-            ? Math.max(panelSize.height + 60, robotSize + 120)
-            : Math.max(520, robotSize + 140);
-
         const bounds: any = await invoke('get_window_bounds');
-        const targetW = Math.round(Math.max(bounds.width / dpr, neededWidthCss) * dpr);
-        const targetH = Math.round(Math.max(bounds.height / dpr, neededHeightCss) * dpr);
+        const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
 
-        if (Math.abs(targetW - bounds.width) > 10 || Math.abs(targetH - bounds.height) > 10) {
-          await invoke('set_window_size', { width: targetW, height: targetH });
+        const targetCssW = showApiModal
+          ? 480
+          : chatOpen
+            ? panelSize.width + robotSize + 36
+            : robotSize + 20;
+
+        const targetCssH = showApiModal
+          ? 560
+          : chatOpen
+            ? Math.max(panelSize.height + 24, robotSize + 24)
+            : robotSize + 20;
+
+        const targetW = Math.round(targetCssW * dpr);
+        const targetH = Math.round(targetCssH * dpr);
+
+        const prev = prevModeRef.current;
+        prevModeRef.current = { showApiModal, chatOpen };
+
+        // If showing API modal or just closed API modal -> keep centered in the middle of the screen
+        if (showApiModal || (prev.showApiModal && !showApiModal)) {
+          const centerX = bounds.monitor_x + Math.round((bounds.monitor_width - targetW) / 2);
+          const centerY = bounds.monitor_y + Math.round((bounds.monitor_height - targetH) / 2);
+          await invoke('set_window_rect', {
+            x: centerX,
+            y: centerY,
+            width: targetW,
+            height: targetH,
+          });
+          setTimeout(syncInteractiveRegions, 40);
+          return;
+        }
+
+        // When toggling chatOpen (or resizing while in companion mode), anchor the bot's bottom-right corner
+        // so the bot stays in place while the window largens for chat or smallens back to only the bot
+        const botRightX = bounds.x + bounds.width;
+        const botBottomY = bounds.y + bounds.height;
+
+        let newX = botRightX - targetW;
+        let newY = botBottomY - targetH;
+
+        const minX = bounds.monitor_x + 8;
+        const maxX = bounds.monitor_x + bounds.monitor_width - targetW - 8;
+        const minY = bounds.monitor_y + 8;
+        const maxY = bounds.monitor_y + bounds.monitor_height - targetH - 48;
+
+        newX = Math.max(minX, Math.min(maxX, newX));
+        newY = Math.max(minY, Math.min(maxY, newY));
+
+        if (
+          Math.abs(targetW - bounds.width) > 4 ||
+          Math.abs(targetH - bounds.height) > 4 ||
+          prev.chatOpen !== chatOpen
+        ) {
+          await invoke('set_window_rect', {
+            x: Math.round(newX),
+            y: Math.round(newY),
+            width: targetW,
+            height: targetH,
+          });
+          setTimeout(syncInteractiveRegions, 40);
         }
       } catch {
         // Ignore outside Tauri runtime
       }
     };
-    void syncWindowSize();
-  }, [panelSize, robotSize, chatOpen, showApiModal]);
 
+    void updateWindowGeometry();
+  }, [showApiModal, chatOpen, panelSize, robotSize, syncInteractiveRegions]);
+
+  // Press Esc to close chat and shrink back to only the bot
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !showApiModal) {
@@ -105,7 +202,7 @@ function App() {
     e.preventDefault();
     const trimmed = apiKeyInput.trim();
     if (!trimmed) {
-      setApiError('Please enter your Gemini API key from Google AI Studio.');
+      setApiError('Please enter your API key from Google AI Studio.');
       setEmotion('confusion');
       return;
     }
@@ -113,24 +210,15 @@ function App() {
     setApiError('');
     setShowApiModal(false);
     setEmotion('joy');
-    setChatOpen(true);
-    try {
-      await invoke('move_to_corner');
-    } catch {
-      // ignore
-    }
+    setChatOpen(false);
   };
 
   const handleOpenApiModal = async () => {
     setApiKeyInput(getApiKey());
     setApiError('');
+    setChatOpen(false);
     setShowApiModal(true);
     setEmotion('curiosity');
-    try {
-      await invoke('center_window');
-    } catch {
-      // ignore
-    }
   };
 
   const handleRobotClick = () => {
@@ -214,17 +302,22 @@ function App() {
   };
 
   return (
-    <div className={`app-container ${showApiModal ? 'centered-mode' : 'companion-mode'}`}>
+    <div
+      className={`app-container ${
+        showApiModal ? 'centered-mode' : chatOpen ? 'companion-chat-open' : 'companion-bot-only'
+      }`}
+    >
       {showApiModal ? (
         <div className={`api-modal-backdrop emotion-border-${emotion}`}>
-          <div className="api-modal-card">
+          <div ref={modalCardRef} className="api-modal-card">
             <div className="api-modal-robot-preview">
               <Robot
                 emotion={emotion}
-                size={135}
+                size={130}
                 onResize={setRobotSize}
                 onClick={() => setEmotion('joy')}
                 onEmotionChange={setEmotion}
+                onDragStateChange={setIsDraggingBot}
               />
             </div>
 
@@ -235,7 +328,7 @@ function App() {
 
             <h1 className="api-modal-title">Enter Your AI API Key</h1>
             <p className="api-modal-subtitle">
-              Connect your Google Gemini API key so Luminess can chat, manage files, and help you with anything on your PC.
+              Connect your Google AI Studio or Vertex AI Express key so Luminess can chat, manage files, and help you on your PC.
             </p>
 
             <button
@@ -284,7 +377,7 @@ function App() {
       ) : (
         <>
           {chatOpen && (
-            <div className="chat-panel-wrapper">
+            <div ref={chatWrapRef} className="chat-panel-wrapper">
               <ChatPanel
                 messages={messages}
                 emotion={emotion}
@@ -305,13 +398,14 @@ function App() {
             </div>
           )}
 
-          <div className="robot-wrapper">
+          <div ref={robotWrapRef} className="robot-wrapper">
             <Robot
               emotion={emotion}
               size={robotSize}
               onResize={setRobotSize}
               onClick={handleRobotClick}
               onEmotionChange={setEmotion}
+              onDragStateChange={setIsDraggingBot}
             />
           </div>
         </>
