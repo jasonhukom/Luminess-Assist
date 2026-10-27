@@ -14,8 +14,8 @@
       {
         "title": "Luminess Assist",
         "label": "main",
-        "width": 520,
-        "height": 580,
+        "width": 620,
+        "height": 740,
         "minWidth": 80,
         "minHeight": 80,
         "resizable": false,

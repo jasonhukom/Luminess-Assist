@@ -33,18 +33,18 @@
     drop-shadow(0 0 30px var(--current-glow));
 }
 
-/* Contained glow inside the character model so it never clips into a box */
+/* Ambient glow with generous window box padding so it never clips */
 .robot-glow-bg {
   position: absolute;
   top: 52%;
   left: 50%;
-  width: 52%;
-  height: 52%;
+  width: 74%;
+  height: 74%;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background-color: var(--current-glow);
-  filter: blur(20px);
-  opacity: 0.55;
+  filter: blur(26px);
+  opacity: 0.62;
   z-index: -2;
   pointer-events: none;
   transition: background-color 0.45s ease, opacity 0.45s ease;
@@ -54,13 +54,13 @@
   position: absolute;
   top: 52%;
   left: 50%;
-  width: 36%;
-  height: 36%;
+  width: 48%;
+  height: 48%;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: radial-gradient(circle, #ffffff 0%, var(--current-glow) 55%, transparent 100%);
-  filter: blur(12px);
-  opacity: 0.45;
+  filter: blur(15px);
+  opacity: 0.52;
   z-index: -1;
   pointer-events: none;
   transition: background 0.45s ease;

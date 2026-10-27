@@ -111,16 +111,16 @@ function App() {
         const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
 
         const targetCssW = showApiModal
-          ? 480
+          ? 620
           : chatOpen
-            ? panelSize.width + robotSize + 36
-            : robotSize + 20;
+            ? panelSize.width + robotSize + 160
+            : robotSize + 160;
 
         const targetCssH = showApiModal
-          ? 560
+          ? 740
           : chatOpen
-            ? Math.max(panelSize.height + 24, robotSize + 24)
-            : robotSize + 20;
+            ? Math.max(panelSize.height + 144, robotSize + 144)
+            : robotSize + 160;
 
         const targetW = Math.round(targetCssW * dpr);
         const targetH = Math.round(targetCssH * dpr);
@@ -150,10 +150,11 @@ function App() {
         let newX = botRightX - targetW;
         let newY = botBottomY - targetH;
 
-        const minX = bounds.monitor_x + 8;
-        const maxX = bounds.monitor_x + bounds.monitor_width - targetW - 8;
-        const minY = bounds.monitor_y + 8;
-        const maxY = bounds.monitor_y + bounds.monitor_height - targetH - 48;
+        const glowAllowance = Math.round(56 * dpr);
+        const minX = bounds.monitor_x - glowAllowance;
+        const maxX = bounds.monitor_x + bounds.monitor_width - targetW + glowAllowance;
+        const minY = bounds.monitor_y - glowAllowance;
+        const maxY = bounds.monitor_y + bounds.monitor_height - targetH - Math.round(24 * dpr) + glowAllowance;
 
         newX = Math.max(minX, Math.min(maxX, newX));
         newY = Math.max(minY, Math.min(maxY, newY));
