@@ -16,6 +16,8 @@ Luminess Assist is a floating desktop companion powered by Google Gemini. It com
 - **Resizable mascot:** Use the mouse wheel over the robot to change its size.
 - **Expandable chat panel:** Click the robot to open or close its chat interface.
 - **Google sign-in:** Connect through the app's Google sign-in flow.
+- **AURA boot sequence:** A full-window cyberpunk startup screen with a timed boot trace, animated visual telemetry, code panels, module status, and signal displays.
+- **Multi-provider setup:** Choose Gemini, Claude, or Codex/OpenAI from the first-run setup, open the provider's API-key page, and enter the key for the selected engine.
 - **System tray controls:** Hide, show, or quit the app from the Windows system tray.
 
 ## Interacting with the robot
@@ -77,13 +79,18 @@ Tauri starts the Vite development server and opens the desktop application.
 | `npm run lint` | Run Oxlint |
 | `npx tauri build` | Build the desktop application and available bundles |
 
-## Signing in and using Gemini
+## AURA setup and AI providers
 
-1. Launch Luminess Assist.
-2. Choose **Sign in with Google** and complete the browser sign-in flow.
-3. Return to the app and start a conversation from the robot's chat panel.
+The AURA startup screen plays before the first-run setup. It then presents Google account connection first, followed by the provider selector and a key field.
 
-Gemini access depends on the Google authentication setup being correctly configured for the environment. If sign-in or AI requests fail, check the displayed error and the Google/Gemini configuration before trying again.
+- **Gemini:** Sign in with Google or supply a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+- **Claude:** Supply an Anthropic API key from [Claude Console](https://platform.claude.com/settings/keys).
+- **Codex / OpenAI API:** Supply an OpenAI API key from the [OpenAI API keys page](https://platform.openai.com/api-keys). This provider uses the OpenAI Responses API; it is not a ChatGPT/Codex subscription sign-in.
+
+Provider selection and API keys are saved in the local WebView storage. This is not an encrypted credential vault, so use a trusted Windows account and avoid sharing the device while keys are configured. Conversation requests are sent to the provider you select.
+
+The startup graphs and progress displays are visual UI telemetry for the boot sequence; they are not measurements of hardware power consumption or a live process-monitoring dashboard.
+
 
 ## Desktop-action permissions
 

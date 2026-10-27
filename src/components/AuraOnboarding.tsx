@@ -60,7 +60,7 @@ const PROVIDERS: Array<{
     mark: 'C',
     description: 'Claude models for thoughtful conversations and agentic tasks.',
     model: 'Claude Sonnet 5.5',
-    url: 'https://console.anthropic.com/settings/keys',
+    url: 'https://platform.claude.com/settings/keys',
     keyLabel: 'ANTHROPIC API KEY',
     placeholder: 'Paste your Anthropic API key',
     color: 'claude',
@@ -204,7 +204,7 @@ export function AuraOnboarding({
                 {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
-            <div className="aura-key-foot"><LockKeyhole size={11} /> Saved locally in this app's webview storage.</div>
+            <div className="aura-key-foot"><LockKeyhole size={11} /> Stored in local WebView storage (not encrypted). Use only on a trusted device.</div>
           </div>
         </section>
 
@@ -226,7 +226,7 @@ export function AuraOnboarding({
       <footer className="aura-setup-footer">
         <span><span className="aura-footer-dot" /> SYSTEM READY</span>
         <span>GOOGLE AUTH · GEMINI · CLAUDE · CODEX</span>
-        <span>SESSION DATA STAYS LOCAL</span>
+        <span>API KEYS STORED LOCALLY</span>
       </footer>
     </main>
   );

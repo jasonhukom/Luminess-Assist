@@ -176,7 +176,7 @@ export function AuraBootScreen({ onComplete }: AuraBootScreenProps) {
                 </div>
               ))}
             </div>
-            <div className="aura-module-foot"><LockKeyhole size={11} /> PRIVATE SESSION / NO REMOTE DASHBOARD</div>
+            <div className="aura-module-foot"><LockKeyhole size={11} /> LOCAL SETUP / PROVIDER LINKS DIRECT</div>
           </article>
 
           <article className="aura-panel aura-activity-panel">
