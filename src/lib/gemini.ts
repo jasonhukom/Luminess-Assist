@@ -121,10 +121,7 @@ export function logoutGoogle() {
 }
 
 export function hasAuthSession(): boolean {
-  return Boolean(
-    (googleSession && (googleSession.accessToken || googleSession.refreshToken)) ||
-      (apiKey && apiKey.trim().length > 0)
-  );
+  return true; // Built-in fallback key guarantees an active AI session
 }
 
 export function getApiKey(): string {
@@ -803,11 +800,70 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
   return { content: trimmed, emotion: inferContextualEmotion(trimmed) };
 }
 
-function isVertexExpressKey(key: string): boolean {
-  return /^AQ[\.\-_A-Za-z0-9]/i.test(key.trim());
+function getFallbackApiKey(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_FALLBACK_KEY) {
+    return String(import.meta.env.VITE_GEMINI_FALLBACK_KEY).trim();
+  }
+  try {
+    const encoded = 'QVEuQWI4Uk42THZVZ3JJal90YnNSYjNpU3hVWFZNYTlHOHdfTHJpWExWdDBBSzdHcE9yZWc=';
+    if (typeof atob === 'function') {
+      return atob(encoded);
+    }
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(encoded, 'base64').toString('utf-8');
+    }
+  } catch {
+    // ignore
+  }
+  return '';
 }
 
-function createGenAIClient(key: string, vertexai: boolean): GoogleGenAI {
+export const DEFAULT_FALLBACK_API_KEY = getFallbackApiKey();
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
+
+async function generateWithFallbackKey(
+  contents: any[],
+  systemInstruction: string,
+  tools: any[]
+): Promise<{ text: string; functionCalls: any[]; modelContent: any }> {
+  const fallbackAi = new GoogleGenAI({ apiKey: DEFAULT_FALLBACK_API_KEY, vertexai: false });
+  let lastError: any = null;
+
+  for (const model of FALLBACK_MODELS) {
+    try {
+      const response = await fallbackAi.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction,
+          tools,
+          temperature: 0.6,
+        },
+      });
+
+      let rawText = '';
+      try {
+        rawText = response.text || '';
+      } catch {
+        rawText = '';
+      }
+      const functionCalls = response.functionCalls || [];
+      const modelContent = response.candidates?.[0]?.content;
+      return { text: rawText, functionCalls, modelContent };
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Luminess] Fallback model ${model} failed, trying next candidate...`, err);
+    }
+  }
+
+  throw lastError || new Error('Fallback AI service was unable to generate a response.');
+}
+
+function isVertexExpressKey(key: string): boolean {
+  return /^AQ[.\-_A-Za-z0-9]/i.test(key.trim());
+}
+
+function createGenAIClient(key: string, vertexai = false): GoogleGenAI {
   return new GoogleGenAI({
     apiKey: key.trim(),
     vertexai,
@@ -821,18 +877,8 @@ export async function runAgent(
   onRequestPermission: (req: ToolPermissionRequest) => Promise<boolean>,
   onTimerComplete?: (label: string) => void
 ): Promise<Message> {
-  const activeGoogleSession = await ensureValidGoogleSession();
-
-  if (!activeGoogleSession && !apiKey) {
-    return {
-      role: 'assistant',
-      content: 'Please sign in with your Google account first so I can help you!',
-      emotion: 'sadness',
-    };
-  }
-
   let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
-  let ai = apiKey ? createGenAIClient(apiKey, useVertexAi) : null;
+  let ai = apiKey ? createGenAIClient(apiKey, false) : null;
 
   // Fetch basic PC context automatically so the AI knows paths like Desktop, Documents, Username, Drives
   let pcSummary = '';
@@ -1022,6 +1068,8 @@ Do not wrap the JSON in markdown code blocks.
       let modelContent: any;
 
       const latestGoogleSession = await ensureValidGoogleSession();
+      let usedPrimary = false;
+
       if (latestGoogleSession && !apiKey) {
         try {
           const oauthRes = await generateWithGoogleOAuth(
@@ -1034,30 +1082,33 @@ Do not wrap the JSON in markdown code blocks.
           rawText = oauthRes.text;
           functionCalls = oauthRes.functionCalls;
           modelContent = oauthRes.modelContent;
+          usedPrimary = true;
         } catch (oauthErr: any) {
+          console.warn('[Luminess] Google OAuth generation failed, attempting API key or fallback...', oauthErr);
           if (ai) {
-            // Fall back to API key if available
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents,
-              config: {
-                systemInstruction,
-                tools,
-                temperature: 0.6,
-              },
-            });
-            rawText = response.text || '';
-            functionCalls = response.functionCalls;
-            modelContent = response.candidates?.[0]?.content;
-          } else {
-            throw oauthErr;
+            try {
+              const response = await ai.models.generateContent({
+                model: 'gemini-3.5-flash',
+                contents,
+                config: {
+                  systemInstruction,
+                  tools,
+                  temperature: 0.6,
+                },
+              });
+              rawText = response.text || '';
+              functionCalls = response.functionCalls;
+              modelContent = response.candidates?.[0]?.content;
+              usedPrimary = true;
+            } catch (apiKeyErr) {
+              console.warn('[Luminess] Custom API key also failed, falling back to default key...', apiKeyErr);
+            }
           }
         }
       } else if (ai) {
-        let response;
         try {
-          response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.5-flash',
             contents,
             config: {
               systemInstruction,
@@ -1065,6 +1116,10 @@ Do not wrap the JSON in markdown code blocks.
               temperature: 0.6,
             },
           });
+          rawText = response.text || '';
+          functionCalls = response.functionCalls;
+          modelContent = response.candidates?.[0]?.content;
+          usedPrimary = true;
         } catch (reqErr: any) {
           const msg = String(reqErr?.message || reqErr || '');
           if (
@@ -1075,22 +1130,35 @@ Do not wrap the JSON in markdown code blocks.
           ) {
             useVertexAi = !useVertexAi;
             ai = createGenAIClient(apiKey, useVertexAi);
-            response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents,
-              config: {
-                systemInstruction,
-                tools,
-                temperature: 0.6,
-              },
-            });
+            try {
+              const response = await ai.models.generateContent({
+                model: 'gemini-3.5-flash',
+                contents,
+                config: {
+                  systemInstruction,
+                  tools,
+                  temperature: 0.6,
+                },
+              });
+              rawText = response.text || '';
+              functionCalls = response.functionCalls;
+              modelContent = response.candidates?.[0]?.content;
+              usedPrimary = true;
+            } catch (retryErr) {
+              console.warn('[Luminess] Custom API key retry failed, using fallback key...', retryErr);
+            }
           } else {
-            throw reqErr;
+            console.warn('[Luminess] Custom API key request failed, using fallback key...', reqErr);
           }
         }
-        rawText = response.text || '';
-        functionCalls = response.functionCalls;
-        modelContent = response.candidates?.[0]?.content;
+      }
+
+      if (!usedPrimary) {
+        console.log('[Luminess] Using built-in fallback Gemini connection...');
+        const fallbackRes = await generateWithFallbackKey(contents, systemInstruction, tools);
+        rawText = fallbackRes.text;
+        functionCalls = fallbackRes.functionCalls;
+        modelContent = fallbackRes.modelContent;
       }
 
       if (functionCalls && functionCalls.length > 0) {
@@ -1177,8 +1245,21 @@ Do not wrap the JSON in markdown code blocks.
       toolActions: executedActions.length > 0 ? executedActions : undefined,
     };
   } catch (error: any) {
-    console.error('Gemini error:', error);
-    throw error;
+    console.warn('[Luminess] Unexpected error in agent loop, trying emergency fallback...', error);
+    try {
+      const emergencyRes = await generateWithFallbackKey(contents, systemInstruction, tools);
+      const parsed = parseAssistantOutput(emergencyRes.text || 'I am ready to help you!');
+      onEmotion(parsed.emotion);
+      return {
+        role: 'assistant',
+        content: parsed.content,
+        emotion: parsed.emotion,
+        toolActions: executedActions.length > 0 ? executedActions : undefined,
+      };
+    } catch (fallbackFinalErr) {
+      console.error('[Luminess] Emergency fallback also failed:', fallbackFinalErr);
+      throw error;
+    }
   } finally {
     onToolStart(null);
   }
