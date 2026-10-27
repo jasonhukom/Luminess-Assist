@@ -163,6 +163,17 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
   return { content: trimmed, emotion: 'joy' };
 }
 
+function isVertexExpressKey(key: string): boolean {
+  return /^AQ[\.\-_A-Za-z0-9]/i.test(key.trim());
+}
+
+function createGenAIClient(key: string, vertexai: boolean): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: key.trim(),
+    vertexai,
+  });
+}
+
 export async function runAgent(
   history: Message[],
   onToolStart: (toolName: string | null) => void,
@@ -173,12 +184,13 @@ export async function runAgent(
   if (!apiKey) {
     return {
       role: 'assistant',
-      content: 'I need a Gemini API key to function! Click the key/settings button to set your API key from Google AI Studio.',
+      content: 'I need an API key to function! Click the key/settings button to set your API key from Google AI Studio.',
       emotion: 'sadness'
     };
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  let useVertexAi = isVertexExpressKey(apiKey);
+  let ai = createGenAIClient(apiKey, useVertexAi);
 
   // Fetch basic PC context automatically so the AI knows paths like Desktop, Documents, Username, Drives
   let pcSummary = '';
@@ -348,15 +360,40 @@ Do not wrap the JSON in markdown code blocks.
   try {
     let maxTurns = 10;
     while (maxTurns-- > 0) {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents,
-        config: {
-          systemInstruction,
-          tools,
-          temperature: 0.6,
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents,
+          config: {
+            systemInstruction,
+            tools,
+            temperature: 0.6,
+          }
+        });
+      } catch (reqErr: any) {
+        const msg = String(reqErr?.message || reqErr || '');
+        if (
+          msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+          msg.includes('UNAUTHENTICATED') ||
+          msg.includes('API_KEY_INVALID') ||
+          msg.includes('401')
+        ) {
+          useVertexAi = !useVertexAi;
+          ai = createGenAIClient(apiKey, useVertexAi);
+          response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents,
+            config: {
+              systemInstruction,
+              tools,
+              temperature: 0.6,
+            }
+          });
+        } else {
+          throw reqErr;
         }
-      });
+      }
 
       const functionCalls = response.functionCalls;
       if (functionCalls && functionCalls.length > 0) {

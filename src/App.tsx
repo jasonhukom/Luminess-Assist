@@ -257,7 +257,7 @@ function App() {
                     setApiKeyInput(e.target.value);
                     if (apiError) setApiError('');
                   }}
-                  placeholder="Paste your Gemini API key (AIzaSy...)"
+                  placeholder="Paste your API key (AQ... or AIza...)"
                   autoFocus
                 />
                 <button
