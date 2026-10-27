@@ -396,7 +396,7 @@ function App() {
       setProviderApiKey(provider, providerKeys[provider]);
     });
     setSelectedProvider(selectedProvider);
-    localStorage.setItem('LUMINESS_SETUP_COMPLETED', 'true');
+    localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
     setApiError('');
     setShowApiModal(false);
     setEmotion('idle');
@@ -538,7 +538,7 @@ function App() {
                 activeTool={activeTool}
                 pendingPermission={pendingPermission}
                 autoApprove={autoApprove}
-                onToggleAutoApprove={() => setAutoApprove((value) => !value)}
+                onToggleAutoApprove={() => setAutoApprove((v) => !v)}
                 onPermissionDecision={handlePermissionDecision}
                 onSendMessage={handleSendMessage}
                 onOpenApiModal={handleOpenApiModal}
