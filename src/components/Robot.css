@@ -1,56 +1,183 @@
 .robot-container {
-  width: 200px;
-  height: 200px;
+  --current-glow: var(--robot-glow-idle);
   position: relative;
   cursor: grab;
-  filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
-  transition: transform 0.2s ease, filter 0.3s ease;
+  user-select: none;
+  touch-action: none;
+  filter:
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.65))
+    drop-shadow(0 0 18px color-mix(in oklch, var(--current-glow) 55%, transparent));
+  transition: filter 0.35s ease, width 0.15s ease, height 0.15s ease;
+  isolation: isolate;
 }
 
-.robot-container:active {
+.robot-container:hover {
+  filter:
+    drop-shadow(0 10px 22px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 26px color-mix(in oklch, var(--current-glow) 75%, transparent));
+}
+
+.robot-container.is-dragging {
   cursor: grabbing;
-  transform: scale(0.95);
+  filter:
+    drop-shadow(0 14px 28px rgba(0, 0, 0, 0.75))
+    drop-shadow(0 0 34px var(--current-glow));
+}
+
+.robot-container.is-flying {
+  filter:
+    drop-shadow(0 16px 30px rgba(0, 0, 0, 0.8))
+    drop-shadow(0 0 42px var(--current-glow));
+}
+
+/* Multi-layer ambient glow aura */
+.robot-glow-outer {
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--current-glow) 55%, transparent) 0%,
+    color-mix(in oklch, var(--current-glow) 22%, transparent) 45%,
+    transparent 74%
+  );
+  filter: blur(26px);
+  opacity: 0.85;
+  z-index: -3;
+  pointer-events: none;
+  animation: auraPulse 3.5s ease-in-out infinite;
+  transition: background 0.5s ease;
 }
 
 .robot-glow-bg {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 140px;
-  height: 140px;
+  width: 78%;
+  height: 78%;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  filter: blur(40px);
-  opacity: 0.4;
+  background-color: var(--current-glow);
+  filter: blur(32px);
+  opacity: 0.65;
+  z-index: -2;
+  pointer-events: none;
+  transition: background-color 0.45s ease, opacity 0.45s ease;
+}
+
+.robot-glow-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 48%;
+  height: 48%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, var(--current-glow) 55%, transparent 100%);
+  filter: blur(18px);
+  opacity: 0.55;
   z-index: -1;
-  transition: background-color 0.5s ease;
+  pointer-events: none;
+  transition: background 0.45s ease;
+}
+
+@keyframes auraPulse {
+  0%, 100% {
+    transform: scale(0.95);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* Corner resize handle on the robot */
+.robot-resize-handle {
+  position: absolute;
+  top: 6%;
+  left: 6%;
+  width: 22px;
+  height: 22px;
+  border-top: 3px solid var(--current-glow);
+  border-left: 3px solid var(--current-glow);
+  border-top-left-radius: 8px;
+  opacity: 0;
+  cursor: nwse-resize;
+  z-index: 20;
+  filter: drop-shadow(0 0 6px var(--current-glow));
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.robot-container:hover .robot-resize-handle {
+  opacity: 0.85;
+}
+
+.robot-resize-handle:hover {
+  opacity: 1 !important;
+  transform: scale(1.15);
+}
+
+.robot-status-pill {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--current-glow);
+  box-shadow: 0 0 14px var(--current-glow);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.robot-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  animation: float 4s ease-in-out infinite;
+}
+
+.robot-container.is-dragging .robot-svg,
+.robot-container.is-flying .robot-svg {
+  animation: none;
 }
 
 .robot-head {
-  fill: #1a1a24;
-  stroke: #333344;
-  stroke-width: 2;
+  fill: url(#head-shell);
+  stroke: var(--current-glow);
+  stroke-width: 2.8;
+  filter: drop-shadow(0 0 8px color-mix(in oklch, var(--current-glow) 60%, transparent));
+  transition: stroke 0.45s ease, fill 0.45s ease;
 }
 
 .robot-ear {
-  fill: #2a2a35;
-  stroke: #1a1a24;
-  stroke-width: 2;
+  fill: #232438;
+  stroke: var(--current-glow);
+  stroke-width: 2.2;
+  transition: stroke 0.45s ease;
 }
 
 .robot-antenna-stem {
-  fill: #333344;
+  fill: #4f46e5;
 }
 
 .robot-antenna-bulb {
-  fill: var(--robot-glow-idle);
-  transition: fill 0.5s ease;
+  fill: var(--current-glow);
+  transition: fill 0.45s ease, transform 0.3s ease;
+  filter: drop-shadow(0 0 10px var(--current-glow));
 }
 
 .robot-screen {
-  fill: #0a0a0f;
-  stroke: #222233;
-  stroke-width: 4;
+  fill: #090a10;
+  stroke: color-mix(in oklch, var(--current-glow) 80%, #6366f1);
+  stroke-width: 3.2;
+  transition: stroke 0.45s ease;
 }
 
 .eyes-container {
@@ -59,148 +186,147 @@
 }
 
 .eye {
-  fill: var(--robot-glow-idle);
+  fill: var(--current-glow);
+  filter: drop-shadow(0 0 6px var(--current-glow));
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: center;
+  animation: blink 5s infinite;
 }
 
 .left-eye {
   transform-origin: 75px 95px;
 }
+
 .right-eye {
   transform-origin: 125px 95px;
 }
 
 .mouth {
   fill: none;
-  stroke: var(--robot-glow-idle);
+  stroke: var(--current-glow);
   stroke-width: 4;
   stroke-linecap: round;
+  filter: drop-shadow(0 0 6px var(--current-glow));
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0; /* hidden by default */
+  opacity: 0;
 }
 
 /* Animations */
 @keyframes blink {
-  0%, 96%, 100% { transform: scaleY(1); }
-  98% { transform: scaleY(0.1); }
+  0%, 95%, 100% { transform: scaleY(1); }
+  97.5% { transform: scaleY(0.08); }
 }
 
 @keyframes float {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+  50% { transform: translateY(-6px); }
 }
 
-.robot-svg {
-  animation: float 4s ease-in-out infinite;
+/* Emotion Theme Bindings */
+.emotion-idle {
+  --current-glow: var(--robot-glow-idle);
 }
 
-.eye {
-  animation: blink 5s infinite;
+.emotion-joy {
+  --current-glow: var(--robot-glow-joy);
+}
+.emotion-joy .robot-antenna-bulb {
+  transform: translateY(-4px);
+}
+.emotion-joy .eyes-container {
+  transform: translateY(-4px);
 }
 
-/* Base Eye Path: Round Pill */
-.eye {
-  d: path("M 65 95 C 65 85, 85 85, 85 95 C 85 105, 65 105, 65 95");
+.emotion-sadness {
+  --current-glow: var(--robot-glow-sadness);
 }
-.right-eye {
-  d: path("M 115 95 C 115 85, 135 85, 135 95 C 135 105, 115 105, 115 95");
+.emotion-sadness .eyes-container {
+  transform: translateY(9px);
+}
+.emotion-sadness .robot-svg {
+  animation: float 6s ease-in-out infinite;
 }
 
-/* Emotion: Joy */
-.emotion-joy .eye { fill: var(--robot-glow-joy); }
-.emotion-joy .robot-glow-bg { background-color: var(--robot-glow-joy); }
-.emotion-joy .robot-antenna-bulb { fill: var(--robot-glow-joy); transform: translateY(-5px); }
-.emotion-joy .left-eye { d: path("M 60 100 Q 75 75 90 100 Q 75 85 60 100"); }
-.emotion-joy .right-eye { d: path("M 110 100 Q 125 75 140 100 Q 125 85 110 100"); }
-.emotion-joy .eyes-container { transform: translateY(-5px); }
-
-/* Emotion: Sadness */
-.emotion-sadness .eye { fill: var(--robot-glow-sadness); }
-.emotion-sadness .robot-glow-bg { background-color: var(--robot-glow-sadness); }
-.emotion-sadness .left-eye { d: path("M 65 105 Q 75 90 90 95 Q 75 100 65 105"); }
-.emotion-sadness .right-eye { d: path("M 110 95 Q 125 90 135 105 Q 125 100 110 95"); }
-.emotion-sadness .eyes-container { transform: translateY(10px); }
-.emotion-sadness .robot-svg { animation: float 6s ease-in-out infinite; }
-
-/* Emotion: Anger */
-.emotion-anger .eye { fill: var(--robot-glow-anger); }
-.emotion-anger .robot-glow-bg { background-color: var(--robot-glow-anger); }
-.emotion-anger .left-eye { d: path("M 65 85 L 90 100 L 85 105 L 60 90 Z"); }
-.emotion-anger .right-eye { d: path("M 110 100 L 135 85 L 140 90 L 115 105 Z"); }
+.emotion-anger {
+  --current-glow: var(--robot-glow-anger);
+}
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
+  25% { transform: translateX(-2.5px); }
+  75% { transform: translateX(2.5px); }
 }
-.emotion-anger .robot-svg { animation: shake 0.5s infinite; }
+.emotion-anger .robot-svg {
+  animation: shake 0.45s infinite;
+}
 
-/* Emotion: Fear */
-.emotion-fear .eye { fill: var(--robot-glow-fear); }
-.emotion-fear .robot-glow-bg { background-color: var(--robot-glow-fear); }
-.emotion-fear .left-eye { d: path("M 60 95 A 15 15 0 1 1 90 95 A 15 15 0 1 1 60 95"); }
-.emotion-fear .right-eye { d: path("M 110 95 A 15 15 0 1 1 140 95 A 15 15 0 1 1 110 95"); }
-.emotion-fear .eye { animation: none; }
+.emotion-fear {
+  --current-glow: var(--robot-glow-fear);
+}
+.emotion-fear .eye {
+  animation: none;
+}
 @keyframes shiver {
   0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-1px, 1px); }
-  50% { transform: translate(1px, -1px); }
-  75% { transform: translate(1px, 1px); }
+  25% { transform: translate(-1.5px, 1.5px); }
+  50% { transform: translate(1.5px, -1.5px); }
+  75% { transform: translate(1.5px, 1.5px); }
 }
-.emotion-fear .eyes-container { animation: shiver 0.2s infinite; }
+.emotion-fear .eyes-container {
+  animation: shiver 0.2s infinite;
+}
 
-/* Emotion: Surprise */
-.emotion-surprise .eye { fill: var(--robot-glow-surprise); }
-.emotion-surprise .robot-glow-bg { background-color: var(--robot-glow-surprise); }
-.emotion-surprise .left-eye { d: path("M 60 95 A 15 15 0 1 1 90 95 A 15 15 0 1 1 60 95"); transform: scale(1.2); }
-.emotion-surprise .right-eye { d: path("M 110 95 A 15 15 0 1 1 140 95 A 15 15 0 1 1 110 95"); transform: scale(1.2); }
-.emotion-surprise .eyes-container { transform: translateY(-10px); }
+.emotion-surprise {
+  --current-glow: var(--robot-glow-surprise);
+}
+.emotion-surprise .left-eye,
+.emotion-surprise .right-eye {
+  transform: scale(1.18);
+}
+.emotion-surprise .eyes-container {
+  transform: translateY(-8px);
+}
 
-/* Emotion: Disgust */
-.emotion-disgust .eye, .emotion-disgust .mouth { fill: var(--robot-glow-disgust); stroke: var(--robot-glow-disgust); }
-.emotion-disgust .robot-glow-bg { background-color: var(--robot-glow-disgust); }
-.emotion-disgust .left-eye { d: path("M 60 90 Q 75 85 90 95 Q 75 95 60 90"); }
-.emotion-disgust .right-eye { d: path("M 110 95 Q 125 85 140 90 Q 125 95 110 95"); }
-.emotion-disgust .mouth { opacity: 1; d: path("M 90 115 Q 100 110 110 115"); fill: none; stroke-width: 3; }
-.emotion-disgust .eyes-container { transform: translateX(-5px) rotate(-5deg); }
+.emotion-disgust {
+  --current-glow: var(--robot-glow-disgust);
+}
+.emotion-disgust .eyes-container {
+  transform: translateX(-4px) rotate(-5deg);
+}
 
-/* Emotion: Curiosity */
-.emotion-curiosity .eye { fill: var(--robot-glow-curiosity); }
-.emotion-curiosity .robot-glow-bg { background-color: var(--robot-glow-curiosity); }
-.emotion-curiosity .left-eye { d: path("M 65 95 C 65 85, 85 85, 85 95 C 85 105, 65 105, 65 95"); transform: scale(1.3); }
-.emotion-curiosity .right-eye { d: path("M 115 95 C 115 90, 135 90, 135 95 C 135 100, 115 100, 115 95"); }
-.emotion-curiosity .eyes-container { transform: rotate(10deg); }
+.emotion-curiosity {
+  --current-glow: var(--robot-glow-curiosity);
+}
+.emotion-curiosity .left-eye {
+  transform: scale(1.28);
+}
+.emotion-curiosity .eyes-container {
+  transform: rotate(9deg);
+}
 
-/* Emotion: Confusion */
-.emotion-confusion .eye, .emotion-confusion .mouth { fill: var(--robot-glow-confusion); stroke: var(--robot-glow-confusion); }
-.emotion-confusion .robot-glow-bg { background-color: var(--robot-glow-confusion); }
-.emotion-confusion .left-eye { d: path("M 65 85 L 85 85 L 85 105 L 65 105 Z"); transform: rotate(45deg); transform-origin: 75px 95px;}
-.emotion-confusion .right-eye { d: path("M 115 95 C 115 85, 135 85, 135 95 C 135 105, 115 105, 115 95"); }
-.emotion-confusion .mouth { opacity: 1; d: path("M 90 115 L 110 115"); fill:none; }
+.emotion-confusion {
+  --current-glow: var(--robot-glow-confusion);
+}
+.emotion-confusion .left-eye {
+  transform: rotate(45deg);
+  transform-origin: 75px 95px;
+}
 
-/* Emotion: Love */
-.emotion-love .eye { fill: var(--robot-glow-love); }
-.emotion-love .robot-glow-bg { background-color: var(--robot-glow-love); }
-.emotion-love .left-eye { d: path("M 75 105 C 65 105, 60 95, 65 85 C 75 75, 85 95, 75 105"); /* Pseudo heart */ }
-.emotion-love .right-eye { d: path("M 125 105 C 115 105, 110 95, 115 85 C 125 75, 135 95, 125 105"); }
+.emotion-love {
+  --current-glow: var(--robot-glow-love);
+}
 @keyframes heartbeat {
   0%, 100% { transform: scale(1); }
-  15% { transform: scale(1.1); }
+  15% { transform: scale(1.14); }
   30% { transform: scale(1); }
-  45% { transform: scale(1.1); }
+  45% { transform: scale(1.14); }
 }
-.emotion-love .eye { animation: heartbeat 1.5s infinite; }
+.emotion-love .eye {
+  animation: heartbeat 1.4s infinite;
+}
 
-/* Emotion: Embarrassment */
-.emotion-embarrassment .eye { fill: var(--robot-glow-embarrassment); }
-.emotion-embarrassment .robot-glow-bg { background-color: var(--robot-glow-embarrassment); }
-.emotion-embarrassment .left-eye { d: path("M 70 100 C 70 95, 80 95, 80 100 C 80 105, 70 105, 70 100"); }
-.emotion-embarrassment .right-eye { d: path("M 120 100 C 120 95, 130 95, 130 100 C 130 105, 120 105, 120 100"); }
-.emotion-embarrassment .eyes-container { transform: translateY(15px); }
-.emotion-embarrassment .robot-head { fill: #2a1a24; transition: fill 1s; }
-
-/* Emotion: Idle */
-.emotion-idle .eye { fill: var(--robot-glow-idle); }
-.emotion-idle .robot-glow-bg { background-color: var(--robot-glow-idle); opacity: 0.2; }
-.emotion-idle .left-eye { d: path("M 65 95 C 65 90, 85 90, 85 95 C 85 100, 65 100, 65 95"); }
-.emotion-idle .right-eye { d: path("M 115 95 C 115 90, 135 90, 135 95 C 135 100, 115 100, 115 95"); }
+.emotion-embarrassment {
+  --current-glow: var(--robot-glow-embarrassment);
+}
+.emotion-embarrassment .eyes-container {
+  transform: translateY(13px);
+}
