@@ -177,7 +177,7 @@ export function ChatPanel({
       ))}
 
       <div className="chat-header">
-        <div className="chat-title">
+        <div className="chat-title" title="Shortcut: Ctrl+Alt+C to open • Arrow keys to move chat">
           <Bot size={18} className="text-glow" />
           <span>Luminess Assist</span>
         </div>
