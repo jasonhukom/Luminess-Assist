@@ -15,7 +15,6 @@ import {
   setProviderApiKey,
   getSelectedProvider,
   setSelectedProvider,
-  hasAnyProviderKey,
 } from './lib/gemini.ts';
 import type {
   Message,
@@ -35,10 +34,13 @@ function App() {
     claude: getProviderApiKey('claude'),
     codex: getProviderApiKey('codex'),
   }));
-  const [showApiModal, setShowApiModal] = useState<boolean>(() =>
-    !localStorage.getItem('LUMINNESS_SETUP_COMPLETED') ||
-    (!getGoogleSession() && !hasAnyProviderKey())
-  );
+  const [showApiModal, setShowApiModal] = useState<boolean>(() => {
+    const provider = getSelectedProvider();
+    const hasSelectedProviderAccess = provider === 'gemini'
+      ? Boolean(getGoogleSession() || getProviderApiKey('gemini'))
+      : Boolean(getProviderApiKey(provider));
+    return !localStorage.getItem('LUMINESS_SETUP_COMPLETED') || !hasSelectedProviderAccess;
+  });
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string>('');
 
@@ -394,7 +396,7 @@ function App() {
       setProviderApiKey(provider, providerKeys[provider]);
     });
     setSelectedProvider(selectedProvider);
-    localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
+    localStorage.setItem('LUMINESS_SETUP_COMPLETED', 'true');
     setApiError('');
     setShowApiModal(false);
     setEmotion('idle');
