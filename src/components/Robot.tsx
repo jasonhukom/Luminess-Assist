@@ -26,6 +26,7 @@ interface RobotProps {
   onResize: (newSize: number) => void;
   onClick: () => void;
   onEmotionChange?: (emotion: Emotion) => void;
+  onDragStateChange?: (dragging: boolean) => void;
 }
 
 const EMOTION_PATHS: Record<Emotion, { left: string; right: string; mouth?: string }> = {
@@ -77,23 +78,32 @@ const EMOTION_PATHS: Record<Emotion, { left: string; right: string; mouth?: stri
   },
 };
 
-export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: RobotProps) {
+export function Robot({
+  emotion,
+  size,
+  onResize,
+  onClick,
+  onEmotionChange,
+  onDragStateChange,
+}: RobotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isFlying, setIsFlying] = useState(false);
   const [isReturning, setIsReturning] = useState(false);
-  const [tilt, setTilt] = useState<{ deg: number; scaleX: number; scaleY: number }>({ deg: 0, scaleX: 1, scaleY: 1 });
+  const [tilt, setTilt] = useState<{ deg: number; scaleX: number; scaleY: number }>({
+    deg: 0,
+    scaleX: 1,
+    scaleY: 1,
+  });
 
   const rafRef = useRef<number | null>(null);
   const dragStateRef = useRef<{
     active: boolean;
     hasMoved: boolean;
-    resizing: boolean;
     startScreenX: number;
     startScreenY: number;
     startWinX: number;
     startWinY: number;
-    startSize: number;
     bounds: WindowBounds | null;
     samples: Array<{ x: number; y: number; t: number }>;
     pendingPos: { x: number; y: number } | null;
@@ -101,12 +111,10 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
   }>({
     active: false,
     hasMoved: false,
-    resizing: false,
     startScreenX: 0,
     startScreenY: 0,
     startWinX: 0,
     startWinY: 0,
-    startSize: size,
     bounds: null,
     samples: [],
     pendingPos: null,
@@ -135,13 +143,13 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
     const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
     const rect = containerRef.current?.getBoundingClientRect();
 
-    const offsetLeft = rect ? rect.left * dpr : bounds.width - size * dpr - 20 * dpr;
-    const offsetTop = rect ? rect.top * dpr : bounds.height - size * dpr - 20 * dpr;
+    const offsetLeft = rect ? rect.left * dpr : 0;
+    const offsetTop = rect ? rect.top * dpr : 0;
     const botW = rect ? rect.width * dpr : size * dpr;
     const botH = rect ? rect.height * dpr : size * dpr;
 
-    const margin = Math.round(24 * dpr);
-    const taskbarMargin = Math.round(56 * dpr);
+    const margin = Math.round(16 * dpr);
+    const taskbarMargin = Math.round(52 * dpr);
 
     const minRobotX = bounds.monitor_x + margin;
     const maxRobotX = bounds.monitor_x + bounds.monitor_width - botW - margin;
@@ -158,21 +166,18 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
 
   const handlePointerDown = async (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    const isResizeHandle = Boolean(target.closest('.robot-resize-handle'));
 
     stopPhysics();
     e.currentTarget.setPointerCapture(e.pointerId);
+    onDragStateChange?.(true);
 
     const screenX = e.screenX;
     const screenY = e.screenY;
 
     dragStateRef.current.active = true;
     dragStateRef.current.hasMoved = false;
-    dragStateRef.current.resizing = isResizeHandle;
     dragStateRef.current.startScreenX = screenX;
     dragStateRef.current.startScreenY = screenY;
-    dragStateRef.current.startSize = size;
 
     try {
       const bounds = await invoke<WindowBounds>('get_window_bounds');
@@ -208,14 +213,6 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
     const dxCss = e.screenX - st.startScreenX;
     const dyCss = e.screenY - st.startScreenY;
 
-    if (st.resizing) {
-      st.hasMoved = true;
-      const delta = Math.round((-dxCss - dyCss) * 0.6);
-      const nextSize = Math.max(100, Math.min(340, st.startSize + delta));
-      onResize(nextSize);
-      return;
-    }
-
     if (!st.hasMoved && Math.hypot(dxCss, dyCss) > 4) {
       st.hasMoved = true;
       setIsDragging(true);
@@ -232,7 +229,6 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
         st.samples.shift();
       }
 
-      // Compute instantaneous drag velocity for subtle tilt while dragging
       const oldest = st.samples[0];
       const dt = Math.max(16, now - oldest.t);
       const vxDrag = ((newX - oldest.x) / dt) * 16.67;
@@ -257,14 +253,10 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
       // ignore
     }
 
-    if (st.resizing) {
-      st.resizing = false;
-      return;
-    }
-
     setIsDragging(false);
 
     if (!st.hasMoved) {
+      onDragStateChange?.(false);
       setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
       onClick();
       return;
@@ -272,6 +264,7 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
 
     const bounds = st.bounds;
     if (!bounds) {
+      onDragStateChange?.(false);
       setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
       return;
     }
@@ -287,7 +280,6 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
     if (dt >= 8 && now - latest.t < 140) {
       vx = ((latest.x - oldest.x) / dt) * 16.67;
       vy = ((latest.y - oldest.y) / dt) * 16.67;
-      // Clamp maximum throw speed
       const maxSpeed = 95;
       const speed = Math.hypot(vx, vy);
       if (speed > maxSpeed) {
@@ -315,7 +307,6 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
         posX += vx;
         posY += vy;
 
-        // Air resistance
         vx *= 0.945;
         vy *= 0.945;
 
@@ -325,7 +316,6 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
 
         if (distOut > 1) {
           setIsReturning(true);
-          // Spring pull back onto the screen so it never goes out of reach
           const springK = 0.14;
           vx += (clampedX - posX) * springK;
           vy += (clampedY - posY) * springK;
@@ -356,6 +346,7 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
           });
           setIsFlying(false);
           setIsReturning(false);
+          onDragStateChange?.(false);
           setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
           if (throwSpeed > 14) {
             onEmotionChange?.('joy');
@@ -369,15 +360,15 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
 
       rafRef.current = requestAnimationFrame(stepPhysics);
     } else {
+      onDragStateChange?.(false);
       setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
     }
   };
 
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
-    // Allow resizing the robot smoothly with scroll wheel
     e.stopPropagation();
     const delta = e.deltaY < 0 ? 12 : -12;
-    const next = Math.max(100, Math.min(340, size + delta));
+    const next = Math.max(110, Math.min(320, size + delta));
     if (next !== size) {
       onResize(next);
     }
@@ -399,18 +390,10 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
-      title="Click to chat • Drag & flick to throw • Scroll or drag corner to resize"
+      title="Click to chat • Drag & flick to move • Scroll wheel to resize"
     >
-      {/* Multi-layered dynamic glow aura */}
-      <div className="robot-glow-outer"></div>
       <div className="robot-glow-bg"></div>
       <div className="robot-glow-core"></div>
-
-      {/* Resize corner handle to make robot border big or small */}
-      <div
-        className="robot-resize-handle"
-        title="Drag to make bot bigger or smaller (or scroll wheel)"
-      />
 
       {isReturning && (
         <div className="robot-status-pill">Boomerang Return!</div>
@@ -456,7 +439,7 @@ export function Robot({ emotion, size, onResize, onClick, onEmotionChange }: Rob
         <rect x="24" y="80" width="20" height="40" rx="10" className="robot-ear" />
         <rect x="156" y="80" width="20" height="40" rx="10" className="robot-ear" />
 
-        {/* Head with responsive glowing border */}
+        {/* Head */}
         <rect x="40" y="40" width="120" height="120" rx="35" className="robot-head" />
 
         {/* Screen Base */}
