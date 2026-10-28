@@ -404,6 +404,139 @@
   border-radius: 10px;
 }
 
+.aura-error-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  text-align: left;
+}
+
+.aura-error-card.kind-unsupported_credentials {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.aura-error-card.kind-account_ineligible {
+  background: rgba(217, 70, 239, 0.12);
+  border-color: rgba(217, 70, 239, 0.4);
+}
+
+.aura-error-card.kind-missing_project_or_permissions {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.aura-error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fca5a5;
+}
+
+.aura-error-card.kind-unsupported_credentials .aura-error-header {
+  color: #fcd34d;
+}
+
+.aura-error-card.kind-account_ineligible .aura-error-header {
+  color: #f0abfc;
+}
+
+.aura-error-card.kind-missing_project_or_permissions .aura-error-header {
+  color: #93c5fd;
+}
+
+.aura-error-ref {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: monospace;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-muted);
+}
+
+.aura-error-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #e2e8f0;
+}
+
+.aura-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.aura-error-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aura-error-action-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.aura-error-dismiss-btn {
+  padding: 6px 10px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.aura-error-dismiss-btn:hover {
+  color: #ffffff;
+}
+
+.antigravity-status-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.antigravity-status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.antigravity-mode-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  font-weight: 500;
+}
+
 .api-modal-actions {
   display: flex;
   width: 100%;

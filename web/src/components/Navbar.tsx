@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, HardDrive, Cpu, Download, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Terminal, HardDrive, Cpu, Download, Sparkles, SlidersHorizontal, Palette, Shield, Database } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
@@ -8,7 +8,16 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   </svg>
 );
 
-export type TabKey = 'overview' | 'install' | 'dependencies' | 'architecture' | 'releases' | 'croc';
+export type TabKey =
+  | 'overview'
+  | 'studio'
+  | 'install'
+  | 'releases'
+  | 'croc'
+  | 'admin'
+  | 'database'
+  | 'architecture'
+  | 'dependencies';
 
 interface NavbarProps {
   activeTab: TabKey;
@@ -18,13 +27,16 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
   const { version } = useLatestRelease();
 
-  const navItems: { key: TabKey; label: string; icon: React.ReactNode }[] = [
+  const navItems: { key: TabKey; label: string; icon: React.ReactNode; badge?: string }[] = [
     { key: 'overview', label: 'Overview', icon: <Sparkles size={16} /> },
+    { key: 'studio', label: 'Bot Studio', icon: <Palette size={16} />, badge: 'CREATOR' },
     { key: 'install', label: 'One-Click Install', icon: <Terminal size={16} /> },
-    { key: 'dependencies', label: 'Dependencies & Size', icon: <HardDrive size={16} /> },
-    { key: 'architecture', label: 'Multi-AI Core', icon: <Cpu size={16} /> },
     { key: 'releases', label: 'Downloads', icon: <Download size={16} /> },
-    { key: 'croc', label: 'C.R.O.C. Studio', icon: <SlidersHorizontal size={16} /> },
+    { key: 'croc', label: 'C.R.O.C.', icon: <SlidersHorizontal size={16} /> },
+    { key: 'admin', label: 'Admin Control', icon: <Shield size={16} /> },
+    { key: 'database', label: 'Database & Sync', icon: <Database size={16} /> },
+    { key: 'architecture', label: 'Multi-AI Core', icon: <Cpu size={16} /> },
+    { key: 'dependencies', label: 'Specs', icon: <HardDrive size={16} /> },
   ];
 
   return (
@@ -57,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
         </div>
 
         {/* Tab Navigation Menu */}
-        <nav className="hidden min-w-0 shrink items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-1 2xl:flex">
+        <nav className="hidden min-w-0 shrink items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-1 xl:flex">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
             return (
@@ -75,6 +87,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
                   {item.icon}
                 </span>
                 <span>{item.label}</span>
+                {item.badge && (
+                  <span className="ml-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 px-1.5 py-0.2 text-[9px] font-mono font-bold text-cyan-300">
+                    {item.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -82,6 +99,15 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
 
         {/* Right Actions */}
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onTabChange('studio')}
+            className="hidden sm:flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 px-3 py-2 font-mono text-xs font-semibold text-purple-300 transition-all duration-200 cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+          >
+            <Palette size={14} className="text-purple-400" />
+            <span>CUSTOMIZER</span>
+          </button>
+
           <a
             href="https://github.com/jasonhukom/Luminess-Assist"
             target="_blank"
@@ -105,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
       </div>
 
       {/* Mobile Tab Scrollbar */}
-      <div className="flex 2xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
+      <div className="flex xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
         {navItems.map((item) => {
           const isActive = activeTab === item.key;
           return (
@@ -120,6 +146,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
               }`}
             >
               {item.label}
+              {item.badge && (
+                <span className="ml-1 rounded bg-cyan-500/20 border border-cyan-400/30 px-1 text-[9px] text-cyan-300">
+                  {item.badge}
+                </span>
+              )}
             </button>
           );
         })}

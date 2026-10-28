@@ -16,7 +16,15 @@ import {
   setSelectedProvider,
   hasAnyProviderKey,
   setApiKey,
+  verifyProviderConnection,
+  checkAntigravityCliStatus,
+  type AntigravityCliStatus,
 } from './lib/gemini.ts';
+import {
+  normalizeAIError,
+  type NormalizedAIError,
+  type AIConnectionState,
+} from './lib/aiErrors.ts';
 import type {
   Message,
   ToolPermissionRequest,
@@ -38,6 +46,8 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  AlertTriangle,
+  TerminalSquare,
 } from 'lucide-react';
 
 const PROVIDER_INFO: Record<
@@ -92,7 +102,13 @@ function App() {
     (!getGoogleSession() && !hasAnyProviderKey())
   );
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
-  const [apiError, setApiError] = useState<string>('');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [normalizedError, setNormalizedError] = useState<NormalizedAIError | null>(null);
+  const [connectionState, setConnectionState] = useState<AIConnectionState>(() => {
+    if (!hasAnyProviderKey()) return 'not_configured';
+    return 'ready_to_sign_in';
+  });
+  const [antigravityStatus, setAntigravityStatus] = useState<AntigravityCliStatus | null>(null);
 
   const [chatOpen, setChatOpen] = useState<boolean>(false);
   const [chatSide, setChatSide] = useState<'left' | 'right'>('left');
@@ -899,6 +915,9 @@ function App() {
   }, [chatOpen, showApiModal, syncInteractiveRegions]);
 
   useEffect(() => {
+    void checkAntigravityCliStatus().then((status) => {
+      setAntigravityStatus(status);
+    });
     if (googleUser) {
       void ensureValidGoogleSession().then((refreshed) => {
         if (refreshed) {
@@ -911,15 +930,23 @@ function App() {
   const handleGoogleLogin = async () => {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
-    setApiError('');
+    setNormalizedError(null);
+    setConnectionState('signing_in');
     setEmotion('curiosity');
     try {
       const session = await loginWithGoogle();
       setGoogleUser(session);
       setEmotion('joy');
+      const geminiKey = (providerKeys.gemini || '').trim();
+      if (!geminiKey) {
+        setConnectionState('setup_required');
+      } else {
+        await handleVerifyAndConnect('gemini', geminiKey);
+      }
     } catch (err: any) {
-      const msg = typeof err === 'string' ? err : err?.message || String(err);
-      setApiError(msg);
+      const norm = normalizeAIError(err, 'gemini');
+      setNormalizedError(norm);
+      setConnectionState('connection_needs_attention');
       setEmotion('confusion');
     } finally {
       setIsLoggingIn(false);
@@ -929,12 +956,13 @@ function App() {
   const handleGoogleLogout = () => {
     logoutGoogle();
     setGoogleUser(null);
-    setApiError('');
+    setNormalizedError(null);
+    setConnectionState('not_configured');
     setEmotion('idle');
   };
 
   const handleOpenApiModal = async () => {
-    setApiError('');
+    setNormalizedError(null);
     setProviderKeys({
       gemini: getProviderApiKey('gemini'),
       claude: getProviderApiKey('claude'),
@@ -948,23 +976,77 @@ function App() {
 
   const handleProviderKeyChange = (provider: AIProvider, key: string) => {
     setProviderKeys((prev) => ({ ...prev, [provider]: key }));
+    setNormalizedError(null);
   };
 
-  const handleSaveProviderConfig = () => {
-    const currentKey = (providerKeys[selectedProvider] || '').trim();
+  const handleVerifyAndConnect = async (providerToVerify?: AIProvider, keyToVerify?: string) => {
+    const prov = providerToVerify || selectedProvider;
+    const currentKey = (keyToVerify !== undefined ? keyToVerify : providerKeys[prov] || '').trim();
+
+    setIsVerifying(true);
+    setNormalizedError(null);
+    setEmotion('curiosity');
 
     (['gemini', 'claude', 'codex'] as AIProvider[]).forEach((p) => {
       setProviderApiKey(p, providerKeys[p] || '');
     });
-    setSelectedProvider(selectedProvider);
-    if (selectedProvider === 'gemini' && currentKey) {
+    setSelectedProvider(prov);
+    if (prov === 'gemini') {
       setApiKey(currentKey);
     }
-    localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
-    setApiError('');
-    setShowApiModal(false);
-    setEmotion('joy');
-    setChatOpen(false);
+
+    const result = await verifyProviderConnection(prov, currentKey);
+    setIsVerifying(false);
+
+    if (result.success) {
+      setConnectionState('connected_and_verified');
+      setNormalizedError(null);
+      localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
+      setShowApiModal(false);
+      setEmotion('joy');
+      setChatOpen(false);
+    } else if (result.error) {
+      setNormalizedError(result.error);
+      if (result.error.kind === 'account_ineligible') {
+        setConnectionState('account_ineligible');
+      } else if (result.error.kind === 'unsupported_credentials') {
+        setConnectionState('connection_needs_attention');
+      } else if (result.error.kind === 'auth_required') {
+        setConnectionState('ready_to_sign_in');
+      } else if (result.error.kind === 'invalid_api_key') {
+        setConnectionState('setup_required');
+      } else if (result.error.kind === 'network_or_provider_failure') {
+        setConnectionState('provider_unavailable');
+      } else {
+        setConnectionState('connection_needs_attention');
+      }
+      setEmotion('confusion');
+    }
+  };
+
+  const handleErrorAction = (err: NormalizedAIError) => {
+    switch (err.actionCode) {
+      case 'sign_in_again':
+        void handleGoogleLogin();
+        break;
+      case 'choose_another_provider': {
+        const order: AIProvider[] = ['gemini', 'claude', 'codex'];
+        const next = order[(order.indexOf(selectedProvider) + 1) % order.length];
+        setSelectedProviderState(next);
+        setNormalizedError(null);
+        break;
+      }
+      case 'fix_connection':
+      case 'update_configuration':
+        setNormalizedError(null);
+        break;
+      case 'retry':
+        void handleVerifyAndConnect();
+        break;
+      case 'dismiss':
+        setNormalizedError(null);
+        break;
+    }
   };
 
   const handleBootComplete = useCallback(() => setBootComplete(true), []);
@@ -1104,9 +1186,9 @@ function App() {
               />
             </div>
 
-            <div className="api-modal-badge">
+            <div className={`api-modal-badge status-${connectionState}`}>
               <Sparkles size={13} />
-              <span>Luminess Assist • AI Setup</span>
+              <span>Luminess Assist • {connectionState.replace(/_/g, ' ').toUpperCase()}</span>
             </div>
 
             <h1 className="api-modal-title">
@@ -1130,7 +1212,8 @@ function App() {
                     className={`provider-tab ${isActive ? `active ${info.colorClass}` : ''}`}
                     onClick={() => {
                       setSelectedProviderState(p);
-                      setApiError('');
+                      setNormalizedError(null);
+                      setConnectionState('setup_required');
                     }}
                   >
                     <span className="provider-tab-mark">{info.mark}</span>
@@ -1139,6 +1222,18 @@ function App() {
                 );
               })}
             </div>
+
+            {antigravityStatus && (
+              <div className="antigravity-status-banner">
+                <div className="antigravity-status-left">
+                  <TerminalSquare size={13} />
+                  <span>
+                    CLI: {antigravityStatus.installed ? (antigravityStatus.version || 'Detected') : 'Not on PATH'}
+                  </span>
+                </div>
+                <span className="antigravity-mode-badge">Direct Provider Mode</span>
+              </div>
+            )}
 
             {selectedProvider === 'gemini' && googleUser && (
               <div className="google-account-card">
@@ -1160,13 +1255,41 @@ function App() {
                     <CheckCircle2 size={14} className="verified-icon" />
                   </div>
                   {googleUser.email && (
-                    <div className="google-account-email">{googleUser.email}</div>
+                    <div className="google-account-email">{googleUser.email} (Identity active)</div>
                   )}
                 </div>
               </div>
             )}
 
-            {apiError && <div className="api-error-msg">{apiError}</div>}
+            {normalizedError && (
+              <div className={`aura-error-card kind-${normalizedError.kind}`} role="alert">
+                <div className="aura-error-header">
+                  <AlertTriangle size={15} />
+                  <strong className="aura-error-title">{normalizedError.title}</strong>
+                  <span className="aura-error-ref">{normalizedError.diagnosticRef}</span>
+                </div>
+                <p className="aura-error-desc">{normalizedError.message}</p>
+                <div className="aura-error-actions">
+                  <button
+                    type="button"
+                    className="aura-error-action-btn"
+                    onClick={() => handleErrorAction(normalizedError)}
+                  >
+                    <span>{normalizedError.actionLabel}</span>
+                    <ArrowRight size={13} />
+                  </button>
+                  {normalizedError.kind !== 'unknown' && (
+                    <button
+                      type="button"
+                      className="aura-error-dismiss-btn"
+                      onClick={() => setNormalizedError(null)}
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="api-modal-form">
               {selectedProvider === 'gemini' && (
@@ -1177,7 +1300,7 @@ function App() {
                         type="button"
                         className="google-secondary-btn"
                         onClick={handleGoogleLogin}
-                        disabled={isLoggingIn}
+                        disabled={isLoggingIn || isVerifying}
                       >
                         {isLoggingIn ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
                         <span>Switch Account</span>
@@ -1186,7 +1309,7 @@ function App() {
                         type="button"
                         className="google-secondary-btn danger"
                         onClick={handleGoogleLogout}
-                        disabled={isLoggingIn}
+                        disabled={isLoggingIn || isVerifying}
                       >
                         <LogOut size={14} />
                         <span>Sign Out</span>
@@ -1197,7 +1320,7 @@ function App() {
                       type="button"
                       className="google-login-btn"
                       onClick={handleGoogleLogin}
-                      disabled={isLoggingIn}
+                      disabled={isLoggingIn || isVerifying}
                     >
                       {isLoggingIn ? (
                         <>
@@ -1269,7 +1392,7 @@ function App() {
                   value={providerKeys[selectedProvider] || ''}
                   onChange={(e) => handleProviderKeyChange(selectedProvider, e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveProviderConfig();
+                    if (e.key === 'Enter') void handleVerifyAndConnect();
                   }}
                 />
                 <button
@@ -1285,14 +1408,20 @@ function App() {
               <button
                 type="button"
                 className="api-submit-btn"
-                onClick={handleSaveProviderConfig}
+                onClick={() => void handleVerifyAndConnect()}
+                disabled={isVerifying}
               >
-                <span>
-                  {selectedProvider === 'gemini' && googleUser
-                    ? `Continue as ${googleUser.name || googleUser.email || 'User'}`
-                    : 'Save & Continue'}
-                </span>
-                <ArrowRight size={16} />
+                {isVerifying ? (
+                  <>
+                    <Loader2 size={16} className="spin" />
+                    <span>Verifying Connection...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Verify & Activate</span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
               </button>
             </div>
           </div>

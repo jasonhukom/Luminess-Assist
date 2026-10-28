@@ -6,8 +6,21 @@ import { DependenciesTab } from './components/DependenciesTab.tsx';
 import { ArchitectureTab } from './components/ArchitectureTab.tsx';
 import { ReleasesTab } from './components/ReleasesTab.tsx';
 import { CrocBuilderTab } from './components/CrocBuilderTab.tsx';
-import { Sparkles, Heart, Terminal, HardDrive, Cpu, Download } from 'lucide-react';
+import { BotStudioTab } from './components/BotStudioTab.tsx';
+import { AdminPanelTab } from './components/AdminPanelTab.tsx';
+import { DatabaseSchemaTab } from './components/DatabaseSchemaTab.tsx';
+import { Heart } from 'lucide-react';
 import { useLatestRelease } from './lib/useLatestRelease.ts';
+import {
+  getInitialPlatformState,
+  savePlatformState,
+  type PlatformState,
+  type BotProfile,
+  type AppRelease,
+  type FeatureFlags,
+  type GlobalConfigItem,
+  type BotMemory,
+} from './lib/botPlatformStore.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -18,6 +31,64 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const { version } = useLatestRelease();
+  const [platformState, setPlatformState] = useState<PlatformState>(getInitialPlatformState);
+
+  const activeProfile = platformState.currentProfile;
+
+  const handleUpdateProfile = (updated: BotProfile) => {
+    setPlatformState((prev) => {
+      const nextState: PlatformState = {
+        ...prev,
+        currentProfile: updated,
+      };
+      savePlatformState(nextState);
+      return nextState;
+    });
+  };
+
+  const handleUpdateReleases = (releases: AppRelease[]) => {
+    setPlatformState((prev) => {
+      const nextState: PlatformState = {
+        ...prev,
+        releases,
+      };
+      savePlatformState(nextState);
+      return nextState;
+    });
+  };
+
+  const handleUpdateFeatureFlags = (flags: FeatureFlags) => {
+    setPlatformState((prev) => {
+      const nextState: PlatformState = {
+        ...prev,
+        featureFlags: flags,
+      };
+      savePlatformState(nextState);
+      return nextState;
+    });
+  };
+
+  const handleUpdateGlobalConfig = (config: GlobalConfigItem[]) => {
+    setPlatformState((prev) => {
+      const nextState: PlatformState = {
+        ...prev,
+        globalConfig: config,
+      };
+      savePlatformState(nextState);
+      return nextState;
+    });
+  };
+
+  const handleUpdateMemories = (memories: BotMemory[]) => {
+    setPlatformState((prev) => {
+      const nextState: PlatformState = {
+        ...prev,
+        memories,
+      };
+      savePlatformState(nextState);
+      return nextState;
+    });
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#06070a] text-slate-100 cyber-grid relative selection:bg-cyan-500/25 selection:text-cyan-200">
@@ -40,6 +111,13 @@ export function App() {
           </div>
         )}
 
+        {activeTab === 'studio' && activeProfile && (
+          <BotStudioTab
+            profile={activeProfile}
+            onUpdateProfile={handleUpdateProfile}
+          />
+        )}
+
         {activeTab === 'install' && (
           <InstallationTab />
         )}
@@ -58,6 +136,25 @@ export function App() {
 
         {activeTab === 'croc' && (
           <CrocBuilderTab />
+        )}
+
+        {activeTab === 'admin' && (
+          <AdminPanelTab
+            releases={platformState.releases}
+            featureFlags={platformState.featureFlags}
+            globalConfig={platformState.globalConfig}
+            onUpdateReleases={handleUpdateReleases}
+            onUpdateFeatureFlags={handleUpdateFeatureFlags}
+            onUpdateGlobalConfig={handleUpdateGlobalConfig}
+          />
+        )}
+
+        {activeTab === 'database' && (
+          <DatabaseSchemaTab
+            platformState={platformState}
+            onUpdateMemories={handleUpdateMemories}
+            onUpdateGlobalConfig={handleUpdateGlobalConfig}
+          />
         )}
 
       </main>
@@ -82,7 +179,7 @@ export function App() {
                 </span>
               </div>
               <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                A living, lightweight AI mascot for Windows desktops. Powered by Tauri v2, Rust, and multi-model AI routing with zero background bloat.
+                A living, customizable AI desktop mascot for Windows. Powered by Tauri v2, Rust, and multi-model AI routing with connected web portal customization and real-time syncing.
               </p>
               <div className="flex items-center gap-3 pt-2">
                 <a
@@ -100,7 +197,7 @@ export function App() {
             {/* Col 2: Navigation */}
             <div className="space-y-2.5">
               <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider block">
-                Quick Navigation
+                Platform Navigation
               </span>
               <ul className="space-y-1.5 text-xs text-slate-400 font-mono">
                 <li>
@@ -109,23 +206,28 @@ export function App() {
                   </button>
                 </li>
                 <li>
+                  <button type="button" onClick={() => setActiveTab('studio')} className="text-cyan-400 font-semibold hover:text-cyan-200 transition-colors">
+                    &gt; Bot Studio (Customizer) ★
+                  </button>
+                </li>
+                <li>
                   <button type="button" onClick={() => setActiveTab('install')} className="hover:text-cyan-300 transition-colors">
                     &gt; One-Click PowerShell
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => setActiveTab('dependencies')} className="hover:text-cyan-300 transition-colors">
-                    &gt; Storage Calculator
-                  </button>
-                </li>
-                <li>
-                  <button type="button" onClick={() => setActiveTab('architecture')} className="hover:text-cyan-300 transition-colors">
-                    &gt; Multi-AI Core
-                  </button>
-                </li>
-                <li>
                   <button type="button" onClick={() => setActiveTab('croc')} className="hover:text-cyan-300 transition-colors">
                     &gt; C.R.O.C. Web Builder
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('admin')} className="hover:text-cyan-300 transition-colors">
+                    &gt; Admin Control Center
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('database')} className="hover:text-cyan-300 transition-colors">
+                    &gt; Database &amp; Sync Schema
                   </button>
                 </li>
               </ul>
@@ -155,6 +257,11 @@ export function App() {
                 <li>
                   <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
                     &gt; Anthropic Console
+                  </a>
+                </li>
+                <li>
+                  <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
+                    &gt; Supabase PostgreSQL
                   </a>
                 </li>
               </ul>

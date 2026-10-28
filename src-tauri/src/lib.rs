@@ -738,6 +738,65 @@ fn set_dock_vert_preference(
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AntigravityCliStatus {
+    pub installed: bool,
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub supported_for_ipc: bool,
+    pub notes: String,
+}
+
+#[tauri::command]
+fn check_antigravity_cli() -> AntigravityCliStatus {
+    let candidates = ["agy", "antigravity", "agy.exe", "antigravity.exe", "agy.cmd"];
+    for bin in &candidates {
+        let mut cmd = Command::new(bin);
+        cmd.arg("--version");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let ver = if !stdout.is_empty() {
+                    stdout
+                } else {
+                    String::from_utf8_lossy(&output.stderr).trim().to_string()
+                };
+                return AntigravityCliStatus {
+                    installed: true,
+                    path: Some(bin.to_string()),
+                    version: if ver.is_empty() { None } else { Some(ver) },
+                    supported_for_ipc: false,
+                    notes: "Antigravity CLI is an interactive developer tool designed for terminal usage and does not provide an official headless daemon or third-party token-proxy IPC interface. Luminess uses direct, supported provider APIs (Google AI Studio, Claude, Codex) for desktop companion intelligence.".to_string(),
+                };
+            }
+        }
+    }
+
+    if let Ok(user_home) = env::var("USERPROFILE").or_else(|_| env::var("HOME")) {
+        let agy_dir = Path::new(&user_home).join(".gemini").join("antigravity-cli");
+        if agy_dir.exists() {
+            return AntigravityCliStatus {
+                installed: true,
+                path: Some(agy_dir.to_string_lossy().to_string()),
+                version: Some("Detected in ~/.gemini/antigravity-cli".to_string()),
+                supported_for_ipc: false,
+                notes: "Antigravity CLI is installed for terminal development. Headless desktop embedding is not supported; Luminess communicates directly with official AI provider APIs.".to_string(),
+            };
+        }
+    }
+
+    AntigravityCliStatus {
+        installed: false,
+        path: None,
+        version: None,
+        supported_for_ipc: false,
+        notes: "Antigravity CLI is not detected on PATH. Luminess communicates directly with official AI provider APIs.".to_string(),
+    }
+}
+
 #[tauri::command]
 fn terminate_app(app: tauri::AppHandle) {
     app.exit(0);
@@ -1689,6 +1748,7 @@ pub fn run() {
             execute_pc_command,
             open_item,
             start_google_oauth_login,
+            check_antigravity_cli,
             set_dock_vert_preference,
             terminate_app
         ])

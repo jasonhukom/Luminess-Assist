@@ -2,6 +2,14 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { invoke } from '@tauri-apps/api/core';
 import type { Emotion } from '../components/Robot.tsx';
 import { getPersonalityPromptContext } from './personality.ts';
+import {
+  normalizeAIError,
+  type NormalizedAIError,
+  type AIErrorKind,
+  type AIConnectionState,
+} from './aiErrors.ts';
+
+export type { NormalizedAIError, AIErrorKind, AIConnectionState };
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -30,30 +38,43 @@ export interface GoogleUserSession {
   gcpProjectId?: string;
 }
 
+export interface AntigravityCliStatus {
+  installed: boolean;
+  path?: string;
+  version?: string;
+  supported_for_ipc: boolean;
+  notes: string;
+}
+
 const STORAGE_KEY = 'GEMINI_API_KEY';
 const GOOGLE_AUTH_STORAGE_KEY = 'LUMINESS_GOOGLE_AUTH';
 const OAUTH_CLIENT_CACHE_KEY = 'LUMINESS_GOOGLE_OAUTH_CLIENT';
-const PUBLIC_GEMINI_CLI_OAUTH_URL =
-  'https://raw.githubusercontent.com/google-gemini/gemini-cli/main/packages/core/src/code_assist/oauth2.ts';
-const CODE_ASSIST_BASE_URL = 'https://cloudcode-pa.googleapis.com/v1internal';
 
 interface OAuthClientConfig {
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
 }
+
+const DEFAULT_GOOGLE_CLIENT_ID =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || '';
+const DEFAULT_GOOGLE_CLIENT_SECRET =
+  (import.meta.env.VITE_GOOGLE_CLIENT_SECRET as string | undefined)?.trim() || undefined;
 
 async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   const envClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const envClientSecret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
-  if (envClientId && envClientSecret) {
-    return { clientId: String(envClientId), clientSecret: String(envClientSecret) };
+  if (envClientId) {
+    return {
+      clientId: String(envClientId).trim(),
+      clientSecret: envClientSecret ? String(envClientSecret).trim() : undefined,
+    };
   }
 
   try {
     const cached = localStorage.getItem(OAUTH_CLIENT_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed?.clientId && parsed?.clientSecret) {
+      if (parsed?.clientId) {
         return parsed as OAuthClientConfig;
       }
     }
@@ -61,30 +82,10 @@ async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
     // ignore cache error
   }
 
-  const resp = await fetch(PUBLIC_GEMINI_CLI_OAUTH_URL);
-  if (!resp.ok) {
-    throw new Error('Failed to load Google OAuth configuration.');
-  }
-  const source = await resp.text();
-  const idMatch = source.match(/OAUTH_CLIENT_ID\s*=\s*['"]([^'"]+)['"]/);
-  const secretMatch = source.match(/OAUTH_CLIENT_SECRET\s*=\s*['"]([^'"]+)['"]/);
-
-  if (!idMatch?.[1] || !secretMatch?.[1]) {
-    throw new Error('Could not parse public OAuth client configuration.');
-  }
-
-  const config: OAuthClientConfig = {
-    clientId: idMatch[1],
-    clientSecret: secretMatch[1],
+  return {
+    clientId: DEFAULT_GOOGLE_CLIENT_ID,
+    clientSecret: DEFAULT_GOOGLE_CLIENT_SECRET,
   };
-
-  try {
-    localStorage.setItem(OAUTH_CLIENT_CACHE_KEY, JSON.stringify(config));
-  } catch {
-    // ignore
-  }
-
-  return config;
 }
 
 let apiKey = localStorage.getItem(STORAGE_KEY) || '';
@@ -122,7 +123,7 @@ export function logoutGoogle() {
 }
 
 export function hasAuthSession(): boolean {
-  return true; // Built-in fallback key guarantees an active AI session
+  return Boolean(googleSession || (apiKey && apiKey.trim().length > 0));
 }
 
 export function getApiKey(): string {
@@ -180,246 +181,178 @@ export function hasAnyProviderKey(): boolean {
 }
 
 export function hasAnyConfiguredProvider(): boolean {
-  return Boolean(getGoogleSession() || hasAnyProviderKey());
+  return hasAnyProviderKey();
 }
 
-function extractProjectId(val: any): string | undefined {
-  if (!val) return undefined;
-  if (typeof val === 'string' && val.trim().length > 0) {
-    return val.trim();
-  }
-  if (typeof val === 'object' && typeof val.id === 'string' && val.id.trim().length > 0) {
-    return val.id.trim();
-  }
-  return undefined;
-}
-
-async function onboardCodeAssistTier(
-  accessToken: string,
-  tierId: string,
-  coreMetadata: Record<string, any>,
-  projectId?: string
-): Promise<string | undefined> {
+/**
+ * Queries the local system to check whether Google Antigravity CLI is installed.
+ */
+export async function checkAntigravityCliStatus(): Promise<AntigravityCliStatus> {
   try {
-    const body: Record<string, any> = {
-      tierId,
-      metadata: projectId ? { ...coreMetadata, duetProject: projectId } : coreMetadata,
-    };
-    if (tierId !== 'free-tier' && projectId) {
-      body.cloudaicompanionProject = projectId;
-    }
-
-    const onboardResp = await fetch(`${CODE_ASSIST_BASE_URL}:onboardUser`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!onboardResp.ok) {
-      return undefined;
-    }
-
-    let lro: any = await onboardResp.json();
-    let polls = 0;
-    while (!lro?.done && lro?.name && polls < 12) {
-      await new Promise((r) => setTimeout(r, 2000));
-      polls++;
-      const opResp = await fetch(`${CODE_ASSIST_BASE_URL}/${lro.name}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!opResp.ok) break;
-      lro = await opResp.json();
-    }
-
-    return extractProjectId(lro?.response?.cloudaicompanionProject);
+    const status = await invoke<AntigravityCliStatus>('check_antigravity_cli');
+    return status;
   } catch {
-    return undefined;
+    return {
+      installed: false,
+      supported_for_ipc: false,
+      notes: 'Antigravity CLI is not detected on the system PATH.',
+    };
   }
 }
 
-async function resolveCodeAssistProject(
-  accessToken: string,
-  forceFreeTier = false
-): Promise<string | undefined> {
-  const coreMetadata = {
-    ideType: 'IDE_UNSPECIFIED',
-    platform: 'WINDOWS_AMD64',
-    pluginType: 'GEMINI',
-  };
+/**
+ * Actively verifies whether the given AI provider and credentials can successfully
+ * communicate with the AI model service.
+ */
+export async function verifyProviderConnection(
+  provider: AIProvider,
+  keyOverride?: string
+): Promise<{ success: boolean; error?: NormalizedAIError }> {
+  const key = (keyOverride !== undefined ? keyOverride : getProviderApiKey(provider)).trim();
 
-  try {
-    if (forceFreeTier) {
-      const forcedProj = await onboardCodeAssistTier(accessToken, 'free-tier', coreMetadata);
-      if (forcedProj) return forcedProj;
+  if (provider === 'gemini') {
+    if (!key) {
+      if (googleSession) {
+        return {
+          success: false,
+          error: normalizeAIError(
+            new Error(
+              'ACCESS_TOKEN_TYPE_UNSUPPORTED: Google identity is connected, but a Gemini API key is required to activate the model.'
+            ),
+            'gemini'
+          ),
+        };
+      }
+      return {
+        success: false,
+        error: normalizeAIError(new Error('Sign in required'), 'gemini'),
+      };
     }
 
-    const loadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        metadata: coreMetadata,
-      }),
-    });
-
-    if (loadResp.ok) {
-      const loadData: any = await loadResp.json();
-      const existingProj = extractProjectId(loadData?.cloudaicompanionProject);
-      if (existingProj) {
-        return existingProj;
-      }
-
-      const allowedTiers: any[] = Array.isArray(loadData?.allowedTiers)
-        ? loadData.allowedTiers
-        : [];
-      const freeTier = allowedTiers.find((t) => t?.id === 'free-tier');
-      const defaultTier = allowedTiers.find((t) => t?.isDefault) || allowedTiers[0];
-
-      // Always prefer free-tier first because it provisions a managed project without needing an enterprise seat
-      const candidateTierIds = Array.from(
-        new Set([freeTier?.id, 'free-tier', defaultTier?.id].filter(Boolean))
-      ) as string[];
-
-      for (const tierId of candidateTierIds) {
-        const onboardedProj = await onboardCodeAssistTier(accessToken, tierId, coreMetadata);
-        if (onboardedProj) {
-          return onboardedProj;
-        }
-      }
-
-      // Check loadCodeAssist one more time after onboarding finishes
-      const reloadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
+    try {
+      const probeUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+      const resp = await fetch(probeUrl, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          metadata: coreMetadata,
+          contents: [{ parts: [{ text: 'ping' }] }],
+          generationConfig: { maxOutputTokens: 1 },
         }),
       });
-      if (reloadResp.ok) {
-        const reloadData: any = await reloadResp.json();
-        const reloadedProj = extractProjectId(reloadData?.cloudaicompanionProject);
-        if (reloadedProj) {
-          return reloadedProj;
-        }
-      }
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
 
-async function discoverUserGcpProject(accessToken: string): Promise<string | undefined> {
-  try {
-    const resp = await fetch(
-      'https://cloudresourcemanager.googleapis.com/v1/projects?filter=lifecycleState%3AACTIVE',
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    if (!resp.ok) return undefined;
-    const data: any = await resp.json();
-    const projects: any[] = Array.isArray(data?.projects) ? data.projects : [];
-    const preferred =
-      projects.find((p) => typeof p?.projectId === 'string' && p.projectId.startsWith('gen-lang-client')) ||
-      projects.find((p) => typeof p?.projectId === 'string');
-    return preferred?.projectId ? String(preferred.projectId) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function generateWithGenerativeLanguageOAuth(
-  accessToken: string,
-  gcpProjectId: string,
-  model: string,
-  contents: any[],
-  systemInstruction: string,
-  tools: any[]
-): Promise<{ text: string; functionCalls: any[]; modelContent: any } | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  const payload = {
-    contents,
-    systemInstruction: {
-      role: 'user',
-      parts: [{ text: systemInstruction }],
-    },
-    tools,
-    generationConfig: {
-      temperature: 0.6,
-    },
-  };
-
-  const doRequest = () =>
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'x-goog-user-project': gcpProjectId,
-      },
-      body: JSON.stringify(payload),
-    });
-
-  try {
-    let resp = await doRequest();
-    if (resp.status === 403) {
-      const errText = await resp.text();
-      if (errText.includes('SERVICE_DISABLED') || errText.includes('has not been used in project')) {
-        // Automatically enable generativelanguage.googleapis.com on the user's GCP project
-        await fetch(
-          `https://serviceusage.googleapis.com/v1/projects/${gcpProjectId}/services/generativelanguage.googleapis.com:enable`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message: errMsg,
+              status: resp.status,
+              error: body?.error,
             },
-          }
-        );
-        await new Promise((r) => setTimeout(r, 3200));
-        resp = await doRequest();
-      } else {
-        return null;
+            'gemini'
+          ),
+        };
       }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: normalizeAIError(err, 'gemini') };
     }
-
-    if (!resp.ok) {
-      return null;
-    }
-
-    const rawJson: any = await resp.json();
-    const candidates: any[] = rawJson?.candidates || [];
-    const modelContent = candidates[0]?.content;
-    const parts: any[] = modelContent?.parts || [];
-
-    const functionCalls = parts
-      .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
-      .map((p) => p.functionCall);
-
-    const text = parts
-      .filter((p) => p && typeof p.text === 'string' && !p.thought)
-      .map((p) => p.text)
-      .join('');
-
-    return { text, functionCalls, modelContent };
-  } catch {
-    return null;
   }
+
+  if (provider === 'claude') {
+    if (!key) {
+      return {
+        success: false,
+        error: normalizeAIError(
+          new Error('Invalid API key: Anthropic Claude API key is required.'),
+          'claude'
+        ),
+      };
+    }
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-5-5',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message: errMsg,
+              status: resp.status,
+              error: body?.error,
+            },
+            'claude'
+          ),
+        };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: normalizeAIError(err, 'claude') };
+    }
+  }
+
+  if (provider === 'codex') {
+    if (!key) {
+      return {
+        success: false,
+        error: normalizeAIError(
+          new Error('Invalid API key: OpenAI API key is required.'),
+          'codex'
+        ),
+      };
+    }
+
+    try {
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${key}`,
+        },
+      });
+
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message: errMsg,
+              status: resp.status,
+              error: body?.error,
+            },
+            'codex'
+          ),
+        };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: normalizeAIError(err, 'codex') };
+    }
+  }
+
+  return { success: true };
 }
 
 export async function loginWithGoogle(): Promise<GoogleUserSession> {
@@ -431,11 +364,13 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
 
   const tokenParams = new URLSearchParams({
     client_id: oauthClient.clientId,
-    client_secret: oauthClient.clientSecret,
     code: oauthResult.code,
     grant_type: 'authorization_code',
     redirect_uri: oauthResult.redirect_uri,
   });
+  if (oauthClient.clientSecret) {
+    tokenParams.append('client_secret', oauthClient.clientSecret);
+  }
 
   const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -447,7 +382,7 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
 
   if (!tokenResp.ok) {
     const errText = await tokenResp.text();
-    throw new Error(`Google token exchange failed: ${errText}`);
+    throw normalizeAIError(new Error(`Google token exchange failed: ${errText}`), 'gemini');
   }
 
   const tokenData: any = await tokenResp.json();
@@ -478,8 +413,6 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
     // Non-fatal if userinfo fails
   }
 
-  const projectId = await resolveCodeAssistProject(accessToken);
-
   const session: GoogleUserSession = {
     accessToken,
     refreshToken,
@@ -487,7 +420,6 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
     email,
     name,
     picture,
-    projectId,
   };
 
   saveGoogleSession(session);
@@ -503,10 +435,12 @@ export async function ensureValidGoogleSession(): Promise<GoogleUserSession | nu
       const oauthClient = await getOAuthClientConfig();
       const params = new URLSearchParams({
         client_id: oauthClient.clientId,
-        client_secret: oauthClient.clientSecret,
         refresh_token: googleSession.refreshToken,
         grant_type: 'refresh_token',
       });
+      if (oauthClient.clientSecret) {
+        params.append('client_secret', oauthClient.clientSecret);
+      }
 
       const resp = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
@@ -528,161 +462,25 @@ export async function ensureValidGoogleSession(): Promise<GoogleUserSession | nu
         }
       }
     } catch {
-      // Keep current session if offline/transient error
-    }
-  }
-
-  if (!googleSession.projectId && googleSession.accessToken) {
-    const projectId = await resolveCodeAssistProject(googleSession.accessToken);
-    if (projectId) {
-      googleSession = { ...googleSession, projectId };
-      saveGoogleSession(googleSession);
+      // Keep current session if offline
     }
   }
 
   return googleSession;
 }
 
-async function generateWithGoogleOAuth(
-  session: GoogleUserSession,
-  model: string,
-  contents: any[],
-  systemInstruction: string,
-  tools: any[]
-): Promise<{ text: string; functionCalls: any[]; modelContent: any }> {
-  const promptId = `luminess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  const caPayload: Record<string, any> = {
-    model,
-    project: session.projectId,
-    user_prompt_id: promptId,
-    request: {
-      contents,
-      systemInstruction: {
-        role: 'user',
-        parts: [{ text: systemInstruction }],
-      },
-      tools,
-      generationConfig: {
-        temperature: 0.6,
-      },
-    },
-  };
-
-  let resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(caPayload),
-  });
-
-  // If token expired (401), force refresh once and retry
-  if (resp.status === 401 && session.refreshToken) {
-    session.expiryDate = 0;
-    const refreshed = await ensureValidGoogleSession();
-    if (refreshed) {
-      resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${refreshed.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...caPayload,
-          project: refreshed.projectId,
-        }),
-      });
-    }
-  }
-
-  // If 403 SUBSCRIPTION_REQUIRED / PERMISSION_DENIED (#3501), try onboarding free-tier or falling back to standard Gemini API
-  if (resp.status === 403) {
-    const errBody403 = await resp.text();
-
-    // 1. Force free-tier onboarding and retry if a new managed projectId is obtained
-    const freeProj = await resolveCodeAssistProject(session.accessToken, true);
-    if (freeProj && freeProj !== session.projectId) {
-      session.projectId = freeProj;
-      if (googleSession) {
-        googleSession = { ...googleSession, projectId: freeProj };
-        saveGoogleSession(googleSession);
-      }
-      resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...caPayload,
-          project: freeProj,
-        }),
-      });
-    }
-
-    // 2. If still 403, try discovering an active GCP project on the user's account and calling standard Gemini API
-    if (!resp.ok) {
-      const gcpProj = session.gcpProjectId || (await discoverUserGcpProject(session.accessToken));
-      if (gcpProj) {
-        session.gcpProjectId = gcpProj;
-        if (googleSession) {
-          googleSession = { ...googleSession, gcpProjectId: gcpProj };
-          saveGoogleSession(googleSession);
-        }
-
-        const stdRes = await generateWithGenerativeLanguageOAuth(
-          session.accessToken,
-          gcpProj,
-          model,
-          contents,
-          systemInstruction,
-          tools
-        );
-        if (stdRes) {
-          return stdRes;
-        }
-      }
-
-      if (errBody403.includes('SUBSCRIPTION_REQUIRED') || errBody403.includes('3501')) {
-        throw new Error(
-          'Your Google account is not licensed for Gemini Code Assist (#3501 SUBSCRIPTION_REQUIRED). ' +
-            'To fix this instantly: click the Account/Settings button in the chat header and either (1) paste a free Google AI Studio API Key (aistudio.google.com/app/apikey), or (2) switch to a personal @gmail.com account.'
-        );
-      }
-
-      throw new Error(`Google AI request failed (403): ${errBody403}`);
-    }
-  }
-
-  if (!resp.ok) {
-    const errBody = await resp.text();
-    throw new Error(`Google AI request failed (${resp.status}): ${errBody}`);
-  }
-
-  const rawJson: any = await resp.json();
-  const inner = rawJson?.response || rawJson;
-  const candidates: any[] = inner?.candidates || [];
-  const modelContent = candidates[0]?.content;
-  const parts: any[] = modelContent?.parts || [];
-
-  const functionCalls = parts
-    .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
-    .map((p) => p.functionCall);
-
-  const text = parts
-    .filter((p) => p && typeof p.text === 'string' && !p.thought)
-    .map((p) => p.text)
-    .join('');
-
-  return { text, functionCalls, modelContent };
-}
-
 const VALID_EMOTIONS: Emotion[] = [
-  'joy', 'sadness', 'anger', 'fear', 'surprise',
-  'disgust', 'curiosity', 'confusion', 'love',
-  'embarrassment', 'idle'
+  'joy',
+  'sadness',
+  'anger',
+  'fear',
+  'surprise',
+  'disgust',
+  'curiosity',
+  'confusion',
+  'love',
+  'embarrassment',
+  'idle',
 ];
 
 function describeToolCall(name: string, args: Record<string, any>): string {
@@ -808,7 +606,6 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
     return { content: 'Done!', emotion: 'idle' };
   }
 
-  // Strip optional markdown code fences if present
   const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
 
@@ -821,7 +618,6 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
       return { content: parsed.content, emotion: emo };
     }
   } catch {
-    // Try extracting a JSON object embedded in the text
     const jsonStart = candidate.indexOf('{');
     const jsonEnd = candidate.lastIndexOf('}');
     if (jsonStart !== -1 && jsonEnd > jsonStart) {
@@ -834,71 +630,12 @@ function parseAssistantOutput(rawText: string): { content: string; emotion: Emot
           return { content: sub.content, emotion: emo };
         }
       } catch {
-        // fallback to plain text
+        // fallback
       }
     }
   }
 
   return { content: trimmed, emotion: inferContextualEmotion(trimmed) };
-}
-
-function getFallbackApiKey(): string {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_FALLBACK_KEY) {
-    return String(import.meta.env.VITE_GEMINI_FALLBACK_KEY).trim();
-  }
-  try {
-    const encoded = 'QVEuQWI4Uk42THZVZ3JJal90YnNSYjNpU3hVWFZNYTlHOHdfTHJpWExWdDBBSzdHcE9yZWc=';
-    if (typeof atob === 'function') {
-      return atob(encoded);
-    }
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(encoded, 'base64').toString('utf-8');
-    }
-  } catch {
-    // ignore
-  }
-  return '';
-}
-
-export const DEFAULT_FALLBACK_API_KEY = getFallbackApiKey();
-const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
-
-async function generateWithFallbackKey(
-  contents: any[],
-  systemInstruction: string,
-  tools: any[]
-): Promise<{ text: string; functionCalls: any[]; modelContent: any }> {
-  const fallbackAi = new GoogleGenAI({ apiKey: DEFAULT_FALLBACK_API_KEY, vertexai: false });
-  let lastError: any = null;
-
-  for (const model of FALLBACK_MODELS) {
-    try {
-      const response = await fallbackAi.models.generateContent({
-        model,
-        contents,
-        config: {
-          systemInstruction,
-          tools,
-          temperature: 0.6,
-        },
-      });
-
-      let rawText = '';
-      try {
-        rawText = response.text || '';
-      } catch {
-        rawText = '';
-      }
-      const functionCalls = response.functionCalls || [];
-      const modelContent = response.candidates?.[0]?.content;
-      return { text: rawText, functionCalls, modelContent };
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`[Luminess] Fallback model ${model} failed, trying next candidate...`, err);
-    }
-  }
-
-  throw lastError || new Error('Fallback AI service was unable to generate a response.');
 }
 
 function isVertexExpressKey(key: string): boolean {
@@ -912,15 +649,15 @@ function createGenAIClient(key: string, vertexai = false): GoogleGenAI {
   });
 }
 
-
 function normalizeProviderSchema(value: any): any {
   if (Array.isArray(value)) return value.map(normalizeProviderSchema);
   if (!value || typeof value !== 'object') return value;
   const normalized: Record<string, any> = {};
   for (const [key, child] of Object.entries(value)) {
-    normalized[key] = key === 'type' && typeof child === 'string'
-      ? child.toLowerCase()
-      : normalizeProviderSchema(child);
+    normalized[key] =
+      key === 'type' && typeof child === 'string'
+        ? child.toLowerCase()
+        : normalizeProviderSchema(child);
   }
   return normalized;
 }
@@ -938,7 +675,7 @@ async function runAlternativeProviderAgent(
   onRequestPermission: (req: ToolPermissionRequest) => Promise<boolean>,
   onTimerComplete: ((label: string) => void) | undefined,
   systemInstruction: string,
-  declarations: any[],
+  declarations: any[]
 ): Promise<Message> {
   const executedActions: string[] = [];
   const maxTurns = 8;
@@ -1007,13 +744,25 @@ async function runAlternativeProviderAgent(
         });
         const data: any = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(`Claude API error (${response.status}): ${extractProviderError(data, 'Request failed')}`);
+          const errMsg = extractProviderError(data, `Claude API error (${response.status})`);
+          throw normalizeAIError(
+            {
+              message: errMsg,
+              status: response.status,
+              error: data?.error,
+            },
+            'claude'
+          );
         }
 
         const blocks: any[] = Array.isArray(data.content) ? data.content : [];
         const calls = blocks.filter((block) => block?.type === 'tool_use');
         if (calls.length === 0) {
-          const rawText = blocks.filter((block) => block?.type === 'text').map((block) => block.text || '').join('\n').trim();
+          const rawText = blocks
+            .filter((block) => block?.type === 'text')
+            .map((block) => block.text || '')
+            .join('\n')
+            .trim();
           const parsed = parseAssistantOutput(rawText);
           onEmotion(parsed.emotion);
           return {
@@ -1027,7 +776,8 @@ async function runAlternativeProviderAgent(
         messages.push({ role: 'assistant', content: blocks });
         const results: any[] = [];
         for (const call of calls) {
-          const args: Record<string, any> = call.input && typeof call.input === 'object' ? call.input : {};
+          const args: Record<string, any> =
+            call.input && typeof call.input === 'object' ? call.input : {};
           const result = await runTool(String(call.name || ''), args);
           results.push({
             type: 'tool_result',
@@ -1069,18 +819,29 @@ async function runAlternativeProviderAgent(
         });
         const data: any = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(`OpenAI API error (${response.status}): ${extractProviderError(data, 'Request failed')}`);
+          const errMsg = extractProviderError(data, `OpenAI API error (${response.status})`);
+          throw normalizeAIError(
+            {
+              message: errMsg,
+              status: response.status,
+              error: data?.error,
+            },
+            'codex'
+          );
         }
 
         const output: any[] = Array.isArray(data.output) ? data.output : [];
         const calls = output.filter((item) => item?.type === 'function_call');
         if (calls.length === 0) {
-          const rawText = String(data.output_text || output
-            .filter((item) => item?.type === 'message')
-            .flatMap((item) => Array.isArray(item.content) ? item.content : [])
-            .filter((part) => part?.type === 'output_text' || part?.type === 'text')
-            .map((part) => part.text || '')
-            .join('\n')).trim();
+          const rawText = String(
+            data.output_text ||
+              output
+                .filter((item) => item?.type === 'message')
+                .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
+                .filter((part) => part?.type === 'output_text' || part?.type === 'text')
+                .map((part) => part.text || '')
+                .join('\n')
+          ).trim();
           const parsed = parseAssistantOutput(rawText);
           onEmotion(parsed.emotion);
           return {
@@ -1095,7 +856,8 @@ async function runAlternativeProviderAgent(
         for (const call of calls) {
           let args: Record<string, any> = {};
           try {
-            const decoded = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
+            const decoded =
+              typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
             if (decoded && typeof decoded === 'object') args = decoded;
           } catch {
             args = {};
@@ -1112,14 +874,20 @@ async function runAlternativeProviderAgent(
 
     return {
       role: 'assistant',
-      content: 'I reached the maximum number of tool steps for that request. Please tell me what you would like me to do next.',
+      content:
+        'I reached the maximum number of tool steps for that request. Please tell me what you would like me to do next.',
       emotion: 'confusion',
       toolActions: executedActions.length ? executedActions : undefined,
     };
   } catch (error: any) {
-    const message = typeof error === 'string' ? error : error?.message || String(error);
-    console.error(`${provider} provider error:`, error);
-    throw new Error(message);
+    const normErr = normalizeAIError(error, provider);
+    onEmotion('confusion');
+    return {
+      role: 'assistant',
+      content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n*Action: ${normErr.actionLabel}* (Reference: \`${normErr.diagnosticRef}\`)`,
+      emotion: 'confusion',
+      toolActions: executedActions.length ? executedActions : undefined,
+    };
   } finally {
     onToolStart(null);
   }
@@ -1136,14 +904,17 @@ export async function runAgent(
   const selectedProviderKey = getProviderApiKey(selectedProvider);
 
   if (selectedProvider !== 'gemini' && !selectedProviderKey) {
+    const normErr = normalizeAIError(
+      new Error(`Missing API key for ${selectedProvider}`),
+      selectedProvider
+    );
     return {
       role: 'assistant',
-      content: `Add your ${selectedProvider === 'claude' ? 'Claude' : 'OpenAI'} API key in AURA setup, or switch to a configured provider.`,
-      emotion: 'idle',
+      content: `⚠️ **${normErr.title}**\n\nAdd your ${selectedProvider === 'claude' ? 'Claude' : 'OpenAI'} API key in settings to continue.\n\n*Action: ${normErr.actionLabel}*`,
+      emotion: 'confusion',
     };
   }
 
-  // Fetch basic PC context automatically so the AI knows paths like Desktop, Documents, Username, Drives
   let pcSummary = '';
   try {
     const ctx: any = await invoke('get_pc_context');
@@ -1162,131 +933,169 @@ Current PC Environment:
     // Ignore if unavailable
   }
 
-  const contents: any[] = history.map(m => ({
+  const contents: any[] = history.map((m) => ({
     role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content }]
+    parts: [{ text: m.content }],
   }));
 
-  const tools: any[] = [{
-    functionDeclarations: [
-      {
-        name: 'get_pc_context',
-        description: 'Get system info, username, user profile directory, Desktop, Documents, Downloads paths, and available drives.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {}
-        }
-      },
-      {
-        name: 'fs_list_dir',
-        description: 'List all files and subdirectories inside any directory on the PC. Supports ~, %USERPROFILE%, and full paths like C:\\Users\\...',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            path: { type: Type.STRING, description: 'Directory path to list (e.g. ~/Desktop, C:\\, %USERPROFILE%\\Documents)' }
+  const tools: any[] = [
+    {
+      functionDeclarations: [
+        {
+          name: 'get_pc_context',
+          description:
+            'Get system info, username, user profile directory, Desktop, Documents, Downloads paths, and available drives.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {},
           },
-          required: ['path']
-        }
-      },
-      {
-        name: 'fs_read_file',
-        description: 'Read the contents of any file on the user PC.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            path: { type: Type.STRING, description: 'Full or relative path to the file to read' },
-            max_bytes: { type: Type.NUMBER, description: 'Optional max bytes to read (default 250000)' }
+        },
+        {
+          name: 'fs_list_dir',
+          description:
+            'List all files and subdirectories inside any directory on the PC. Supports ~, %USERPROFILE%, and full paths like C:\\Users\\...',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              path: {
+                type: Type.STRING,
+                description:
+                  'Directory path to list (e.g. ~/Desktop, C:\\, %USERPROFILE%\\Documents)',
+              },
+            },
+            required: ['path'],
           },
-          required: ['path']
-        }
-      },
-      {
-        name: 'fs_write_file',
-        description: 'Create, overwrite, or append text to any file on the user PC. Automatically creates parent directories if needed.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            path: { type: Type.STRING, description: 'Full path to the file to create or modify' },
-            content: { type: Type.STRING, description: 'The full text content to write or append' },
-            append: { type: Type.BOOLEAN, description: 'If true, appends to the file instead of overwriting' }
+        },
+        {
+          name: 'fs_read_file',
+          description: 'Read the contents of any file on the user PC.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              path: { type: Type.STRING, description: 'Full or relative path to the file to read' },
+              max_bytes: {
+                type: Type.NUMBER,
+                description: 'Optional max bytes to read (default 250000)',
+              },
+            },
+            required: ['path'],
           },
-          required: ['path', 'content']
-        }
-      },
-      {
-        name: 'fs_search_files',
-        description: 'Search recursively for files or folders matching a name/substring inside a directory on the PC.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            directory: { type: Type.STRING, description: 'Root directory to search in (e.g. ~/Desktop, ~/Documents, C:\\Users)' },
-            query: { type: Type.STRING, description: 'File or folder name substring to search for (case-insensitive)' },
-            max_results: { type: Type.NUMBER, description: 'Maximum results to return (default 100)' }
+        },
+        {
+          name: 'fs_write_file',
+          description:
+            'Create, overwrite, or append text to any file on the user PC. Automatically creates parent directories if needed.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              path: { type: Type.STRING, description: 'Full path to the file to create or modify' },
+              content: {
+                type: Type.STRING,
+                description: 'The full text content to write or append',
+              },
+              append: {
+                type: Type.BOOLEAN,
+                description: 'If true, appends to the file instead of overwriting',
+              },
+            },
+            required: ['path', 'content'],
           },
-          required: ['directory', 'query']
-        }
-      },
-      {
-        name: 'fs_delete_path',
-        description: 'Delete any file or folder (recursively) on the user PC.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            path: { type: Type.STRING, description: 'Full path to the file or directory to delete' }
+        },
+        {
+          name: 'fs_search_files',
+          description:
+            'Search recursively for files or folders matching a name/substring inside a directory on the PC.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              directory: {
+                type: Type.STRING,
+                description:
+                  'Root directory to search in (e.g. ~/Desktop, ~/Documents, C:\\Users)',
+              },
+              query: {
+                type: Type.STRING,
+                description: 'File or folder name substring to search for (case-insensitive)',
+              },
+              max_results: {
+                type: Type.NUMBER,
+                description: 'Maximum results to return (default 100)',
+              },
+            },
+            required: ['directory', 'query'],
           },
-          required: ['path']
-        }
-      },
-      {
-        name: 'fs_copy_or_move',
-        description: 'Copy, move, or rename any file or folder on the user PC.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            source: { type: Type.STRING, description: 'Source file or directory path' },
-            destination: { type: Type.STRING, description: 'Destination file or directory path' },
-            is_move: { type: Type.BOOLEAN, description: 'True to move/rename, false to copy' }
+        },
+        {
+          name: 'fs_delete_path',
+          description: 'Delete any file or folder (recursively) on the user PC.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              path: { type: Type.STRING, description: 'Full path to the file or directory to delete' },
+            },
+            required: ['path'],
           },
-          required: ['source', 'destination', 'is_move']
-        }
-      },
-      {
-        name: 'execute_pc_command',
-        description: 'Execute any PowerShell command or script on the Windows PC. Can run programs, inspect processes, change settings, manage files, install packages, or automate anything on the computer.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            command: { type: Type.STRING, description: 'PowerShell command to execute' },
-            cwd: { type: Type.STRING, description: 'Optional working directory for the command' }
+        },
+        {
+          name: 'fs_copy_or_move',
+          description: 'Copy, move, or rename any file or folder on the user PC.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              source: { type: Type.STRING, description: 'Source file or directory path' },
+              destination: { type: Type.STRING, description: 'Destination file or directory path' },
+              is_move: { type: Type.BOOLEAN, description: 'True to move/rename, false to copy' },
+            },
+            required: ['source', 'destination', 'is_move'],
           },
-          required: ['command']
-        }
-      },
-      {
-        name: 'open_item',
-        description: 'Open any application, file, folder, shell:AppsFolder URI, or URL on the user PC (e.g. notepad, calc, chrome, spotify, discord, https://..., C:\\...).',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            target: { type: Type.STRING, description: 'Application name, executable path, shortcut (.lnk), shell:AppsFolder/<AppID>, or URL to open' }
+        },
+        {
+          name: 'execute_pc_command',
+          description:
+            'Execute any PowerShell command or script on the Windows PC. Can run programs, inspect processes, change settings, manage files, install packages, or automate anything on the computer.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              command: { type: Type.STRING, description: 'PowerShell command to execute' },
+              cwd: { type: Type.STRING, description: 'Optional working directory for the command' },
+            },
+            required: ['command'],
           },
-          required: ['target']
-        }
-      },
-      {
-        name: 'set_timer',
-        description: 'Set a countdown timer for a duration in minutes.',
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            minutes: { type: Type.NUMBER, description: 'Duration in minutes (can be fractional like 0.5 for 30s)' },
-            label: { type: Type.STRING, description: 'What the timer is for' }
+        },
+        {
+          name: 'open_item',
+          description:
+            'Open any application, file, folder, shell:AppsFolder URI, or URL on the user PC (e.g. notepad, calc, chrome, spotify, discord, https://..., C:\\...).',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              target: {
+                type: Type.STRING,
+                description:
+                  'Application name, executable path, shortcut (.lnk), shell:AppsFolder/<AppID>, or URL to open',
+              },
+            },
+            required: ['target'],
           },
-          required: ['minutes']
-        }
-      }
-    ]
-  }];
+        },
+        {
+          name: 'set_timer',
+          description: 'Set a countdown timer for a duration in minutes.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              minutes: {
+                type: Type.NUMBER,
+                description: 'Duration in minutes (can be fractional like 0.5 for 30s)',
+              },
+              label: { type: Type.STRING, description: 'What the timer is for' },
+            },
+            required: ['minutes'],
+          },
+        },
+      ],
+    },
+  ];
 
   const systemInstruction = `
 You are Luminess Assist, an expressive, capable robotic desktop companion living on the user's Windows PC.
@@ -1310,7 +1119,7 @@ APP OPENING & UNKNOWN APPLICATION PROTOCOL:
      - Search Start Menu shortcuts:
        Get-ChildItem -Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "*<name>*.lnk"
      - Search user install directories (LocalAppData, Program Files) using 'fs_search_files' or PowerShell.
-     - If found, open it using 'open_item' with the full path, shortcut path, or 'shell:AppsFolder\<AppID>'.
+     - If found, open it using 'open_item' with the full path, shortcut path, or 'shell:AppsFolder\\<AppID>'.
   3. If you have searched and tried alternate methods and the application truly cannot be found or opened on this PC:
      Clearly and honestly state that it cannot be opened (e.g. "I couldn't open [App Name] because it could not be found on your PC. It might not be installed.").
      NEVER claim that you opened an application if it could not be opened or failed!
@@ -1347,13 +1156,38 @@ Do not wrap the JSON in markdown code blocks.
       onRequestPermission,
       onTimerComplete,
       systemInstruction,
-      tools[0]?.functionDeclarations || [],
+      tools[0]?.functionDeclarations || []
     );
   }
 
-  let useVertexAi = apiKey ? isVertexExpressKey(apiKey) : false;
-  let ai = apiKey ? createGenAIClient(apiKey, useVertexAi) : null;
+  const latestGoogleSession = await ensureValidGoogleSession();
 
+  if (!apiKey) {
+    if (latestGoogleSession) {
+      const normErr = normalizeAIError(
+        new Error(
+          'ACCESS_TOKEN_TYPE_UNSUPPORTED: Google identity is connected, but a Gemini API key is required to activate the AI engine.'
+        ),
+        'gemini'
+      );
+      onEmotion('confusion');
+      return {
+        role: 'assistant',
+        content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n👉 **${normErr.actionLabel}**: Click Settings to enter a free Gemini API key from [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).`,
+        emotion: 'confusion',
+      };
+    }
+    const normErr = normalizeAIError(new Error('Sign in required'), 'gemini');
+    onEmotion('confusion');
+    return {
+      role: 'assistant',
+      content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n👉 **${normErr.actionLabel}**: Open settings to sign in or add a Gemini API key.`,
+      emotion: 'confusion',
+    };
+  }
+
+  const useVertexAi = isVertexExpressKey(apiKey);
+  const ai = createGenAIClient(apiKey, useVertexAi);
   const executedActions: string[] = [];
 
   try {
@@ -1363,98 +1197,27 @@ Do not wrap the JSON in markdown code blocks.
       let functionCalls: any[] | undefined;
       let modelContent: any;
 
-      const latestGoogleSession = await ensureValidGoogleSession();
-      let usedPrimary = false;
-
-      if (latestGoogleSession && !apiKey) {
-        try {
-          const oauthRes = await generateWithGoogleOAuth(
-            latestGoogleSession,
-            'gemini-2.5-flash',
-            contents,
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents,
+          config: {
             systemInstruction,
-            tools
-          );
-          rawText = oauthRes.text;
-          functionCalls = oauthRes.functionCalls;
-          modelContent = oauthRes.modelContent;
-          usedPrimary = true;
-        } catch (oauthErr: any) {
-          console.warn('[Luminess] Google OAuth generation failed, attempting API key or fallback...', oauthErr);
-          if (ai) {
-            try {
-              const response = await ai.models.generateContent({
-                model: 'gemini-3.5-flash',
-                contents,
-                config: {
-                  systemInstruction,
-                  tools,
-                  temperature: 0.6,
-                },
-              });
-              rawText = response.text || '';
-              functionCalls = response.functionCalls;
-              modelContent = response.candidates?.[0]?.content;
-              usedPrimary = true;
-            } catch (apiKeyErr) {
-              console.warn('[Luminess] Custom API key also failed, falling back to default key...', apiKeyErr);
-            }
-          }
-        }
-      } else if (ai) {
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.5-flash',
-            contents,
-            config: {
-              systemInstruction,
-              tools,
-              temperature: 0.6,
-            },
-          });
-          rawText = response.text || '';
-          functionCalls = response.functionCalls;
-          modelContent = response.candidates?.[0]?.content;
-          usedPrimary = true;
-        } catch (reqErr: any) {
-          const msg = String(reqErr?.message || reqErr || '');
-          if (
-            msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
-            msg.includes('UNAUTHENTICATED') ||
-            msg.includes('API_KEY_INVALID') ||
-            msg.includes('401')
-          ) {
-            useVertexAi = !useVertexAi;
-            ai = createGenAIClient(apiKey, useVertexAi);
-            try {
-              const response = await ai.models.generateContent({
-                model: 'gemini-3.5-flash',
-                contents,
-                config: {
-                  systemInstruction,
-                  tools,
-                  temperature: 0.6,
-                },
-              });
-              rawText = response.text || '';
-              functionCalls = response.functionCalls;
-              modelContent = response.candidates?.[0]?.content;
-              usedPrimary = true;
-            } catch (retryErr) {
-              console.warn('[Luminess] Custom API key retry failed, using fallback key...', retryErr);
-            }
-          } else {
-            console.warn('[Luminess] Custom API key request failed, using fallback key...', reqErr);
-          }
-        }
-      }
-
-      if (!usedPrimary) {
-        console.log('[Luminess] Using built-in fallback Gemini connection...');
-        const fallbackRes = await generateWithFallbackKey(contents, systemInstruction, tools);
-        rawText = fallbackRes.text;
-        functionCalls = fallbackRes.functionCalls;
-        modelContent = fallbackRes.modelContent;
+            tools,
+            temperature: 0.6,
+          },
+        });
+        rawText = response.text || '';
+        functionCalls = response.functionCalls;
+        modelContent = response.candidates?.[0]?.content;
+      } catch (reqErr: any) {
+        const normErr = normalizeAIError(reqErr, 'gemini');
+        onEmotion('confusion');
+        return {
+          role: 'assistant',
+          content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n*Action: ${normErr.actionLabel}* (Reference: \`${normErr.diagnosticRef}\`)`,
+          emotion: 'confusion',
+        };
       }
 
       if (functionCalls && functionCalls.length > 0) {
@@ -1489,8 +1252,8 @@ Do not wrap the JSON in markdown code blocks.
             responseParts.push({
               functionResponse: {
                 name: toolName,
-                response: { error: 'User denied permission to execute this action.' }
-              }
+                response: { error: 'User denied permission to execute this action.' },
+              },
             });
             continue;
           }
@@ -1502,25 +1265,27 @@ Do not wrap the JSON in markdown code blocks.
             responseParts.push({
               functionResponse: {
                 name: toolName,
-                response: { result }
-              }
+                response: { result },
+              },
             });
-          } catch (err: any) {
-            const errMsg = typeof err === 'string' ? err : err?.message || String(err);
-            executedActions.push(`Failed: ${description} (${errMsg})`);
+          } catch (toolErr: any) {
+            const message =
+              typeof toolErr === 'string' ? toolErr : toolErr?.message || String(toolErr);
+            executedActions.push(`Failed: ${description} (${message})`);
             responseParts.push({
               functionResponse: {
                 name: toolName,
-                response: { error: errMsg }
-              }
+                response: { error: message },
+              },
             });
           }
         }
 
         contents.push({
           role: 'user',
-          parts: responseParts
+          parts: responseParts,
         });
+
         continue;
       }
 
@@ -1541,21 +1306,14 @@ Do not wrap the JSON in markdown code blocks.
       toolActions: executedActions.length > 0 ? executedActions : undefined,
     };
   } catch (error: any) {
-    console.warn('[Luminess] Unexpected error in agent loop, trying emergency fallback...', error);
-    try {
-      const emergencyRes = await generateWithFallbackKey(contents, systemInstruction, tools);
-      const parsed = parseAssistantOutput(emergencyRes.text || 'I am ready to help you!');
-      onEmotion(parsed.emotion);
-      return {
-        role: 'assistant',
-        content: parsed.content,
-        emotion: parsed.emotion,
-        toolActions: executedActions.length > 0 ? executedActions : undefined,
-      };
-    } catch (fallbackFinalErr) {
-      console.error('[Luminess] Emergency fallback also failed:', fallbackFinalErr);
-      throw error;
-    }
+    const normErr = normalizeAIError(error, selectedProvider);
+    onEmotion('confusion');
+    return {
+      role: 'assistant',
+      content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n*Action: ${normErr.actionLabel}* (Reference: \`${normErr.diagnosticRef}\`)`,
+      emotion: 'confusion',
+      toolActions: executedActions.length > 0 ? executedActions : undefined,
+    };
   } finally {
     onToolStart(null);
   }

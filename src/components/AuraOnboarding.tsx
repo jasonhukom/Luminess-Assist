@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ExternalLink,
@@ -17,18 +18,22 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AIProvider, GoogleUserSession } from '../lib/gemini.ts';
+import type { NormalizedAIError } from '../lib/aiErrors.ts';
 import './AuraOnboarding.css';
 
 interface AuraOnboardingProps {
   googleUser: GoogleUserSession | null;
   isLoggingIn: boolean;
-  error: string;
+  isVerifying?: boolean;
+  error?: string;
+  normalizedError?: NormalizedAIError | null;
   selectedProvider: AIProvider;
   providerKeys: Record<AIProvider, string>;
   onProviderChange: (provider: AIProvider) => void;
   onProviderKeyChange: (provider: AIProvider, key: string) => void;
   onGoogleLogin: () => void;
   onGoogleLogout: () => void;
+  onErrorAction?: (err: NormalizedAIError) => void;
   onContinue: () => void;
 }
 
@@ -81,21 +86,23 @@ const PROVIDERS: Array<{
 export function AuraOnboarding({
   googleUser,
   isLoggingIn,
+  isVerifying,
   error,
+  normalizedError,
   selectedProvider,
   providerKeys,
   onProviderChange,
   onProviderKeyChange,
   onGoogleLogin,
   onGoogleLogout,
+  onErrorAction,
   onContinue,
 }: AuraOnboardingProps) {
   const [showKey, setShowKey] = useState(false);
   const provider = PROVIDERS.find((item) => item.id === selectedProvider) || PROVIDERS[0];
   const currentKey = providerKeys[selectedProvider] || '';
   const hasSelectedKey = currentKey.trim().length > 0;
-  const canContinue = (selectedProvider === 'gemini' && (!!googleUser || hasSelectedKey)) ||
-    (selectedProvider !== 'gemini' && hasSelectedKey);
+  const canContinue = hasSelectedKey;
   const openProviderKeys = () => {
     void invoke('open_item', { target: provider.url }).catch(() => {
       window.open(provider.url, '_blank', 'noopener,noreferrer');
@@ -208,16 +215,53 @@ export function AuraOnboarding({
           </div>
         </section>
 
-        {error && <div className="aura-setup-error">{error}</div>}
+        {normalizedError ? (
+          <div className={`aura-error-card kind-${normalizedError.kind}`} role="alert">
+            <div className="aura-error-header">
+              <AlertTriangle size={15} />
+              <strong className="aura-error-title">{normalizedError.title}</strong>
+              <span className="aura-error-ref">{normalizedError.diagnosticRef}</span>
+            </div>
+            <p className="aura-error-desc">{normalizedError.message}</p>
+            {onErrorAction && (
+              <div className="aura-error-actions">
+                <button
+                  type="button"
+                  className="aura-error-action-btn"
+                  onClick={() => onErrorAction(normalizedError)}
+                >
+                  <span>{normalizedError.actionLabel}</span>
+                  <ArrowRight size={13} />
+                </button>
+              </div>
+            )}
+          </div>
+        ) : error ? (
+          <div className="aura-setup-error">{error}</div>
+        ) : null}
 
-        <button type="button" className="aura-launch-button" disabled={!canContinue} onClick={onContinue}>
-          <span><Sparkles size={15} /> Initialize Luminess</span>
-          <ArrowRight size={17} />
+        <button
+          type="button"
+          className="aura-launch-button"
+          disabled={!canContinue || isVerifying}
+          onClick={onContinue}
+        >
+          {isVerifying ? (
+            <>
+              <LoaderCircle size={16} className="aura-spin" />
+              <span>Verifying Connection...</span>
+            </>
+          ) : (
+            <>
+              <span><Sparkles size={15} /> Initialize Luminess</span>
+              <ArrowRight size={17} />
+            </>
+          )}
         </button>
         {!canContinue && (
           <p className="aura-setup-hint">
             {selectedProvider === 'gemini'
-              ? 'Connect Google or enter a Gemini API key to continue.'
+              ? 'Enter a Gemini API key from Google AI Studio to activate the AI engine.'
               : `Enter a ${provider.name} API key to use this provider.`}
           </p>
         )}
