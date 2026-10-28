@@ -577,6 +577,7 @@ export function Robot({
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (
+        !onAutonomousRemarkRef.current ||
         autonomousBusyRef.current ||
         dragStateRef.current.active ||
         rafRef.current ||
