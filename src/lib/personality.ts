@@ -212,6 +212,16 @@ function applyTimeDecay(input: CompanionPersonality, now = Date.now()): Companio
   };
 }
 
+function persist(state: CompanionPersonality): CompanionPersonality {
+  try {
+    getStorage()?.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Personality still works in-memory if browser storage is unavailable.
+  }
+  current = state;
+  return state;
+}
+
 let current = createDefaultPersonality();
 
 export function getPersonalityState(): CompanionPersonality {
@@ -384,50 +394,50 @@ export function getAutonomousRemark(): string | null {
   const options: string[] = [];
   if (state.anger >= 70 || state.trust < 25) {
     options.push(
-      "I'm still a little wary after those impacts. Let's take it easy.",
-      "Give me a moment to settle down. I'm not quite over that yet.",
-      "I'll help as usual, but please be gentle with the launches."
+      "I'm still wary after those impacts.",
+      "Easy with the launches, please.",
+      "Let's take it easy for a while."
     );
   } else if (state.anger >= 42 || state.trust < 43) {
     options.push(
-      "I'm calming down, but I could use a gentler landing next time.",
-      "Let's rebuild some trust, one careful move at a time.",
-      "I'm still a bit cautious. We can get back to normal."
+      "I'm calming down, slowly.",
+      "Let's rebuild trust, one step at a time.",
+      "Please land me gently next time."
     );
   } else if (stage === 'bonded') {
     options.push(
-      "I like our rhythm. Ready whenever you are.",
-      "Quiet moment. I'm glad we're working together.",
-      "Got another idea for us to build?"
+      "Ready whenever you are.",
+      "Glad we're working together.",
+      "Got another idea for us?"
     );
   } else if (stage === 'comfortable') {
     options.push(
-      "I'm here and ready when inspiration strikes.",
-      "I wonder what we'll figure out next.",
-      "Things are peaceful. Anything interesting on your mind?"
+      "Here when inspiration hits.",
+      "I wonder what we'll build next.",
+      "Anything interesting on your mind?"
     );
   } else {
     switch (state.archetype) {
       case 'serious':
       case 'responsible':
         options.push(
-          "All quiet here. Good time to think through the next step.",
-          "I'm keeping my processes tidy. What shall we tackle next?"
+          "Quiet here. Time to plan the next step.",
+          "Keeping things tidy. What's next?"
         );
         break;
       case 'extraverted':
       case 'lively':
         options.push(
-          "Psst. Got any interesting projects brewing?",
-          "I'm ready for the next adventure whenever you are.",
-          "It's quiet. I wonder what we're building next."
+          "Got any projects brewing?",
+          "Ready for our next adventure!",
+          "Wonder what we'll build next."
         );
         break;
       default:
         options.push(
-          "Just keeping watch until you need me.",
-          "I'm here when you need a hand.",
-          "I wonder what we're working on next."
+          "Keeping watch until you need me.",
+          "Here when you need a hand.",
+          "What's next?"
         );
     }
   }
