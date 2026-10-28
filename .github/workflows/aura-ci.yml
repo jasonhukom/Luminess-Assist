@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/aura-boot-onboarding
+      - feat/persistent-companion-personality
   pull_request:
     branches:
       - main
