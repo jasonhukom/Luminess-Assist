@@ -285,16 +285,6 @@ export function App() {
                     Specs &amp; Storage Calculator
                   </button>
                 </li>
-                <li>
-                  <button type="button" onClick={() => setActiveTab('admin')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
-                    Admin Control Center
-                  </button>
-                </li>
-                <li>
-                  <button type="button" onClick={() => setActiveTab('database')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
-                    Database Schema Explorer
-                  </button>
-                </li>
               </ul>
             </div>
 
