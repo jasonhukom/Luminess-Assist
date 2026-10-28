@@ -80,7 +80,9 @@ export function loadCrocSettings(): CrocSettings {
     const raw = window.localStorage.getItem(CROC_STORAGE_KEY);
     if (!raw) return defaults;
 
-    const parsed = JSON.parse(raw) as Partial<CrocSettings>;
+    const parsed = JSON.parse(raw) as Partial<Omit<CrocSettings, "permissions">> & {
+      permissions?: Partial<WebPermissions>;
+    };
     const savedPermissions = parsed.permissions ?? {};
 
     return {
