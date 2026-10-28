@@ -71,7 +71,6 @@ export interface CompanionPersonality {
 }
 
 const STORAGE_KEY = 'LUMINESS_COMPANION_PERSONALITY_V1';
-const MAX_RECENT_EVENTS = 12;
 const MIN_REMARK_INTERVAL_MS = 65_000;
 
 const ARCHETYPES: Record<PersonalityArchetype, BigFiveProfile> = {
@@ -162,7 +161,8 @@ function normalisePersonality(value: unknown): CompanionPersonality | null {
   if (item.version !== 1 || !item.archetype || !(item.archetype in ARCHETYPES)) return null;
   const baseline = ARCHETYPES[item.archetype as PersonalityArchetype];
   const traits = item.traits && typeof item.traits === 'object' ? item.traits : baseline;
-  const counts = item.counts && typeof item.counts === 'object' ? item.counts : {};
+  const counts: Partial<CompanionPersonality['counts']> =
+    item.counts && typeof item.counts === 'object' ? item.counts : {};
   const numeric = (n: unknown, fallback: number) =>
     typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 
@@ -196,30 +196,6 @@ function normalisePersonality(value: unknown): CompanionPersonality | null {
     lastRemarkAt: numeric(item.lastRemarkAt, 0),
     lastDecayAt: numeric(item.lastDecayAt, Date.now()),
   };
-}
-
-function loadPersonality(): CompanionPersonality {
-  const storage = getStorage();
-  try {
-    const raw = storage?.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = normalisePersonality(JSON.parse(raw));
-      if (parsed) return applyTimeDecay(parsed);
-    }
-  } catch {
-    // Use a fresh profile if local storage is unavailable or corrupt.
-  }
-  return createDefaultPersonality();
-}
-
-function persist(state: CompanionPersonality): CompanionPersonality {
-  try {
-    getStorage()?.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Personality still works in-memory if browser storage is unavailable.
-  }
-  current = state;
-  return state;
 }
 
 function applyTimeDecay(input: CompanionPersonality, now = Date.now()): CompanionPersonality {
