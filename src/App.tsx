@@ -25,6 +25,7 @@ import type {
   AIProvider,
 } from './lib/gemini.ts';
 import { invoke } from '@tauri-apps/api/core';
+import { recordChatInteraction } from './lib/personality.ts';
 import { listen } from '@tauri-apps/api/event';
 import {
   Sparkles,
@@ -942,6 +943,17 @@ function App() {
     }
   };
 
+  const handleAutonomousRemark = useCallback((remark: string) => {
+    // Keep autonomous remarks inside the current conversation only when it is already open.
+    // Otherwise Robot shows the line in its existing status pill without opening new UI.
+    if (!chatOpen || isProcessing) return;
+    setMessages((previous) => {
+      const last = previous[previous.length - 1];
+      if (last?.role === 'assistant' && last.content === remark) return previous;
+      return [...previous, { role: 'assistant', content: remark, emotion: 'idle' }];
+    });
+  }, [chatOpen, isProcessing]);
+
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isProcessing) return;
 
@@ -960,6 +972,8 @@ function App() {
       return;
     }
 
+    // Store only interaction signals, never the user's raw message text.
+    recordChatInteraction(text);
     setMessages(newHistory);
     setIsProcessing(true);
     setEmotion('curiosity');
@@ -1264,6 +1278,7 @@ function App() {
               onDragStateChange={setIsDraggingBot}
               onScreenSideChange={handleScreenSideChange}
               onBrokenCountdownChange={setBrokenSeconds}
+              onAutonomousRemark={handleAutonomousRemark}
             />
           </div>
         </>

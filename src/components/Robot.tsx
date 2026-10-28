@@ -7,6 +7,7 @@ import type {
 import './Robot.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getAutonomousRemark, recordPersonalityEvent } from '../lib/personality.ts';
 
 export type Emotion =
   | 'joy'
@@ -66,6 +67,7 @@ interface RobotProps {
   onDragStateChange?: (dragging: boolean) => void;
   onScreenSideChange?: (side: 'left' | 'right', vert: 'up' | 'down') => void;
   onBrokenCountdownChange?: (seconds: number) => void;
+  onAutonomousRemark?: (remark: string) => void;
 }
 
 interface FaceConfig {
@@ -223,6 +225,7 @@ export function Robot({
   onDragStateChange,
   onScreenSideChange,
   onBrokenCountdownChange,
+  onAutonomousRemark,
 }: RobotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -249,6 +252,7 @@ export function Robot({
   const [isGliding, setIsGliding] = useState<boolean>(false);
   const [convEmotionActive, setConvEmotionActive] = useState<boolean>(false);
   const [hearts, setHearts] = useState<HeartParticle[]>([]);
+  const [autonomousRemark, setAutonomousRemark] = useState<string | null>(null);
 
   const [tilt, setTilt] = useState<{ deg: number; scaleX: number; scaleY: number }>({
     deg: 0,
@@ -265,6 +269,7 @@ export function Robot({
   const recoveryTimerRef = useRef<number | null>(null);
   const impactShakeTimerRef = useRef<number | null>(null);
   const idleActionTimerRef = useRef<number | null>(null);
+  const autonomousRemarkTimerRef = useRef<number | null>(null);
   const heartCleanupTimersRef = useRef<number[]>([]);
 
   const tapCountRef = useRef<number>(0);
@@ -279,6 +284,7 @@ export function Robot({
   const lastActivityTimeRef = useRef<number>(Date.now());
   const lastImpactTimeRef = useRef<number>(0);
   const idleBusyRef = useRef<boolean>(false);
+  const autonomousBusyRef = useRef<boolean>(false);
   const heartIdCounterRef = useRef<number>(1);
   const isDizzyRef = useRef<boolean>(false);
   const isPattingRef = useRef<boolean>(false);
@@ -290,6 +296,7 @@ export function Robot({
   const onEmotionChangeRef = useRef(onEmotionChange);
   const onVisualEmotionChangeRef = useRef(onVisualEmotionChange);
   const onBrokenCountdownChangeRef = useRef(onBrokenCountdownChange);
+  const onAutonomousRemarkRef = useRef(onAutonomousRemark);
 
   useEffect(() => {
     onScreenSideChangeRef.current = onScreenSideChange;
@@ -306,6 +313,10 @@ export function Robot({
   useEffect(() => {
     onBrokenCountdownChangeRef.current = onBrokenCountdownChange;
   }, [onBrokenCountdownChange]);
+
+  useEffect(() => {
+    onAutonomousRemarkRef.current = onAutonomousRemark;
+  }, [onAutonomousRemark]);
 
   useEffect(() => {
     isDizzyRef.current = isDizzy;
@@ -428,11 +439,13 @@ export function Robot({
     isPattingRef.current = false;
     setIdleAction('none');
     setGaze({ x: 0, y: 0 });
+    recordPersonalityEvent('broken');
   }, []);
 
   const registerWallImpact = useCallback((impactSpeed: number) => {
     if (impactSpeed < 9.5 || isBrokenRef.current) return;
     lastImpactTimeRef.current = Date.now();
+    recordPersonalityEvent('wall_impact', { impactSpeed });
     const gain = Math.round(Math.min(30, Math.max(16, impactSpeed * 0.52)));
     const prevFrust = frustrationRef.current;
     const nextFrust = Math.min(100, prevFrust + gain);
@@ -472,6 +485,7 @@ export function Robot({
     onBrokenCountdownChangeRef.current?.(isBroken ? brokenCountdown : 0);
     if (isBroken && brokenCountdown <= 0) {
       // Fully repaired: reset damage and anger, shake it off
+      recordPersonalityEvent('repaired');
       isBrokenRef.current = false;
       setIsBroken(false);
       damageRef.current = 0;
@@ -508,7 +522,18 @@ export function Robot({
       isDizzy ||
       isPatting ||
       isLonelySad ||
+      isWhiteBot ||
       frustration >= 20;
+    autonomousBusyRef.current =
+      isHovered ||
+      isGrabbed ||
+      isDragging ||
+      isFlying ||
+      isBroken ||
+      isDizzy ||
+      isPatting ||
+      isLonelySad ||
+      isWhiteBot;
   });
 
   // Completely randomized idle animations: happy, spin, hop, look around, or visit the cursor
@@ -547,6 +572,36 @@ export function Robot({
     };
   }, []);
 
+  // Autonomous speech uses the existing status pill; it never opens chat or adds new UI.
+  // When chat is already open, the same remark is forwarded into the existing message list.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (
+        !onAutonomousRemarkRef.current ||
+        autonomousBusyRef.current ||
+        dragStateRef.current.active ||
+        rafRef.current ||
+        isBrokenRef.current
+      ) return;
+      if (Math.random() > 0.42) return;
+
+      const remark = getAutonomousRemark();
+      if (!remark) return;
+      setAutonomousRemark(remark);
+      onAutonomousRemarkRef.current?.(remark);
+      if (autonomousRemarkTimerRef.current) window.clearTimeout(autonomousRemarkTimerRef.current);
+      autonomousRemarkTimerRef.current = window.setTimeout(() => {
+        setAutonomousRemark(null);
+        autonomousRemarkTimerRef.current = null;
+      }, 5200);
+    }, 9000);
+
+    return () => {
+      window.clearInterval(interval);
+      if (autonomousRemarkTimerRef.current) window.clearTimeout(autonomousRemarkTimerRef.current);
+    };
+  }, []);
+
   // Show conversational emotions briefly, then return to neutral white
   useEffect(() => {
     if (emotion === 'idle') {
@@ -575,6 +630,8 @@ export function Robot({
         }
       }
 
+      // Pats build affection and trust over repeated interactions, even if the robot is still calming down.
+      recordPersonalityEvent('pat');
       // Gentle pats reduce frustration incrementally
       const nextFrustration = Math.max(0, frustrationRef.current - 8);
       frustrationRef.current = nextFrustration;
@@ -664,6 +721,7 @@ export function Robot({
       if (hoverLeaveTimerRef.current) window.clearTimeout(hoverLeaveTimerRef.current);
       if (recoveryTimerRef.current) window.clearTimeout(recoveryTimerRef.current);
       if (impactShakeTimerRef.current) window.clearTimeout(impactShakeTimerRef.current);
+      if (autonomousRemarkTimerRef.current) window.clearTimeout(autonomousRemarkTimerRef.current);
       heartCleanupTimersRef.current.forEach((t) => window.clearTimeout(t));
     };
   }, []);
@@ -888,6 +946,7 @@ export function Robot({
             // Only trigger love after moving mouse around for a couple of seconds (>= 2000ms)
             if (hoverPettingDurationRef.current >= 2000) {
               if (!isPattingRef.current) {
+                recordPersonalityEvent('gentle_hover');
                 setIsPatting(true);
                 isPattingRef.current = true;
                 spawnHearts(4, relX, relY);
@@ -1309,6 +1368,8 @@ export function Robot({
     statusPillText = '😤 Hey!';
   } else if (isReturning) {
     statusPillText = 'Boomerang Return!';
+  } else if (autonomousRemark) {
+    statusPillText = autonomousRemark;
   }
 
   return (
