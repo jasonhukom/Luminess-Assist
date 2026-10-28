@@ -13,6 +13,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import type { TabKey } from './Navbar.tsx';
+import { useLatestRelease } from '../lib/useLatestRelease.ts';
 
 interface HeroSectionProps {
   onNavigateTab: (tab: TabKey) => void;
@@ -20,6 +21,7 @@ interface HeroSectionProps {
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
   const [activeEmotion, setActiveEmotion] = useState<MascotEmotion>('idle');
+  const { tagName, exeAsset } = useLatestRelease();
 
   return (
     <section className="relative overflow-hidden pt-8 pb-16 lg:py-20">
@@ -37,7 +39,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
             {/* Top Chip */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-400/25 text-cyan-300 text-xs font-mono tracking-wide shadow-[0_0_16px_rgba(56,189,248,0.2)]">
               <Sparkles size={14} className="text-cyan-400 animate-spin" style={{ animationDuration: '6s' }} />
-              <span className="font-semibold">RELEASE v1.1.0 IS LIVE</span>
+              <span className="font-semibold">RELEASE {tagName} IS LIVE</span>
               <span className="text-slate-500">•</span>
               <span className="text-slate-300">Tauri 2 + Multi-AI Engine</span>
             </div>
@@ -87,14 +89,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
                 <ArrowRight size={15} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => onNavigateTab('releases')}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.12] hover:border-cyan-400/40 text-slate-200 hover:text-white font-mono text-sm transition-all duration-200 cursor-pointer"
+              <a
+                href={exeAsset.url}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.12] hover:border-cyan-400/40 text-slate-200 hover:text-white font-mono text-sm transition-all duration-200 cursor-pointer shadow-[0_0_15px_rgba(0,0,0,0.4)]"
               >
                 <Download size={16} className="text-cyan-400" />
-                <span>Download v1.1.0 (.exe)</span>
-              </button>
+                <span>Download {tagName} (.exe)</span>
+              </a>
             </div>
 
             {/* Quick Terminal snippet preview */}

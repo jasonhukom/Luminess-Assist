@@ -6,6 +6,7 @@ import { DependenciesTab } from './components/DependenciesTab.tsx';
 import { ArchitectureTab } from './components/ArchitectureTab.tsx';
 import { ReleasesTab } from './components/ReleasesTab.tsx';
 import { Sparkles, Heart, Terminal, HardDrive, Cpu, Download } from 'lucide-react';
+import { useLatestRelease } from './lib/useLatestRelease.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -15,6 +16,7 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const { version } = useLatestRelease();
 
   return (
     <div className="min-h-screen flex flex-col bg-[#06070a] text-slate-100 cyber-grid relative selection:bg-cyan-500/25 selection:text-cyan-200">
@@ -64,12 +66,14 @@ export function App() {
             {/* Col 1: Brand */}
             <div className="space-y-3 md:col-span-2">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 font-mono font-bold text-xs">
-                  LA
-                </div>
+                <img 
+                  src="/robot-icon.svg" 
+                  alt="Luminess Assist Mascot" 
+                  className="w-7 h-7 object-contain filter drop-shadow-[0_0_10px_rgba(0,240,255,0.4)]"
+                />
                 <span className="font-bold text-white text-base">Luminess Assist</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-semibold">
-                  v1.1.0
+                  v{version}
                 </span>
               </div>
               <p className="text-xs text-slate-400 max-w-sm leading-relaxed">

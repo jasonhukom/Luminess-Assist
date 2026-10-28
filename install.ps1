@@ -1,17 +1,27 @@
 # ==============================================================================
 # Luminess Assist - Automated Installer & Desktop Shortcut Creator
-# Version: 1.1.0
+# Version: Dynamic (Latest GitHub Release)
 # Repository: https://github.com/jasonhukom/Luminess-Assist
 # ==============================================================================
 
 [CmdletBinding()]
 param(
     [switch]$FromSource = $false,
-    [string]$Version = "1.1.0",
+    [string]$Version = "",
     [switch]$Silent = $false
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $Version -or $Version -eq "latest") {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        $LatestReleaseJson = Invoke-RestMethod -Uri "https://api.github.com/repos/jasonhukom/Luminess-Assist/releases/latest" -Headers @{ "User-Agent" = "Luminess-Installer" } -UseBasicParsing -ErrorAction Stop
+        $Version = ($LatestReleaseJson.tag_name -replace "^v", "").Trim()
+    } catch {
+        $Version = "1.1.2"
+    }
+}
 
 function Write-LuminessBanner {
     Write-Host ""
