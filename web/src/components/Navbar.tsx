@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, HardDrive, Cpu, Download, Sparkles } from 'lucide-react';
+import { Terminal, HardDrive, Cpu, Download, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
@@ -8,7 +8,7 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   </svg>
 );
 
-export type TabKey = 'overview' | 'install' | 'dependencies' | 'architecture' | 'releases';
+export type TabKey = 'overview' | 'install' | 'dependencies' | 'architecture' | 'releases' | 'croc';
 
 interface NavbarProps {
   activeTab: TabKey;
@@ -24,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
     { key: 'dependencies', label: 'Dependencies & Size', icon: <HardDrive size={16} /> },
     { key: 'architecture', label: 'Multi-AI Core', icon: <Cpu size={16} /> },
     { key: 'releases', label: 'Downloads', icon: <Download size={16} /> },
+    { key: 'croc', label: 'C.R.O.C. Studio', icon: <SlidersHorizontal size={16} /> },
   ];
 
   return (
@@ -56,7 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
         </div>
 
         {/* Tab Navigation Menu */}
-        <nav className="hidden md:flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
+        <nav className="hidden xl:flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
             return (
@@ -104,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
       </div>
 
       {/* Mobile Tab Scrollbar */}
-      <div className="flex md:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
+      <div className="flex xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
         {navItems.map((item) => {
           const isActive = activeTab === item.key;
           return (

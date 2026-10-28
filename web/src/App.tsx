@@ -5,6 +5,7 @@ import { InstallationTab } from './components/InstallationTab.tsx';
 import { DependenciesTab } from './components/DependenciesTab.tsx';
 import { ArchitectureTab } from './components/ArchitectureTab.tsx';
 import { ReleasesTab } from './components/ReleasesTab.tsx';
+import { CrocBuilderTab } from './components/CrocBuilderTab.tsx';
 import { Sparkles, Heart, Terminal, HardDrive, Cpu, Download } from 'lucide-react';
 import { useLatestRelease } from './lib/useLatestRelease.ts';
 
@@ -53,6 +54,10 @@ export function App() {
 
         {activeTab === 'releases' && (
           <ReleasesTab />
+        )}
+
+        {activeTab === 'croc' && (
+          <CrocBuilderTab />
         )}
 
       </main>
@@ -116,6 +121,11 @@ export function App() {
                 <li>
                   <button type="button" onClick={() => setActiveTab('architecture')} className="hover:text-cyan-300 transition-colors">
                     &gt; Multi-AI Core
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('croc')} className="hover:text-cyan-300 transition-colors">
+                    &gt; C.R.O.C. Web Builder
                   </button>
                 </li>
               </ul>
