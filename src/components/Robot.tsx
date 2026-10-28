@@ -547,21 +547,17 @@ export function Robot({
     };
     const run = () => {
       if (!idleBusyRef.current && !dragStateRef.current.active && !rafRef.current) {
-        const choices = ['happy', 'spin', 'hop', 'look', 'cursor', 'cursor'] as const;
+        const choices = ['happy', 'spin', 'hop', 'look'] as const;
         const pick = choices[Math.floor(Math.random() * choices.length)];
-        if (pick === 'cursor') {
-          void invoke<boolean>('glide_to_cursor').catch(() => false);
-        } else {
-          setIdleAction(pick);
-          if (pick === 'look') {
-            setGaze({ x: (Math.random() - 0.5) * 11, y: (Math.random() - 0.5) * 7 });
-          }
-          if (idleActionTimerRef.current) window.clearTimeout(idleActionTimerRef.current);
-          idleActionTimerRef.current = window.setTimeout(() => {
-            setIdleAction('none');
-            if (pick === 'look') setGaze({ x: 0, y: 0 });
-          }, durations[pick]);
+        setIdleAction(pick);
+        if (pick === 'look') {
+          setGaze({ x: (Math.random() - 0.5) * 11, y: (Math.random() - 0.5) * 7 });
         }
+        if (idleActionTimerRef.current) window.clearTimeout(idleActionTimerRef.current);
+        idleActionTimerRef.current = window.setTimeout(() => {
+          setIdleAction('none');
+          if (pick === 'look') setGaze({ x: 0, y: 0 });
+        }, durations[pick]);
       }
       timer = window.setTimeout(run, 6000 + Math.random() * 10000);
     };

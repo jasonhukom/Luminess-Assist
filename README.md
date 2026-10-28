@@ -23,13 +23,20 @@ Luminess Assist is a floating desktop companion powered by Google Gemini. It com
 
 ## Interacting with the robot
 
-| Action | Result |
+| Shortcut / Action | Result |
 | --- | --- |
-| Click the robot | Open or close the chat panel |
-| Click and drag | Move the companion around the desktop |
-| Flick the robot | Give it momentum and watch it return toward the safe screen area |
-| Scroll the mouse wheel over the robot | Increase or decrease its size |
-| Chat with Luminess | Receive a response with a corresponding conversational expression |
+| **Click the robot** | Toggle (open or close) the conversational chat panel |
+| **Alt + Left Click** | Summon robot directly to your mouse cursor location (no idle auto-teleporting) |
+| **Win + Shift + C** | Global hotkey to open / toggle the chat panel from anywhere |
+| **Win + Esc** | Global hotkey to terminate Luminess Assist immediately |
+| **Page Up** | Dock robot to the **top** of active windows/tabs when clicked |
+| **Page Down** | Dock robot to the **bottom** of active windows/tabs when clicked (default) |
+| **Ctrl + Arrow keys** | Smooth real-time diagonal locomotion with conflict resolution & boundary clamping |
+| **Arrow keys** | Move chat bubble position around the mascot (up, down, left, right) |
+| **Click and drag** | Move the companion around the desktop |
+| **Flick the robot** | Give it momentum with realistic physics and safe boundary return |
+| **Mouse wheel over robot** | Scale and zoom robot size anchored to your mouse pointer |
+| **Chat with Luminess** | Receive real-time responses with 11 dynamic conversational expressions |
 
 The robot already has its expressive face, movement and status pill. Personality now uses those existing surfaces: repeated pats gradually build affection, hard wall impacts raise anger and lower trust, and repairs calm anger without instantly erasing relationship history. While the robot is peacefully idle, it can occasionally make a short state-aware remark; the app does not open the chat window by itself.
 

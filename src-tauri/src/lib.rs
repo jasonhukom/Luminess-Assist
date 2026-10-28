@@ -252,6 +252,7 @@ pub struct CompanionState {
     pub last_app_bounds: (i32, i32, i32, i32),
     pub has_initial_docked: bool,
     pub auto_glide: Option<AutoGlide>,
+    pub preferred_dock_vert: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -630,15 +631,14 @@ fn move_to_corner(window: tauri::Window) -> Result<WindowBounds, String> {
     get_window_bounds(window)
 }
 
-#[tauri::command]
-fn glide_to_cursor(
-    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
-    window: tauri::Window,
-) -> Result<bool, String> {
+fn do_glide_to_cursor(
+    state: &Arc<Mutex<CompanionState>>,
+    window: &tauri::Window,
+) -> bool {
     #[cfg(target_os = "windows")]
     {
         let Some((cx, cy)) = win32::get_cursor_pos() else {
-            return Ok(false);
+            return false;
         };
         let monitor = window
             .current_monitor()
@@ -650,7 +650,7 @@ fn glide_to_cursor(
             window.outer_size(),
             window.outer_position(),
         ) else {
-            return Ok(false);
+            return false;
         };
 
         let m_pos = m.position();
@@ -666,18 +666,13 @@ fn glide_to_cursor(
         let min_win_y = m_pos.y - pad + (12.0 * scale).round() as i32;
         let max_win_y = (m_pos.y + m_size.height as i32 - taskbar_margin - win_h + pad - (8.0 * scale).round() as i32).max(min_win_y);
 
-        // Aim slightly beside the cursor so the robot visits the cursor playfully without covering the pointer tip
-        let offset_x = if cx > m_pos.x + (m_size.width as i32 / 2) {
-            -(win_w / 2 + (28.0 * scale).round() as i32)
-        } else {
-            -(win_w / 2 - (28.0 * scale).round() as i32)
-        };
-        let target_x = (cx + offset_x).clamp(min_win_x, max_win_x);
+        // Center the companion near the cursor location
+        let target_x = (cx - win_w / 2).clamp(min_win_x, max_win_x);
         let target_y = (cy - win_h / 2).clamp(min_win_y, max_win_y);
 
         let dist = ((target_x - win_pos.x) as f64).hypot((target_y - win_pos.y) as f64);
-        if dist < 24.0 {
-            return Ok(false);
+        if dist < 12.0 {
+            return false;
         }
 
         let center_x = target_x + win_w / 2;
@@ -694,10 +689,10 @@ fn glide_to_cursor(
         };
 
         if let Ok(mut guard) = state.lock() {
-            if !guard.companion_active || guard.force_interactive {
-                return Ok(false);
+            if !guard.companion_active {
+                return false;
             }
-            let duration_ms = (dist * 0.65).clamp(480.0, 950.0);
+            let duration_ms = (dist * 0.55).clamp(320.0, 850.0);
             guard.auto_glide = Some(AutoGlide {
                 start_x: win_pos.x as f64,
                 start_y: win_pos.y as f64,
@@ -710,15 +705,42 @@ fn glide_to_cursor(
                 screen_side: side,
                 screen_vert: vert,
             });
-            return Ok(true);
+            return true;
         }
-        Ok(false)
+        false
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (state, window);
-        Ok(false)
+        false
     }
+}
+
+#[tauri::command]
+fn glide_to_cursor(
+    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
+    window: tauri::Window,
+) -> Result<bool, String> {
+    Ok(do_glide_to_cursor(state.inner(), &window))
+}
+
+#[tauri::command]
+fn set_dock_vert_preference(
+    state: tauri::State<'_, Arc<Mutex<CompanionState>>>,
+    window: tauri::Window,
+    vert: String,
+) -> Result<(), String> {
+    if let Ok(mut st) = state.lock() {
+        st.preferred_dock_vert = vert.clone();
+        st.last_app_bounds = (0, 0, 0, 0); // Trigger immediate re-dock!
+    }
+    let _ = window.emit("dock-vert-changed", vert);
+    Ok(())
+}
+
+#[tauri::command]
+fn terminate_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[cfg(target_os = "windows")]
@@ -731,6 +753,7 @@ fn compute_position_for_app(
     win_w: i32,
     win_h: i32,
     scale_factor: f64,
+    preferred_vert: &str,
 ) -> (i32, i32, String, String) {
     let mon_right = mon_x + mon_w;
     let mon_bottom = mon_y + mon_h;
@@ -739,6 +762,7 @@ fn compute_position_for_app(
     let pad = (56.0 * scale_factor).round() as i32;
 
     let app_left = app_info.rect.left.max(mon_x);
+    let app_top = app_info.rect.top.max(mon_y);
     let app_right = app_info.rect.right.min(mon_right);
     let app_bottom = app_info.rect.bottom.min(safe_bottom);
     let app_width = app_right - app_left;
@@ -753,26 +777,27 @@ fn compute_position_for_app(
     let min_win_y = mon_y - pad + (12.0 * scale_factor).round() as i32;
     let max_win_y = (safe_bottom - win_h + pad - (8.0 * scale_factor).round() as i32).max(min_win_y);
 
-    // If the app is maximized or takes up nearly the full width of the screen,
-    // place the bot at the bottom-right side of the app.
     let is_full_width = app_info.is_maximized
         || app_width >= (mon_w * 84 / 100)
         || (space_left < min_side_space && space_right < min_side_space);
 
+    let vert = if preferred_vert == "up" {
+        "up".to_string()
+    } else {
+        "down".to_string()
+    };
+
     if is_full_width {
-        return (max_win_x, max_win_y, "right".to_string(), "down".to_string());
+        let y = if preferred_vert == "up" { min_win_y } else { max_win_y };
+        return (max_win_x, y, "right".to_string(), vert);
     }
 
-    // App is not full width (e.g. half on the right, half on the left, or floating window).
-    // Place the bot right next to the side of the opened app!
     let (target_x, side) = if space_left >= space_right && space_left >= min_side_space {
-        // App is on the right half (or has more room on its left) -> put bot to the left of the app
         let x = (app_left - win_w + pad - gap).clamp(min_win_x, max_win_x);
         let center_x = x + win_w / 2;
         let s = if center_x < mon_x + mon_w / 2 { "left" } else { "right" };
         (x, s.to_string())
     } else if space_right >= min_side_space {
-        // App is on the left half (or has room on its right) -> put bot to the right of the app
         let x = (app_right - pad + gap).clamp(min_win_x, max_win_x);
         let center_x = x + win_w / 2;
         let s = if center_x < mon_x + mon_w / 2 { "left" } else { "right" };
@@ -781,13 +806,12 @@ fn compute_position_for_app(
         (max_win_x, "right".to_string())
     };
 
-    let target_y = (app_bottom - win_h + pad).clamp(min_win_y, max_win_y);
-    let center_y = target_y + win_h / 2;
-    let vert = if center_y < mon_y + mon_h / 2 {
-        "up".to_string()
+    let target_y = if preferred_vert == "up" {
+        (app_top - pad + (12.0 * scale_factor).round() as i32).clamp(min_win_y, max_win_y)
     } else {
-        "down".to_string()
+        (app_bottom - win_h + pad).clamp(min_win_y, max_win_y)
     };
+
     (target_x, target_y, side, vert)
 }
 
@@ -1268,6 +1292,9 @@ pub fn run() {
                 thread::spawn(move || {
                     let mut tick_count: u64 = 0;
                     let mut last_hotkey_down = false;
+                    let mut last_alt_lbutton_down = false;
+                    let mut last_pageup_down = false;
+                    let mut last_pagedown_down = false;
                     loop {
                         let is_gliding = {
                             st_clone
@@ -1290,17 +1317,43 @@ pub fn run() {
 
                         #[cfg(target_os = "windows")]
                         {
-                            let (ctrl_down, alt_down, shift_down, c_down) = unsafe {
+                            let (
+                                lwin_down,
+                                rwin_down,
+                                shift_down,
+                                c_down,
+                                esc_down,
+                                alt_down,
+                                lbutton_down,
+                                pageup_down,
+                                pagedown_down,
+                                ctrl_down,
+                            ) = unsafe {
                                 (
-                                    (win32::GetAsyncKeyState(0x11) as u16 & 0x8000) != 0,
-                                    (win32::GetAsyncKeyState(0x12) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x5B) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x5C) as u16 & 0x8000) != 0,
                                     (win32::GetAsyncKeyState(0x10) as u16 & 0x8000) != 0,
                                     (win32::GetAsyncKeyState(0x43) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x1B) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x12) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x01) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x21) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x22) as u16 & 0x8000) != 0,
+                                    (win32::GetAsyncKeyState(0x11) as u16 & 0x8000) != 0,
                                 )
                             };
 
-                            let hotkey_pressed = (ctrl_down && alt_down && c_down) || (alt_down && shift_down && c_down);
-                            if hotkey_pressed {
+                            let win_down = lwin_down || rwin_down;
+
+                            // 1. Windows + Escape: Terminate Luminess
+                            if win_down && esc_down {
+                                std::process::exit(0);
+                            }
+
+                            // 2. Windows + Shift + C (or legacy Ctrl+Alt+C / Alt+Shift+C): Open/toggle chat
+                            let win_shift_c = win_down && shift_down && c_down;
+                            let alt_hotkey = (ctrl_down && alt_down && c_down) || (alt_down && shift_down && c_down);
+                            if win_shift_c || alt_hotkey {
                                 if !last_hotkey_down {
                                     last_hotkey_down = true;
                                     let _ = win_clone.show();
@@ -1310,10 +1363,48 @@ pub fn run() {
                             } else {
                                 last_hotkey_down = false;
                             }
+
+                            // 3. Alt + Mouse Left Click: Glide bot to cursor location
+                            if alt_down && lbutton_down {
+                                if !last_alt_lbutton_down {
+                                    last_alt_lbutton_down = true;
+                                    do_glide_to_cursor(&st_clone, &win_clone.as_ref().window());
+                                }
+                            } else {
+                                last_alt_lbutton_down = false;
+                            }
+
+                            // 4. Page Up: Dock bot UP when an app/tab is active
+                            if pageup_down {
+                                if !last_pageup_down {
+                                    last_pageup_down = true;
+                                    if let Ok(mut guard) = st_clone.lock() {
+                                        guard.preferred_dock_vert = "up".to_string();
+                                        guard.last_app_bounds = (0, 0, 0, 0); // Trigger immediate re-dock!
+                                    }
+                                    let _ = win_clone.emit("dock-vert-changed", "up");
+                                }
+                            } else {
+                                last_pageup_down = false;
+                            }
+
+                            // 5. Page Down: Dock bot DOWN when an app/tab is active
+                            if pagedown_down {
+                                if !last_pagedown_down {
+                                    last_pagedown_down = true;
+                                    if let Ok(mut guard) = st_clone.lock() {
+                                        guard.preferred_dock_vert = "down".to_string();
+                                        guard.last_app_bounds = (0, 0, 0, 0); // Trigger immediate re-dock!
+                                    }
+                                    let _ = win_clone.emit("dock-vert-changed", "down");
+                                }
+                            } else {
+                                last_pagedown_down = false;
+                            }
                         }
 
                         // 1. Step smooth auto-glide animation if active
-                        if companion_active && !force_interactive {
+                        if companion_active {
                             let mut glide_step: Option<(i32, i32, BotGlidePayload)> = None;
                             if let Ok(mut guard) = st_clone.lock() {
                                 if let Some(mut glide) = guard.auto_glide.clone() {
@@ -1439,6 +1530,14 @@ pub fn run() {
                                         let m_pos = m.position();
                                         let m_size = m.size();
                                         let scale = win_clone.scale_factor().unwrap_or(1.0);
+                                        let preferred_vert = {
+                                            let Ok(guard) = st_clone.lock() else { continue };
+                                            if guard.preferred_dock_vert.is_empty() {
+                                                "down".to_string()
+                                            } else {
+                                                guard.preferred_dock_vert.clone()
+                                            }
+                                        };
                                         let (target_x, target_y, side, vert) = compute_position_for_app(
                                             &app_info,
                                             m_pos.x,
@@ -1448,6 +1547,7 @@ pub fn run() {
                                             win_size.width as i32,
                                             win_size.height as i32,
                                             scale,
+                                            &preferred_vert,
                                         );
 
                                         let dist = ((target_x - win_pos.x) as f64)
@@ -1588,7 +1688,9 @@ pub fn run() {
             fs_copy_or_move,
             execute_pc_command,
             open_item,
-            start_google_oauth_login
+            start_google_oauth_login,
+            set_dock_vert_preference,
+            terminate_app
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

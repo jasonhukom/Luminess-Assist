@@ -470,13 +470,41 @@ function App() {
   }, [bootComplete, showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let unlistenChat: (() => void) | undefined;
+    let unlistenDock: (() => void) | undefined;
+
     void listen('open-chat', () => {
       setChatOpen((prev) => !prev);
     }).then((fn) => {
-      unlisten = fn;
+      unlistenChat = fn;
     });
-    return () => unlisten?.();
+
+    void listen<string>('dock-vert-changed', (event) => {
+      manualVertOverrideRef.current = true;
+      if (event.payload === 'up') {
+        setChatVert('down');
+      } else {
+        setChatVert('up');
+      }
+    }).then((fn) => {
+      unlistenDock = fn;
+    });
+
+    return () => {
+      unlistenChat?.();
+      unlistenDock?.();
+    };
+  }, []);
+
+  // Alt + Left Click anywhere on the window: glide bot to cursor location
+  useEffect(() => {
+    const handleGlobalPointerDown = (e: MouseEvent) => {
+      if (e.altKey && e.button === 0) {
+        void invoke('glide_to_cursor');
+      }
+    };
+    window.addEventListener('mousedown', handleGlobalPointerDown, true);
+    return () => window.removeEventListener('mousedown', handleGlobalPointerDown, true);
   }, []);
 
   // When broken, mascot cannot be refreshed and cannot be right clicked
@@ -503,10 +531,21 @@ function App() {
     };
   }, [brokenSeconds]);
 
-  // Shortcut that is not in Windows to open chat (Ctrl+Alt+C or Alt+Shift+C), plus Escape to close
+  // Shortcuts: Windows+Shift+C (or Ctrl+Alt+C / Alt+Shift+C) to toggle chat, Win+Esc to terminate, PageUp/PageDown for dock orientation, Escape to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isMeta = e.metaKey || (e as any).getModifierState?.('Meta');
+
+      // Windows + Escape: Terminate Luminess
+      if (e.key === 'Escape' && isMeta) {
+        e.preventDefault();
+        void invoke('terminate_app');
+        return;
+      }
+
+      // Windows + Shift + C (or Ctrl+Alt+C / Alt+Shift+C): Toggle/open chat
       if (
+        ((e.key === 'c' || e.key === 'C') && e.shiftKey && isMeta) ||
         (e.ctrlKey && e.altKey && (e.key === 'c' || e.key === 'C')) ||
         (e.altKey && e.shiftKey && (e.key === 'c' || e.key === 'C'))
       ) {
@@ -514,6 +553,25 @@ function App() {
         setChatOpen((prev) => !prev);
         return;
       }
+
+      // Page Up: bot docks up when a tab/app is clicked
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        manualVertOverrideRef.current = true;
+        setChatVert('down');
+        void invoke('set_dock_vert_preference', { vert: 'up' });
+        return;
+      }
+
+      // Page Down: bot docks down when a tab/app is clicked
+      if (e.key === 'PageDown') {
+        e.preventDefault();
+        manualVertOverrideRef.current = true;
+        setChatVert('up');
+        void invoke('set_dock_vert_preference', { vert: 'down' });
+        return;
+      }
+
       if (e.key === 'Escape' && !showApiModal) {
         setChatOpen(false);
       }
@@ -913,7 +971,7 @@ function App() {
 
   const handleRobotClick = () => {
     if (showApiModal) return;
-    setChatOpen(true);
+    setChatOpen((prev) => !prev);
   };
 
   const requestUserPermission = (req: ToolPermissionRequest): Promise<boolean> => {
