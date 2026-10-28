@@ -240,7 +240,7 @@ export function getPersonalityState(): CompanionPersonality {
       // Fall through to the in-memory state.
     }
   }
-  return current;
+  return persist(current);
 }
 
 export function getRelationshipStage(state = getPersonalityState()): RelationshipStage {
