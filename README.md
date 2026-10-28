@@ -11,6 +11,7 @@ Luminess Assist is a floating desktop companion powered by Google Gemini. It com
 - **Expressive robot:** 11 conversational expressions—joy, sadness, anger, fear, surprise, disgust, curiosity, confusion, love, embarrassment, and idle—with emotion-specific eye shapes, neon glow, and animations.
 - **Floating desktop companion:** A frameless, transparent, always-on-top window that stays out of the taskbar.
 - **Natural conversations:** Gemini-powered responses with structured function calling.
+- **Persistent companion personality:** A stable Big Five-inspired temperament and relationship memory that responds to pats, rough wall impacts, repairs, and conversation. The existing robot UI is reused; no new visual design is added.
 - **Desktop tools:** The agent can request supported actions such as inspecting files, opening items, and running PC commands. Permission prompts let you review tool actions before they run.
 - **Drag and flick physics:** Pick up the robot, move it around the screen, and flick it to give it momentum. The robot reacts to fast movement and returns to a safe on-screen area.
 - **Resizable mascot:** Use the mouse wheel over the robot to change its size.
@@ -30,7 +31,19 @@ Luminess Assist is a floating desktop companion powered by Google Gemini. It com
 | Scroll the mouse wheel over the robot | Increase or decrease its size |
 | Chat with Luminess | Receive a response with a corresponding conversational expression |
 
-The robot already has a set of expressive faces and physical movement. More interaction-specific reactions—such as spiral-eyed dizziness, escalating frustration from repeated impacts, and floating hearts for head pats—can be added as a further animation layer without replacing the existing emotion system.
+The robot already has its expressive face, movement and status pill. Personality now uses those existing surfaces: repeated pats gradually build affection, hard wall impacts raise anger and lower trust, and repairs calm anger without instantly erasing relationship history. While the robot is peacefully idle, it can occasionally make a short state-aware remark; the app does not open the chat window by itself.
+
+## Companion personality and datasets
+
+The personality layer is informed by the supplied datasets:
+- The IPIP-FFM file is a Big Five questionnaire dataset, with 50 items covering extraversion, emotional reactivity/neuroticism, agreeableness, conscientiousness, and openness.
+- The smaller CSV dataset contains five class labels: `serious`, `dependable`, `extraverted`, `lively`, and `responsible`. These labels guide the app's lightweight temperament presets.
+
+The app does **not** bundle the large raw survey file or run a trained personality classifier. The label-to-temperament profiles are deliberately lightweight, authored presets inspired by those traits, combined with live interaction rules—not a claim that the dataset scientifically predicts a person's personality.
+
+Affection, trust, anger, patience, curiosity, and a small set of interaction counters persist in local WebView storage. Raw chat messages are not saved by the personality module. The evolving state is added to the system prompt so Gemini, Claude, or OpenAI responses can use a consistent relationship tone. A few short idle remarks are generated locally from the same state rather than making background AI API calls.
+
+Relationship stages are derived from the saved state: `getting_to_know_you`, `comfortable`, `bonded`, `cautious`, and `guarded`. This influences tone and initiative, but it never removes desktop-tool permission checks or makes the assistant punish the user for a low-trust state.
 
 ## Technology
 
@@ -194,6 +207,7 @@ Luminess-Assist/
 │   ├── capabilities/
 │   └── tauri.conf.json        # Tauri window and bundling configuration
 ├── .github/workflows/
+│   ├── aura-ci.yml            # TypeScript/Vite build check
 │   └── release.yml            # Windows release workflow
 ├── package.json
 └── README.md
