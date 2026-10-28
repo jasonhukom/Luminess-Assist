@@ -1,8 +1,9 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "django",
+  "buildCommand": "npm run build && python manage.py collectstatic --noinput",
+  "outputDirectory": "staticfiles",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "luminess_web/wsgi.py" }
   ]
 }

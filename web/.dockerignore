@@ -4,3 +4,11 @@ dist
 .github
 *.log
 .DS_Store
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+db.sqlite3
+staticfiles

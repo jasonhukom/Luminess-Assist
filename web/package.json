@@ -1,12 +1,18 @@
 {
   "name": "luminess-assist-web",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "python manage.py runserver 0.0.0.0:3000",
+    "django:run": "python manage.py runserver 3000",
+    "django:migrate": "python manage.py migrate",
+    "django:seed": "python manage.py seed_data",
+    "django:test": "python manage.py test apps.platform_core",
+    "django:collectstatic": "python manage.py collectstatic --noinput"
   },
   "dependencies": {
     "clsx": "^2.1.1",

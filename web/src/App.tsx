@@ -15,6 +15,7 @@ import { useTheme } from './lib/useTheme.ts';
 import {
   getInitialPlatformState,
   savePlatformState,
+  fetchPlatformStateFromBackend,
   type PlatformState,
   type BotProfile,
   type AppRelease,
@@ -35,6 +36,15 @@ export function App() {
   const { version, tagName } = useLatestRelease();
   const { theme, toggleTheme } = useTheme();
   const [platformState, setPlatformState] = useState<PlatformState>(getInitialPlatformState);
+
+  // Sync state with Django database on initial mount
+  React.useEffect(() => {
+    fetchPlatformStateFromBackend().then((remoteState) => {
+      if (remoteState) {
+        setPlatformState(remoteState);
+      }
+    });
+  }, []);
 
   const activeProfile = platformState.currentProfile;
 

@@ -306,10 +306,45 @@ export function getInitialPlatformState(): PlatformState {
   return initial;
 }
 
+export async function fetchPlatformStateFromBackend(): Promise<PlatformState | null> {
+  try {
+    const res = await fetch('/api/state/');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.currentProfile) {
+      const merged: PlatformState = {
+        currentProfile: data.currentProfile,
+        featureFlags: data.featureFlags || INITIAL_FEATURE_FLAGS,
+        releases: data.releases?.length ? data.releases : INITIAL_RELEASES,
+        globalConfig: data.globalConfig?.length ? data.globalConfig : INITIAL_GLOBAL_CONFIG,
+        users: data.users?.length ? data.users : INITIAL_USERS,
+        memories: data.memories || INITIAL_MEMORIES,
+      };
+      savePlatformState(merged);
+      return merged;
+    }
+  } catch {
+    // Backend offline or unreachable, local fallback remains active
+  }
+  return null;
+}
+
 export function savePlatformState(state: PlatformState) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+
+  try {
+    fetch('/api/state/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(state),
+    }).catch(() => {});
   } catch {
     // ignore
   }

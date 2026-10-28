@@ -1,0 +1,36 @@
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: luminess-assist-web
+    ports:
+      - "3000:8000"
+    restart: unless-stopped
+    environment:
+      - DJANGO_DEBUG=False
+      - DJANGO_SECRET_KEY=luminess-docker-production-secret-key-9284
+      - DJANGO_ALLOWED_HOSTS=*
+      - DATABASE_URL=postgres://luminess:luminess_pass@db:5432/luminess_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: luminess-assist-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: luminess
+      POSTGRES_PASSWORD: luminess_pass
+      POSTGRES_DB: luminess_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luminess -d luminess_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
