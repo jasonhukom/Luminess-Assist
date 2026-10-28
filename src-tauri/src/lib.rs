@@ -1057,20 +1057,165 @@ fn execute_pc_command(command: String, cwd: Option<String>) -> Result<CommandOut
 #[tauri::command]
 fn open_item(target: String) -> Result<String, String> {
     let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return Err("Target path or application name cannot be empty".to_string());
+    }
+
     if cfg!(target_os = "windows") {
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/C", "start", "", trimmed]);
+        let is_url = trimmed.starts_with("http://")
+            || trimmed.starts_with("https://")
+            || trimmed.starts_with("mailto:")
+            || trimmed.starts_with("file://");
+
+        let path_obj = Path::new(trimmed);
+        if is_url || path_obj.exists() {
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/C", "start", "", trimmed]);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.spawn()
+                .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
+            return Ok(format!("Opened '{}'", trimmed));
+        }
+
+        if trimmed.starts_with("shell:") {
+            let mut cmd = Command::new("explorer.exe");
+            cmd.arg(trimmed);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.spawn()
+                .map_err(|e| format!("Failed to open shell item '{}': {}", trimmed, e))?;
+            return Ok(format!("Opened '{}'", trimmed));
+        }
+
+        let ps_script = r#"
+$target = $args[0]
+if ([string]::IsNullOrWhiteSpace($target)) { exit 1 }
+$target = $target.Trim()
+
+# 1. Direct Start-Process (PATH apps like notepad, calc, code, etc.)
+try {
+    Start-Process -FilePath $target -ErrorAction Stop
+    Write-Output "Successfully opened $target"
+    exit 0
+} catch {}
+
+# 2. Try with .exe extension
+try {
+    Start-Process -FilePath "$target.exe" -ErrorAction Stop
+    Write-Output "Successfully opened $target.exe"
+    exit 0
+} catch {}
+
+# 3. Protocol handler (e.g. spotify:, discord:, slack:, etc.)
+if ($target -notmatch '[:/\]') {
+    try {
+        Start-Process -FilePath ($target + ':') -ErrorAction Stop
+        Write-Output "Successfully opened $target via protocol"
+        exit 0
+    } catch {}
+}
+
+# 4. Search Get-StartApps (Windows Store / UWP & modern Win32 installed apps)
+try {
+    $clean = $target -replace '[^ws-]', ''
+    $app = Get-StartApps | Where-Object {
+        $_.Name -like "*$clean*" -or $_.AppID -like "*$clean*"
+    } | Select-Object -First 1
+
+    if ($app) {
+        Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder$($app.AppID)" -ErrorAction Stop
+        Write-Output "Successfully opened $($app.Name)"
+        exit 0
+    }
+} catch {}
+
+# 5. Search Start Menu shortcuts (.lnk files)
+try {
+    $shortcutDirs = @(
+        "$env:ProgramDataMicrosoftWindowsStart MenuPrograms",
+        "$env:APPDATAMicrosoftWindowsStart MenuPrograms"
+    )
+    $clean = $target -replace '[^ws-]', ''
+    $lnk = Get-ChildItem -Path $shortcutDirs -Recurse -Filter "*$clean*.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($lnk) {
+        Start-Process -FilePath $lnk.FullName -ErrorAction Stop
+        Write-Output "Successfully opened $($lnk.Name)"
+        exit 0
+    }
+} catch {}
+
+# 6. Check Registry App Paths (HKLM & HKCU)
+try {
+    $regKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$target.exe",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$target.exe",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$target",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\$target"
+    )
+    foreach ($rk in $regKeys) {
+        if (Test-Path $rk) {
+            $exePath = (Get-ItemProperty $rk -ErrorAction SilentlyContinue).'(default)'
+            if ($exePath -and (Test-Path $exePath)) {
+                Start-Process -FilePath $exePath -ErrorAction Stop
+                Write-Output "Successfully opened $exePath"
+                exit 0
+            }
+        }
+    }
+} catch {}
+
+# 7. Search common user install directories (LocalAppData Programs)
+try {
+    $localDirs = @(
+        "$env:LOCALAPPDATA\Programs",
+        "$env:LOCALAPPDATA"
+    )
+    $clean = $target -replace '[^ws-]', ''
+    $foundExe = Get-ChildItem -Path $localDirs -Recurse -Depth 3 -Filter "*$clean*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($foundExe) {
+        Start-Process -FilePath $foundExe.FullName -ErrorAction Stop
+        Write-Output "Successfully opened $($foundExe.Name)"
+        exit 0
+    }
+} catch {}
+
+Write-Error "Application '$target' was not found on this computer."
+exit 1
+"#;
+
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps_script, trimmed]);
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.spawn()
-            .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
+
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to run app launcher: {}", e))?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(if stdout.is_empty() {
+                format!("Opened '{}'", trimmed)
+            } else {
+                stdout
+            })
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let msg = if stderr.is_empty() {
+                format!("Application '{}' was not found on this computer or failed to open.", trimmed)
+            } else {
+                stderr
+            };
+            Err(format!("Could not open '{}': {}", trimmed, msg))
+        }
     } else {
         Command::new("xdg-open")
             .arg(trimmed)
             .spawn()
             .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
+        Ok(format!("Opened '{}'", trimmed))
     }
-    Ok(format!("Opened '{}'", trimmed))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

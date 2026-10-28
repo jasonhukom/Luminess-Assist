@@ -59,7 +59,7 @@ interface HeartParticle {
 interface RobotProps {
   emotion: Emotion;
   size: number;
-  onResize: (newSize: number) => void;
+  onResize: (newSize: number, anchor?: { clientX: number; clientY: number }) => void;
   onClick: () => void;
   onEmotionChange?: (emotion: Emotion) => void;
   onVisualEmotionChange?: (visualEmotion: VisualEmotion) => void;
@@ -1204,11 +1204,12 @@ export function Robot({
   };
 
   const handleWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
     e.stopPropagation();
     const delta = e.deltaY < 0 ? 12 : -12;
     const next = Math.max(110, Math.min(320, size + delta));
     if (next !== size) {
-      onResize(next);
+      onResize(next, { clientX: e.clientX, clientY: e.clientY });
     }
   };
 

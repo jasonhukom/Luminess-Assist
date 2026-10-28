@@ -160,6 +160,27 @@ function App() {
     setChatVert((prev) => (prev === 'up' ? 'down' : 'up'));
   }, []);
 
+  const chatSideRef = useRef(chatSide);
+  chatSideRef.current = chatSide;
+  const chatVertRef = useRef(chatVert);
+  chatVertRef.current = chatVert;
+  const chatOpenRef = useRef(chatOpen);
+  chatOpenRef.current = chatOpen;
+  const panelSizeRef = useRef(panelSize);
+  panelSizeRef.current = panelSize;
+  const robotSizeRef = useRef(robotSize);
+  robotSizeRef.current = robotSize;
+
+  const resizeAnchorRef = useRef<{ clientX: number; clientY: number } | null>(null);
+
+  const handleResizeRobot = useCallback(
+    (size: number, anchor?: { clientX: number; clientY: number }) => {
+      resizeAnchorRef.current = anchor || null;
+      setRobotSize(size);
+    },
+    []
+  );
+
   const syncInteractiveRegions = useCallback(() => {
     const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
@@ -320,17 +341,100 @@ function App() {
           robotSize,
         };
 
-        let newX = !chatOpen
-          ? botBoxLeft
-          : effectiveSide === 'left'
-            ? botBoxRight - targetW
-            : botBoxLeft;
+        const anchor = resizeAnchorRef.current;
+        resizeAnchorRef.current = null;
 
-        let newY = !chatOpen
-          ? botBoxTop
-          : effectiveVert === 'up'
-            ? botBoxBottom - targetH
-            : botBoxTop;
+        let newX: number;
+        let newY: number;
+
+        if (anchor && prev.robotSize && prev.robotSize !== robotSize) {
+          const oldRobotSize = prev.robotSize;
+          let oldRobotLeft = 72;
+          let oldRobotTop = 72;
+          if (prev.chatOpen) {
+            if (prev.chatSide === 'left') {
+              oldRobotLeft = 72 + panelSize.width + 12;
+            }
+            if (prev.chatVert === 'up') {
+              const oldTargetH = Math.max(panelSize.height, oldRobotSize) + 144;
+              oldRobotTop = oldTargetH - 72 - oldRobotSize;
+            }
+          }
+
+          const relX = Math.max(0, Math.min(oldRobotSize, anchor.clientX - oldRobotLeft));
+          const relY = Math.max(0, Math.min(oldRobotSize, anchor.clientY - oldRobotTop));
+          const fx = oldRobotSize > 0 ? relX / oldRobotSize : 0.5;
+          const fy = oldRobotSize > 0 ? relY / oldRobotSize : 0.5;
+
+          const mouseScreenX = bounds.x + anchor.clientX * dpr;
+          const mouseScreenY = bounds.y + anchor.clientY * dpr;
+
+          let newRobotLeft = 72;
+          let newRobotTop = 72;
+          if (chatOpen) {
+            if (effectiveSide === 'left') {
+              newRobotLeft = 72 + panelSize.width + 12;
+            }
+            if (effectiveVert === 'up') {
+              newRobotTop = targetCssH - 72 - robotSize;
+            }
+          }
+
+          const newClientX = newRobotLeft + fx * robotSize;
+          const newClientY = newRobotTop + fy * robotSize;
+
+          newX = mouseScreenX - newClientX * dpr;
+          newY = mouseScreenY - newClientY * dpr;
+        } else if (
+          prev.robotSize &&
+          prev.robotSize !== robotSize &&
+          prev.chatOpen === chatOpen &&
+          prev.chatSide === effectiveSide &&
+          prev.chatVert === effectiveVert
+        ) {
+          const oldRobotSize = prev.robotSize;
+          let oldRobotLeft = 72;
+          let oldRobotTop = 72;
+          if (prev.chatOpen) {
+            if (prev.chatSide === 'left') {
+              oldRobotLeft = 72 + panelSize.width + 12;
+            }
+            if (prev.chatVert === 'up') {
+              const oldTargetH = Math.max(panelSize.height, oldRobotSize) + 144;
+              oldRobotTop = oldTargetH - 72 - oldRobotSize;
+            }
+          }
+          const oldCenterScreenX = bounds.x + (oldRobotLeft + oldRobotSize / 2) * dpr;
+          const oldCenterScreenY = bounds.y + (oldRobotTop + oldRobotSize / 2) * dpr;
+
+          let newRobotLeft = 72;
+          let newRobotTop = 72;
+          if (chatOpen) {
+            if (effectiveSide === 'left') {
+              newRobotLeft = 72 + panelSize.width + 12;
+            }
+            if (effectiveVert === 'up') {
+              newRobotTop = targetCssH - 72 - robotSize;
+            }
+          }
+          const newCenterClientX = (newRobotLeft + robotSize / 2) * dpr;
+          const newCenterClientY = (newRobotTop + robotSize / 2) * dpr;
+
+          newX = oldCenterScreenX - newCenterClientX;
+          newY = oldCenterScreenY - newCenterClientY;
+        } else {
+          newX = !chatOpen
+            ? botBoxLeft
+            : effectiveSide === 'left'
+              ? botBoxRight - targetW
+              : botBoxLeft;
+
+          newY = !chatOpen
+            ? botBoxTop
+            : effectiveVert === 'up'
+              ? botBoxBottom - targetH
+              : botBoxTop;
+        }
 
         const glowAllowance = Math.round(56 * dpr);
         const minX = bounds.monitor_x - glowAllowance;
@@ -417,10 +521,230 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showApiModal]);
 
-  // When chat is open, it can be moved with arrow keys! Up goes up from wherever left/right it is, in accordance to the placement of the chat.
+  // Ctrl + Arrow moves the bot smoothly on screen (diagonals, contradiction last-pressed priority, auto-flip chat).
+  // Plain Arrow moves the chat position relative to the bot.
   useEffect(() => {
-    const handleArrowMove = async (e: KeyboardEvent) => {
-      if (!chatOpen || showApiModal) return;
+    const horizontalKeysRef: { current: ('ArrowLeft' | 'ArrowRight')[] } = { current: [] };
+    const verticalKeysRef: { current: ('ArrowUp' | 'ArrowDown')[] } = { current: [] };
+    const ctrlPressedRef = { current: false };
+    const loopActiveRef = { current: false };
+    let rafId: number | null = null;
+    let lastTime = 0;
+    let botFloatPos: { x: number; y: number } | null = null;
+    let cachedBounds: any = null;
+
+    const stopMovementLoop = () => {
+      loopActiveRef.current = false;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+
+    const tick = (now: number) => {
+      if (!loopActiveRef.current || !ctrlPressedRef.current) {
+        stopMovementLoop();
+        return;
+      }
+
+      const hKeys = horizontalKeysRef.current;
+      const vKeys = verticalKeysRef.current;
+      if (hKeys.length === 0 && vKeys.length === 0) {
+        stopMovementLoop();
+        return;
+      }
+
+      const dt = Math.min(0.04, Math.max(0.001, (now - lastTime) / 1000));
+      lastTime = now;
+
+      // Contradicting key resolution: whoever clicks last wins!
+      const activeH = hKeys.length > 0 ? hKeys[hKeys.length - 1] : null;
+      const activeV = vKeys.length > 0 ? vKeys[vKeys.length - 1] : null;
+
+      let dirX = 0;
+      let dirY = 0;
+      if (activeH === 'ArrowLeft') dirX = -1;
+      else if (activeH === 'ArrowRight') dirX = 1;
+
+      if (activeV === 'ArrowUp') dirY = -1;
+      else if (activeV === 'ArrowDown') dirY = 1;
+
+      // 2 keys simultaneously (e.g. right and up) -> diagonal movement!
+      if (dirX !== 0 && dirY !== 0) {
+        dirX *= 0.7071;
+        dirY *= 0.7071;
+      }
+
+      const bounds = cachedBounds;
+      if (!bounds || !botFloatPos) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
+      const speed = 560; // Smooth 560 px/s glide
+      const moveX = dirX * speed * dt * dpr;
+      const moveY = dirY * speed * dt * dpr;
+
+      botFloatPos.x += moveX;
+      botFloatPos.y += moveY;
+
+      const glowAllowance = Math.round(56 * dpr);
+      const isChat = chatOpenRef.current;
+      const currentSide = chatSideRef.current;
+      const currentVert = chatVertRef.current;
+      const curRobotSize = robotSizeRef.current;
+      const curPanel = panelSizeRef.current;
+
+      const targetCssW = isChat
+        ? curPanel.width + 12 + curRobotSize + 144
+        : curRobotSize + 144;
+      const targetCssH = isChat
+        ? Math.max(curPanel.height, curRobotSize) + 144
+        : curRobotSize + 144;
+      const targetW = Math.round(targetCssW * dpr);
+      const targetH = Math.round(targetCssH * dpr);
+
+      // Boundaries for THE BOT ITSELF: It won't stop until the bot itself hits a wall!
+      const minBotX = bounds.monitor_x - glowAllowance;
+      const maxBotX = bounds.monitor_x + bounds.monitor_width - Math.round(curRobotSize * dpr) + glowAllowance;
+      const minBotY = bounds.monitor_y - glowAllowance;
+      const maxBotY = bounds.monitor_y + bounds.monitor_height - Math.round(curRobotSize * dpr) - Math.round(24 * dpr) + glowAllowance;
+
+      botFloatPos.x = Math.max(minBotX, Math.min(maxBotX, botFloatPos.x));
+      botFloatPos.y = Math.max(minBotY, Math.min(maxBotY, botFloatPos.y));
+
+      let nextSide = currentSide;
+      let nextVert = currentVert;
+
+      if (isChat) {
+        // Horizontal wall check:
+        if (currentSide === 'right') {
+          const chatScreenRight = botFloatPos.x + Math.round((curRobotSize + 12 + curPanel.width) * dpr);
+          const rightWall = bounds.monitor_x + bounds.monitor_width;
+          if (chatScreenRight >= rightWall) {
+            // Chat hit right wall -> chat goes to the left of the bot!
+            nextSide = 'left';
+            manualSideOverrideRef.current = true;
+            setChatSide('left');
+          }
+        } else {
+          const chatScreenLeft = botFloatPos.x - Math.round((12 + curPanel.width) * dpr);
+          const leftWall = bounds.monitor_x;
+          if (chatScreenLeft <= leftWall) {
+            // Chat hit left wall -> chat goes to the right of the bot!
+            nextSide = 'right';
+            manualSideOverrideRef.current = true;
+            setChatSide('right');
+          }
+        }
+
+        // Vertical wall check:
+        if (currentVert === 'up') {
+          const chatScreenTop = botFloatPos.y + Math.round(curRobotSize * dpr) - Math.round(curPanel.height * dpr);
+          const topWall = bounds.monitor_y;
+          if (chatScreenTop <= topWall) {
+            // Chat hit up wall -> chat goes down!
+            nextVert = 'down';
+            manualVertOverrideRef.current = true;
+            setChatVert('down');
+          }
+        } else {
+          const chatScreenBottom = botFloatPos.y + Math.round(curPanel.height * dpr);
+          const bottomWall = bounds.monitor_y + bounds.monitor_height - Math.round(24 * dpr);
+          if (chatScreenBottom >= bottomWall) {
+            // Chat hit down wall -> chat goes up!
+            nextVert = 'up';
+            manualVertOverrideRef.current = true;
+            setChatVert('up');
+          }
+        }
+      }
+
+      // Calculate new window position from the clamped bot position and effective side/vert
+      let newWinBotCssLeft = 72;
+      let newWinBotCssTop = 72;
+      if (isChat) {
+        if (nextSide === 'left') {
+          newWinBotCssLeft = 72 + curPanel.width + 12;
+        }
+        if (nextVert === 'up') {
+          newWinBotCssTop = targetCssH - 72 - curRobotSize;
+        }
+      }
+
+      const nextWinX = Math.round(botFloatPos.x - newWinBotCssLeft * dpr);
+      const nextWinY = Math.round(botFloatPos.y - newWinBotCssTop * dpr);
+
+      if (nextSide !== currentSide || nextVert !== currentVert) {
+        prevModeRef.current = {
+          showApiModal,
+          chatOpen: isChat,
+          chatSide: nextSide,
+          chatVert: nextVert,
+          robotSize: curRobotSize,
+        };
+        void invoke('set_window_rect', {
+          x: nextWinX,
+          y: nextWinY,
+          width: targetW,
+          height: targetH,
+        });
+        setTimeout(syncInteractiveRegions, 40);
+      } else {
+        void invoke('set_window_pos', {
+          x: nextWinX,
+          y: nextWinY,
+        });
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const startMovementLoop = async () => {
+      if (loopActiveRef.current) return;
+      loopActiveRef.current = true;
+      lastTime = performance.now();
+
+      try {
+        const bounds: any = await invoke('get_window_bounds');
+        cachedBounds = bounds;
+        const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
+
+        const isChat = chatOpenRef.current;
+        const currentSide = chatSideRef.current;
+        const currentVert = chatVertRef.current;
+        const curRobotSize = robotSizeRef.current;
+        const curPanel = panelSizeRef.current;
+        const targetCssH = isChat
+          ? Math.max(curPanel.height, curRobotSize) + 144
+          : curRobotSize + 144;
+
+        let botCssOffsetLeft = 72;
+        let botCssOffsetTop = 72;
+        if (isChat) {
+          if (currentSide === 'left') {
+            botCssOffsetLeft = 72 + curPanel.width + 12;
+          }
+          if (currentVert === 'up') {
+            botCssOffsetTop = targetCssH - 72 - curRobotSize;
+          }
+        }
+
+        botFloatPos = {
+          x: bounds.x + Math.round(botCssOffsetLeft * dpr),
+          y: bounds.y + Math.round(botCssOffsetTop * dpr),
+        };
+
+        lastTime = performance.now();
+        rafId = requestAnimationFrame(tick);
+      } catch {
+        loopActiveRef.current = false;
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showApiModal) return;
 
       const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
       if (!arrowKeys.includes(e.key)) return;
@@ -428,61 +752,92 @@ function App() {
       const activeEl = document.activeElement;
       const isInput =
         activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
-      // If user is editing text with characters and no modifier, don't hijack left/right cursor inside text
-      if (isInput && (activeEl as HTMLInputElement).value && !e.altKey && !e.ctrlKey) {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+
+      // Case 1: Ctrl + Arrow -> The bot moves smoothly in real-time!
+      if (e.ctrlKey) {
+        if (isInput && (activeEl as HTMLInputElement).value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
           return;
         }
+
+        e.preventDefault();
+        ctrlPressedRef.current = true;
+
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          horizontalKeysRef.current = horizontalKeysRef.current
+            .filter((k) => k !== e.key)
+            .concat(e.key as 'ArrowLeft' | 'ArrowRight');
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          verticalKeysRef.current = verticalKeysRef.current
+            .filter((k) => k !== e.key)
+            .concat(e.key as 'ArrowUp' | 'ArrowDown');
+        }
+
+        void startMovementLoop();
+        return;
+      }
+
+      // Case 2: Plain Arrow (no Ctrl) -> Moves the chat around the bot!
+      if (!chatOpen) return;
+      if (isInput && (activeEl as HTMLInputElement).value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        return;
       }
 
       e.preventDefault();
-
-      let dx = 0;
-      let dy = 0;
-      const step = 32;
-
       if (e.key === 'ArrowUp') {
         manualVertOverrideRef.current = true;
         setChatVert('up');
-        dy = -step;
       } else if (e.key === 'ArrowDown') {
         manualVertOverrideRef.current = true;
         setChatVert('down');
-        dy = step;
       } else if (e.key === 'ArrowLeft') {
         manualSideOverrideRef.current = true;
         setChatSide('left');
-        dx = -step;
       } else if (e.key === 'ArrowRight') {
         manualSideOverrideRef.current = true;
         setChatSide('right');
-        dx = step;
-      }
-
-      try {
-        const bounds: any = await invoke('get_window_bounds');
-        const dpr = bounds.scale_factor || window.devicePixelRatio || 1;
-        const glowAllowance = Math.round(56 * dpr);
-        const minX = bounds.monitor_x - glowAllowance;
-        const maxX = bounds.monitor_x + bounds.monitor_width - bounds.width + glowAllowance;
-        const minY = bounds.monitor_y - glowAllowance;
-        const maxY = bounds.monitor_y + bounds.monitor_height - bounds.height - Math.round(24 * dpr) + glowAllowance;
-
-        const nextX = Math.max(minX, Math.min(maxX, bounds.x + Math.round(dx * dpr)));
-        const nextY = Math.max(minY, Math.min(maxY, bounds.y + Math.round(dy * dpr)));
-
-        await invoke('set_window_pos', {
-          x: nextX,
-          y: nextY,
-        });
-      } catch {
-        // outside tauri
       }
     };
 
-    window.addEventListener('keydown', handleArrowMove);
-    return () => window.removeEventListener('keydown', handleArrowMove);
-  }, [chatOpen, showApiModal]);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        ctrlPressedRef.current = false;
+        horizontalKeysRef.current = [];
+        verticalKeysRef.current = [];
+        stopMovementLoop();
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        horizontalKeysRef.current = horizontalKeysRef.current.filter((k) => k !== e.key);
+        if (horizontalKeysRef.current.length === 0 && verticalKeysRef.current.length === 0) {
+          stopMovementLoop();
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        verticalKeysRef.current = verticalKeysRef.current.filter((k) => k !== e.key);
+        if (horizontalKeysRef.current.length === 0 && verticalKeysRef.current.length === 0) {
+          stopMovementLoop();
+        }
+      }
+    };
+
+    const handleBlur = () => {
+      ctrlPressedRef.current = false;
+      horizontalKeysRef.current = [];
+      verticalKeysRef.current = [];
+      stopMovementLoop();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      stopMovementLoop();
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [chatOpen, showApiModal, syncInteractiveRegions]);
 
   useEffect(() => {
     if (googleUser) {
@@ -889,7 +1244,7 @@ function App() {
                 panelSize={panelSize}
                 onResizePanel={setPanelSize}
                 robotSize={robotSize}
-                onResizeRobot={setRobotSize}
+                onResizeRobot={handleResizeRobot}
                 chatSide={chatSide}
                 onToggleChatSide={handleToggleChatSide}
                 chatVert={chatVert}
@@ -903,7 +1258,7 @@ function App() {
             <Robot
               emotion={emotion}
               size={robotSize}
-              onResize={setRobotSize}
+              onResize={handleResizeRobot}
               onClick={handleRobotClick}
               onVisualEmotionChange={setVisualEmotion}
               onDragStateChange={setIsDraggingBot}

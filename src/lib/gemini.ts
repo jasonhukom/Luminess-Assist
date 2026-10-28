@@ -1263,11 +1263,11 @@ Current PC Environment:
       },
       {
         name: 'open_item',
-        description: 'Open any application, file, folder, or URL on the user PC (e.g. notepad, calc, chrome, https://google.com, C:\\Users\\...).',
+        description: 'Open any application, file, folder, shell:AppsFolder URI, or URL on the user PC (e.g. notepad, calc, chrome, spotify, discord, https://..., C:\\...).',
         parameters: {
           type: Type.OBJECT,
           properties: {
-            target: { type: Type.STRING, description: 'Application name, file/folder path, or URL to open' }
+            target: { type: Type.STRING, description: 'Application name, executable path, shortcut (.lnk), shell:AppsFolder/<AppID>, or URL to open' }
           },
           required: ['target']
         }
@@ -1297,6 +1297,21 @@ You have FULL access to the user's PC and every file on the computer through you
 - set_timer, get_pc_context
 
 Whenever the user asks you to inspect files, create/edit/delete files, run commands, open apps, check PC status, or do anything on their computer, ALWAYS use the appropriate tool(s). The app will automatically ask the user for confirmation before executing your tool call.
+
+APP OPENING & UNKNOWN APPLICATION PROTOCOL:
+- When the user asks to open an application, program, game, or file:
+  1. First try using 'open_item' with the app name or path.
+  2. If 'open_item' fails or returns an error, or if an app is unknown or unrecognized:
+     DO NOT GIVE UP! Actively find another way to locate and open it:
+     - Search installed Windows and Store apps using 'execute_pc_command' with PowerShell:
+       Get-StartApps | Where-Object { $_.Name -like "*<name>*" -or $_.AppID -like "*<name>*" }
+     - Search Start Menu shortcuts:
+       Get-ChildItem -Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "*<name>*.lnk"
+     - Search user install directories (LocalAppData, Program Files) using 'fs_search_files' or PowerShell.
+     - If found, open it using 'open_item' with the full path, shortcut path, or 'shell:AppsFolder\<AppID>'.
+  3. If you have searched and tried alternate methods and the application truly cannot be found or opened on this PC:
+     Clearly and honestly state that it cannot be opened (e.g. "I couldn't open [App Name] because it could not be found on your PC. It might not be installed.").
+     NEVER claim that you opened an application if it could not be opened or failed!
 
 EMOTIONAL EXPRESSION GUIDELINES:
 Choose the "emotion" field intentionally so your facial expression matches the genuine tone and context of your reply. Do NOT default to "joy" when another expression fits better:

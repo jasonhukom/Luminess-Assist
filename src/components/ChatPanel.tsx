@@ -11,11 +11,7 @@ import {
   ShieldCheck,
   Check,
   Ban,
-  Maximize2,
-  Minimize2,
   Terminal,
-  ArrowLeftRight,
-  ArrowUpDown,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
@@ -35,7 +31,7 @@ interface ChatPanelProps {
   panelSize: { width: number; height: number };
   onResizePanel: (size: { width: number; height: number }) => void;
   robotSize: number;
-  onResizeRobot: (size: number) => void;
+  onResizeRobot: (size: number, anchor?: { clientX: number; clientY: number }) => void;
   chatSide: 'left' | 'right';
   onToggleChatSide: () => void;
   chatVert: 'up' | 'down';
@@ -59,12 +55,10 @@ export function ChatPanel({
   onClose,
   panelSize,
   onResizePanel,
-  robotSize,
-  onResizeRobot,
+  robotSize: _robotSize,
+  onResizeRobot: _onResizeRobot,
   chatSide,
-  onToggleChatSide,
   chatVert,
-  onToggleChatVert,
   brokenCountdown = 0,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
@@ -146,15 +140,6 @@ export function ChatPanel({
     }
   };
 
-  const toggleQuickSize = () => {
-    const isLarge = panelSize.width > 460 || panelSize.height > 580;
-    if (isLarge) {
-      onResizePanel({ width: 340, height: 440 });
-    } else {
-      onResizePanel({ width: 540, height: 640 });
-    }
-  };
-
   return (
     <div
       className={`chat-panel chat-side-${chatSide} chat-vert-${chatVert} emotion-border-${emotion} ${isResizing ? 'is-resizing' : ''}`}
@@ -177,7 +162,7 @@ export function ChatPanel({
       ))}
 
       <div className="chat-header">
-        <div className="chat-title" title="Shortcut: Ctrl+Alt+C to open • Arrow keys to move chat">
+        <div className="chat-title" title="Shortcut: Ctrl+Alt+C to open • Arrow keys to move chat • Ctrl+Arrow to move bot">
           <Bot size={18} className="text-glow" />
           <span>Luminess Assist</span>
         </div>
@@ -194,42 +179,6 @@ export function ChatPanel({
           >
             {autoApprove ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
             <span>{autoApprove ? 'Auto PC' : 'Ask First'}</span>
-          </button>
-
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={onToggleChatSide}
-            title={`Horizontal: ${chatSide === 'left' ? 'Left of Bot' : 'Right of Bot'} (Click to switch left/right)`}
-          >
-            <ArrowLeftRight size={14} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={onToggleChatVert}
-            title={`Vertical: ${chatVert === 'up' ? 'Up from Bot' : 'Down from Bot'} (Click to switch up/down)`}
-          >
-            <ArrowUpDown size={14} />
-          </button>
-
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => onResizeRobot(robotSize >= 240 ? 130 : robotSize + 45)}
-            title={`Bot Size: ${robotSize}px (Click to cycle size or scroll on bot)`}
-          >
-            <span className="size-badge">Bot</span>
-          </button>
-
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={toggleQuickSize}
-            title="Toggle Big / Small Border Size (or drag any edge/corner)"
-          >
-            {panelSize.width > 460 ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
 
           <button
