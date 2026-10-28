@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { invoke } from '@tauri-apps/api/core';
 import type { Emotion } from '../components/Robot.tsx';
+import { getPersonalityPromptContext } from './personality.ts';
 
 export interface Message {
   role: 'user' | 'assistant';
@@ -1289,6 +1290,7 @@ Current PC Environment:
 
   const systemInstruction = `
 You are Luminess Assist, an expressive, capable robotic desktop companion living on the user's Windows PC.
+${getPersonalityPromptContext()}
 ${pcSummary}
 You have FULL access to the user's PC and every file on the computer through your tools:
 - fs_list_dir, fs_read_file, fs_write_file, fs_search_files, fs_delete_path, fs_copy_or_move
