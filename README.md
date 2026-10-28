@@ -1,246 +1,248 @@
-# Luminess Assist
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/public/robot-icon.svg" width="112" alt="Luminess Assist robot" />
+</p>
 
-**A small, expressive AI robot that lives on your Windows desktop.**
+<h1 align="center">Luminess Assist</h1>
 
-Luminess Assist is a floating desktop companion powered by Google Gemini. It combines an animated SVG robot, a conversational chat panel, and Tauri-powered desktop integration in a lightweight, transparent window that stays above your other apps.
+<p align="center">
+  <strong>A living AI companion for your Windows desktop.</strong><br />
+  An expressive floating robot that can chat, react, and help you work on your PC.
+</p>
 
-[**View the repository**](https://github.com/jasonhukom/Luminess-Assist) · [Releases](https://github.com/jasonhukom/Luminess-Assist/releases)
+<p align="center">
+  <a href="https://github.com/jasonhukom/Luminess-Assist/releases/latest"><img src="https://img.shields.io/github/v/release/jasonhukom/Luminess-Assist?display_name=tag&style=flat" alt="Latest release" /></a>
+  <a href="https://github.com/jasonhukom/Luminess-Assist/releases"><img src="https://img.shields.io/github/downloads/jasonhukom/Luminess-Assist/total?style=flat" alt="GitHub downloads" /></a>
+  <a href="https://github.com/jasonhukom/Luminess-Assist"><img src="https://img.shields.io/github/stars/jasonhukom/Luminess-Assist?style=flat" alt="GitHub stars" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat" alt="Windows 10 and 11" />
+</p>
 
-## What it can do
+<p align="center">
+  <a href="https://github.com/jasonhukom/Luminess-Assist/releases/latest"><strong>Download the latest release</strong></a>
+  ·
+  <a href="#installation">Installation</a>
+  ·
+  <a href="#development">Development</a>
+  ·
+  <a href="https://github.com/jasonhukom/Luminess-Assist/issues">Report a bug</a>
+</p>
 
-- **Expressive robot:** 11 conversational expressions—joy, sadness, anger, fear, surprise, disgust, curiosity, confusion, love, embarrassment, and idle—with emotion-specific eye shapes, neon glow, and animations.
-- **Floating desktop companion:** A frameless, transparent, always-on-top window that stays out of the taskbar.
-- **Natural conversations:** Gemini-powered responses with structured function calling.
-- **Persistent companion personality:** A stable Big Five-inspired temperament and relationship memory that responds to pats, rough wall impacts, repairs, and conversation. The existing robot UI is reused; no new visual design is added.
-- **Desktop tools:** The agent can request supported actions such as inspecting files, opening items, and running PC commands. Permission prompts let you review tool actions before they run.
-- **Drag and flick physics:** Pick up the robot, move it around the screen, and flick it to give it momentum. The robot reacts to fast movement and returns to a safe on-screen area.
-- **Resizable mascot:** Use the mouse wheel over the robot to change its size.
-- **Expandable chat panel:** Click the robot to open or close its chat interface.
-- **Google sign-in:** Connect through the app's Google sign-in flow.
-- **AURA boot sequence:** A full-window cyberpunk startup screen with a timed boot trace, animated visual telemetry, code panels, module status, and signal displays.
-- **Multi-provider setup:** Choose Gemini, Claude, or Codex/OpenAI from the first-run setup, open the provider's API-key page, and enter the key for the selected engine.
-- **System tray controls:** Hide, show, or quit the app from the Windows system tray.
+---
 
-## Interacting with the robot
+## Meet Luminess
 
-| Shortcut / Action | Result |
+Luminess Assist is a lightweight desktop companion built with **React, TypeScript, Tauri 2, and Rust**. Its animated robot lives in a transparent, always-on-top window, so you can keep it nearby while working in other apps.
+
+Talk to it using an AI provider you configure, watch its expressions change with the conversation, and optionally let it perform desktop tasks. Luminess asks for permission before running supported desktop actions, so you can review requests before approving them.
+
+## Features
+
+- **An expressive robot** — 11 facial expressions, animated reactions, and a personality that can evolve with your interactions.
+- **A floating desktop companion** — Transparent, frameless, always-on-top window with drag, flick, and resize interactions.
+- **AI conversations** — Choose a supported provider: Google Gemini, Anthropic Claude, or the OpenAI API.
+- **Desktop assistance** — Ask Luminess to find, read, write, copy, move, or delete files; open apps and URLs; run PowerShell commands; or set a timer.
+- **Permission prompts** — Review desktop-tool requests before allowing or denying them. Keep approval prompts enabled unless you have a good reason not to.
+- **AURA startup experience** — A stylized boot sequence with animated interface panels and system-style visualizations.
+- **Windows system tray** — Hide, show, or quit the companion from the tray.
+- **Web showcase** — A separate web app with the robot aesthetic and a dependency/storage calculator.
+
+## Installation
+
+### Option 1: Install with PowerShell
+
+On Windows, open **PowerShell** or **Windows Terminal** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/install.ps1 | iex
+```
+
+The installer checks for the latest GitHub release, downloads the Windows setup package, and helps create a desktop shortcut. It does not require you to build the source code.
+
+> [!IMPORTANT]
+> This command downloads and executes the installer script from this repository. For maximum control, review the [installer script](install.ps1) on GitHub before running it.
+
+### Option 2: Download a release manually
+
+Visit **[GitHub Releases](https://github.com/jasonhukom/Luminess-Assist/releases/latest)** and choose a Windows installer from the latest release. The release may include an `.exe` setup installer and an `.msi` package.
+
+## First launch and AI setup
+
+1. Launch Luminess Assist and complete the setup flow.
+2. Choose your preferred AI provider.
+3. Add the API key required by that provider and confirm that the connection works.
+4. Click the robot to open the chat panel and start a conversation.
+
+| Provider | Where to get an API key |
 | --- | --- |
-| **Click the robot** | Toggle (open or close) the conversational chat panel |
-| **Alt + Left Click** | Summon robot directly to your mouse cursor location (no idle auto-teleporting) |
-| **Win + Shift + C** | Global hotkey to open / toggle the chat panel from anywhere |
-| **Win + Esc** | Global hotkey to terminate Luminess Assist immediately |
-| **Page Up** | Dock robot to the **top** of active windows/tabs when clicked |
-| **Page Down** | Dock robot to the **bottom** of active windows/tabs when clicked (default) |
-| **Ctrl + Arrow keys** | Smooth real-time diagonal locomotion with conflict resolution & boundary clamping |
-| **Arrow keys** | Move chat bubble position around the mascot (up, down, left, right) |
-| **Click and drag** | Move the companion around the desktop |
-| **Flick the robot** | Give it momentum with realistic physics and safe boundary return |
-| **Mouse wheel over robot** | Scale and zoom robot size anchored to your mouse pointer |
-| **Chat with Luminess** | Receive real-time responses with 11 dynamic conversational expressions |
+| **Google Gemini** | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| **Anthropic Claude** | [Claude Console](https://platform.claude.com/settings/keys) |
+| **OpenAI API** | [OpenAI API keys](https://platform.openai.com/api-keys) |
 
-The robot already has its expressive face, movement and status pill. Personality now uses those existing surfaces: repeated pats gradually build affection, hard wall impacts raise anger and lower trust, and repairs calm anger without instantly erasing relationship history. While the robot is peacefully idle, it can occasionally make a short state-aware remark; the app does not open the chat window by itself.
+**Important:** Connecting a Google account is not the same as having a Gemini API key. Depending on the selected provider and setup state, you may still need to configure an API key. API access and usage limits are managed by the provider.
 
-## Companion personality and datasets
+## Interacting with Luminess
 
-The personality layer is informed by the supplied datasets:
-- The IPIP-FFM file is a Big Five questionnaire dataset, with 50 items covering extraversion, emotional reactivity/neuroticism, agreeableness, conscientiousness, and openness.
-- The smaller CSV dataset contains five class labels: `serious`, `dependable`, `extraverted`, `lively`, and `responsible`. These labels guide the app's lightweight temperament presets.
+| Action | What it does |
+| --- | --- |
+| Click the robot | Open or close the chat panel |
+| Click and drag | Move the robot around the screen |
+| Flick the robot | Give it momentum; the companion returns toward a safe on-screen area |
+| Mouse wheel over the robot | Change the robot's size |
+| `Alt` + left-click | Summon the robot at the cursor |
+| `Win` + `Shift` + `C` | Toggle the chat panel |
+| `Win` + `Esc` | Immediately terminate Luminess Assist |
+| `Page Up` / `Page Down` | Change the robot's docking position |
+| `Ctrl` + arrow keys | Move the robot |
+| Arrow keys | Adjust the chat bubble's position around the mascot |
 
-The app does **not** bundle the large raw survey file or run a trained personality classifier. The label-to-temperament profiles are deliberately lightweight, authored presets inspired by those traits, combined with live interaction rules—not a claim that the dataset scientifically predicts a person's personality.
+## Desktop actions and safety
 
-Affection, trust, anger, patience, curiosity, and a small set of interaction counters persist in local WebView storage. Raw chat messages are not saved by the personality module. The evolving state is added to the system prompt so Gemini, Claude, or OpenAI responses can use a consistent relationship tone. A few short idle remarks are generated locally from the same state rather than making background AI API calls.
+Luminess can use desktop tools to interact with your Windows environment. Depending on the request, this may include reading or modifying files, opening applications, or executing PowerShell commands.
 
-Relationship stages are derived from the saved state: `getting_to_know_you`, `comfortable`, `bonded`, `cautious`, and `guarded`. This influences tone and initiative, but it never removes desktop-tool permission checks or makes the assistant punish the user for a low-trust state.
+- Review each permission prompt and approve only actions you understand.
+- File-writing, moving, and deletion actions can change your local data. Keep important files backed up.
+- Avoid enabling automatic approval for commands or file operations unless you understand the risks.
+- Treat AI-generated commands and suggestions as untrusted until you have reviewed them.
+
+## Privacy and local settings
+
+Provider requests are sent to the AI service you select. Provider API keys, provider selection, and some authentication state are stored in the app's local WebView storage; **this is not an encrypted credential vault**. Use a trusted Windows account and do not share your device while API keys are configured.
+
+The personality system keeps lightweight interaction state locally to help maintain a consistent tone. Its trait presets are authored rules inspired by Big Five personality concepts; the app does not bundle the large raw questionnaire dataset or use it as a trained personality classifier.
 
 ## Technology
 
-- **Frontend:** React, TypeScript, Vite
-- **Desktop runtime:** Tauri 2 and Rust
-- **AI integration:** Google GenAI SDK and Gemini
-- **UI icons:** Lucide React
-- **Styling and animation:** CSS and SVG
+| Layer | Technologies |
+| --- | --- |
+| Desktop UI | React, TypeScript, Vite |
+| Native desktop runtime | Tauri 2, Rust |
+| AI providers | Google Gemini, Anthropic Claude, OpenAI API |
+| Icons and visuals | Lucide React, CSS, SVG |
+| Web showcase | React, Vite, Tailwind CSS, Nginx/Docker support |
 
-## Instant Installation (One-Click PowerShell)
-
-Install Luminess Assist and generate a desktop shortcut with a single command in **Windows PowerShell** or **Terminal**:
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/install.ps1 | iex"
-```
-
-### What this script does:
-1. **Downloads release:** Fetches the official **v1.1.0** installer (`Luminess.Assist_1.1.0_x64-setup.exe` - only **2.11 MB**).
-2. **Installs cleanly:** Installs to `%LOCALAPPDATA%\Programs\Luminess Assist` without requiring Administrator privileges.
-3. **Creates desktop shortcut:** Places `Luminess Assist.lnk` on your Windows Desktop with the high-resolution robot icon.
-4. **Starts automatically:** Launches the floating robot companion right away. Double-clicking the desktop shortcut anytime starts the app!
-
----
-
-## Storage & Dependency Footprint
-
-Luminess Assist is engineered with **Tauri v2 and Rust**, avoiding bloated bundled Chromium runtimes.
-
-| Component | Role | Download Size | Disk Footprint | Status on Typical Windows 10/11 |
-| :--- | :--- | :--- | :--- | :--- |
-| **Luminess Assist Installer** | Core Application | **2.11 MB** | **9.5 MB** | Downloaded via installer script |
-| **Edge WebView2 Runtime** | Native Webview Engine | ~150 MB | ~150 MB | **Pre-installed** (>99.2% of PCs) |
-| **Git for Windows** *(Dev only)* | Version Control | ~55 MB | ~320 MB | Optional (Source builds only) |
-| **Node.js (v20+)** *(Dev only)* | Frontend Build Tool | ~32 MB | ~75 MB | Optional (Source builds only) |
-| **Rust & Cargo** *(Dev only)* | Native Compiler | ~180 MB | ~1.2 GB | Optional (Source builds only) |
-| **C++ Build Tools** *(Dev only)* | Windows MSVC Linker | ~1.5 GB | ~4.5 GB | Optional (Source builds only) |
-
-> [!TIP]
-> **Total download size for regular Windows users:** **2.11 MB**! Installation takes under 5 seconds.
-
----
-
-## Web Showcase & Dependency Calculator (`/web`)
-
-The repository includes a web companion application located in [`/web`](file:///C:/Users/rynes/Documents/VSCODE/LuminessAssist/Luminess-Assist/web) built with **React 19**, **Vite**, and **Tailwind CSS**. It replicates the futuristic robot aesthetic with an interactive mascot, live emotion switching, audio synthesis, and a real-time disk storage calculator.
-
-### Run Web Locally
-```bash
-# From repository root:
-npm run web:dev
-
-# Or directly inside the web folder:
-cd web
-npm install
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Run Web with Docker
-```bash
-cd web
-docker compose up --build
-```
-Or build and run the Docker container directly:
-```bash
-docker build -t luminess-assist-web ./web
-docker run -p 3000:80 luminess-assist-web
-```
-The application will be served via high-performance Nginx at `http://localhost:3000`.
-
-### Deploy Web to Vercel
-Deploying to Vercel is seamless with the included `vercel.json`:
-- **Via Vercel CLI:**
-  ```bash
-  cd web && vercel
-  ```
-- **Via Git Integration:** Connect the repository to Vercel. Root directory can be set to either repository root or `web` (both have optimized `vercel.json` configurations).
-
----
-
-## Getting started (Desktop App from Source)
+## Development
 
 ### Requirements
 
-For local development on Windows, install:
+To build the **Windows desktop app** from source, install:
 
 - [Node.js](https://nodejs.org/) — Node.js 24 is used by the release workflow.
-- [Rust](https://www.rust-lang.org/tools/install) — the Tauri backend specifies Rust 1.90 or newer.
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) — required for native Windows builds.
-- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) — normally available on current Windows installations.
+- [Rust](https://www.rust-lang.org/tools/install) — use a current stable toolchain.
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) — include the MSVC build tools.
+- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) — usually present on modern Windows installations.
+- [Git](https://git-scm.com/) — to clone the repository.
 
-### Run locally
-
-Clone the repository and install the dependencies:
+### Run the desktop app
 
 ```bash
 git clone https://github.com/jasonhukom/Luminess-Assist.git
 cd Luminess-Assist
 npm ci
-```
-
-Run the desktop app in development mode:
-
-```bash
 npx tauri dev
 ```
 
-Tauri starts the Vite development server and opens the desktop application.
+Tauri starts the frontend development server and opens the desktop app. The first native build may take a while while Rust dependencies compile.
 
 ### Useful commands
 
+Run these from the repository root:
+
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Run the frontend development server |
-| `npx tauri dev` | Run the desktop app in development mode |
+| `npm run dev` | Start the frontend development server |
+| `npx tauri dev` | Run the native desktop app in development mode |
 | `npm run build` | Type-check and build the frontend |
 | `npm run lint` | Run Oxlint |
-| `npx tauri build` | Build the desktop application and available bundles |
+| `npm test` | Run the Vitest test suite |
+| `npx tauri build` | Build the desktop app and installer bundles |
 
-## AURA setup and AI providers
+## Web showcase
 
-The AURA startup screen plays before the first-run setup. It then presents Google account connection first, followed by the provider selector and a key field.
+The `web/` directory contains a separate React 19 and Tailwind CSS web application.
 
-- **Gemini:** Sign in with Google or supply a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
-- **Claude:** Supply an Anthropic API key from [Claude Console](https://platform.claude.com/settings/keys).
-- **Codex / OpenAI API:** Supply an OpenAI API key from the [OpenAI API keys page](https://platform.openai.com/api-keys). This provider uses the OpenAI Responses API; it is not a ChatGPT/Codex subscription sign-in.
+### Run locally
 
-Provider selection and API keys are saved in the local WebView storage. This is not an encrypted credential vault, so use a trusted Windows account and avoid sharing the device while keys are configured. Conversation requests are sent to the provider you select.
+From the repository root:
 
-The startup graphs and progress displays are visual UI telemetry for the boot sequence; they are not measurements of hardware power consumption or a live process-monitoring dashboard.
+```bash
+npm run web:dev
+```
 
+Or run it from inside the web directory:
 
-## Desktop-action permissions
+```bash
+cd web
+npm install
+npm run dev
+```
 
-Luminess Assist can connect a conversational request to desktop tools, including filesystem operations and command execution. Review permission prompts carefully and approve only actions you understand. Automatic approval is available as an option, but leaving it disabled is the safer default—especially when a request can modify files or run commands.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Project layout
+### Build or run with Docker
+
+```bash
+npm run web:build
+
+cd web
+docker compose up --build
+```
+
+The Docker setup serves the web build through Nginx on port `3000`.
+
+### Deploy to Vercel
+
+The repository includes Vercel configuration. You can deploy through the [Vercel CLI](https://vercel.com/docs/cli) from the `web/` directory or connect the repository to a Vercel project. Check the project's configured root directory and build settings before deploying.
+
+## Project structure
 
 ```text
 Luminess-Assist/
-├── install.ps1                # Automated PowerShell installer & desktop shortcut maker
-├── web/                       # Cyberpunk showcase & dependency calculator website
-│   ├── src/                   # React 19 + Tailwind CSS + living robot mascot
-│   ├── Dockerfile             # Multi-stage Nginx container build
-│   ├── docker-compose.yml     # Containerized web deployment
-│   └── vercel.json            # Vercel deployment configuration
-├── src/                       # Desktop app React frontend
-│   ├── components/
-│   │   ├── Robot.tsx          # Robot SVG, expressions, and pointer interactions
-│   │   ├── Robot.css          # Robot appearance and animations
-│   │   ├── ChatPanel.tsx      # Conversation and permission UI
-│   │   └── ChatPanel.css      # Chat panel styling
-│   ├── lib/
-│   │   └── gemini.ts          # Gemini, Claude, Codex integration and tools
-│   ├── App.tsx                # Application state and desktop UI coordination
-│   ├── App.css
-│   └── main.tsx
-├── src-tauri/
-│   ├── src/                   # Rust desktop commands and system tray
-│   ├── capabilities/
-│   └── tauri.conf.json        # Tauri window and bundling configuration
-├── .github/workflows/
-│   ├── aura-ci.yml            # TypeScript/Vite build check
-│   └── release.yml            # Windows release workflow
-├── package.json
+├── public/                 # Shared public assets and robot icon
+├── src/                    # Desktop React/TypeScript frontend
+│   ├── components/         # Robot, chat panel, settings, and UI
+│   └── lib/                # AI providers, personality, and app logic
+├── src-tauri/              # Rust commands and Tauri configuration
+├── web/                    # Separate web showcase
+├── install.ps1             # Windows installer helper
+├── package.json            # Desktop scripts and dependencies
 └── README.md
 ```
 
-## Building releases
+## Releases
 
-The GitHub Actions workflow at `.github/workflows/release.yml` builds the Windows application when a version tag matching `v*` is pushed. It also supports manual workflow dispatch.
-
-For a published installer, visit the [GitHub Releases page](https://github.com/jasonhukom/Luminess-Assist/releases). Available downloads depend on the releases that have been published.
+Published Windows builds are available on the **[GitHub Releases page](https://github.com/jasonhukom/Luminess-Assist/releases)**. The release workflow builds the Windows app when a version tag matching `v*` is pushed, and can also be started manually from GitHub Actions.
 
 ## Troubleshooting
 
-**The robot is not visible**
-- Check that Luminess Assist is running and look for its system tray icon.
-- If the window is invisible or incorrectly rendered, check Windows graphics drivers and restart the app.
+<details>
+  <summary><strong>The robot is not visible</strong></summary>
 
-**Google sign-in or Gemini requests fail**
-- Confirm that the Google sign-in flow completes successfully and the configured Gemini access is valid.
-- Check the app's displayed error and retry after resolving any authentication or quota issue.
+  Check that Luminess Assist is running and look for its system tray icon. If it still does not appear, try quitting the app from the tray and starting it again.
+</details>
 
-**The desktop build fails**
-- Run `npm ci` again if dependencies are incomplete.
-- Confirm that Node.js, Rust, and the Windows C++ build tools are installed.
-- Run `npm run build` to check frontend TypeScript/build errors before retrying `npx tauri dev` or `npx tauri build`.
+<details>
+  <summary><strong>The AI provider cannot connect</strong></summary>
+
+  Confirm that the API key belongs to the selected provider, that it is configured correctly, and that the provider account has access to the requested API. Check the app's displayed error for more detail.
+</details>
+
+<details>
+  <summary><strong>The desktop build fails</strong></summary>
+
+  Run `npm ci` from the repository root. Then confirm that Node.js, Rust, and the Microsoft C++ Build Tools are installed. Run `npm run build` to check frontend build errors before retrying `npx tauri dev`.
+</details>
+
+<details>
+  <summary><strong>The installer download fails</strong></summary>
+
+  Open [GitHub Releases](https://github.com/jasonhukom/Luminess-Assist/releases) and download the latest Windows package manually. The PowerShell installer uses the latest published release version.
+</details>
+
+## Contributing and feedback
+
+Bug reports, ideas, and improvements are welcome. Before opening an issue, check [existing issues](https://github.com/jasonhukom/Luminess-Assist/issues) to see whether it has already been reported.
 
 ---
 
-Built as an expressive desktop companion by [Jason Hukom](https://github.com/jasonhukom).
+<p align="center">
+  Built with care by <a href="https://github.com/jasonhukom">Jason Hukom</a> · <a href="https://github.com/jasonhukom/Luminess-Assist">Source code</a>
+</p>
