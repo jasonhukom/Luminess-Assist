@@ -117,38 +117,41 @@ export const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
     <div className="space-y-8 animate-fade-in pb-16">
       
       {/* Admin Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl border border-purple-500/30 bg-gradient-to-r from-[#0c0919] via-[#090b14] to-[#070b1a] p-6 sm:p-8 shadow-[0_0_50px_rgba(168,85,247,0.15)]">
+      <div className="relative overflow-hidden rounded-3xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] p-6 sm:p-8 shadow-sm crosshair-corner">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-purple-400/30 bg-purple-400/10 px-3 py-1 font-mono text-xs font-semibold text-purple-300 mb-3">
-              <ShieldAlert size={13} />
-              <span>LUMINESS MISSION CONTROL • ADMIN DASHBOARD</span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#dad7d0] dark:border-white/15 bg-[#080503]/5 dark:bg-white/5 px-3 py-1 font-mono text-[10px] font-semibold text-[#080503] dark:text-[#fafaf9] mb-3 uppercase tracking-wider">
+              <ShieldAlert size={12} />
+              <span>MISSION CONTROL &bull; ADMIN DASHBOARD</span>
             </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Platform &amp; Desktop <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-300 to-cyan-400">Control Center</span>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+              Platform &amp; Desktop{' '}
+              <span className="editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+                Control Center
+              </span>
             </h1>
-            <p className="mt-2 text-sm text-slate-400 max-w-2xl leading-relaxed">
+            <p className="mt-2 text-sm text-[#5e534a] dark:text-[#a89c92] max-w-2xl leading-relaxed">
               Manage OTA software updates, toggle emergency skill kill-switches, enforce global guardrail prompts, and monitor desktop client telemetry without recompiling binaries.
             </p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <span className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-mono font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-mono font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>SERVERS: OPERATIONAL</span>
             </span>
           </div>
         </div>
 
         {savedSuccess && (
-          <div className="mt-4 p-3 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-mono flex items-center gap-2 animate-fade-in">
-            <CheckCircle2 size={16} className="text-emerald-400" />
+          <div className="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-200 text-xs font-mono flex items-center gap-2 animate-fade-in">
+            <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
             <span>{savedSuccess}</span>
           </div>
         )}
 
         {/* Admin Navigation Pills */}
-        <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-white/[0.08]">
+        <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-[#dad7d0]/60 dark:border-white/10">
           {[
             { id: 'ota', label: 'Version & OTA Manager', icon: Upload },
             { id: 'flags', label: 'Feature Flags & Kill-Switches', icon: ToggleRight },
@@ -163,13 +166,13 @@ export const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveSubTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-mono font-medium transition-all cursor-pointer ${
                   isActive
-                    ? 'border-purple-400/60 bg-purple-500/20 text-purple-200 shadow-[0_0_20px_rgba(168,85,247,0.3)]'
-                    : 'border-white/[0.08] bg-black/20 text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                    ? 'border-[#080503] dark:border-white bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] shadow-sm'
+                    : 'border border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] text-[#5e534a] dark:text-[#a89c92] hover:border-[#080503]/30'
                 }`}
               >
-                <Icon size={14} className={isActive ? 'text-purple-300' : 'text-slate-500'} />
+                <Icon size={13} className={isActive ? 'text-white dark:text-[#080503]' : 'opacity-60'} />
                 <span>{tab.label}</span>
               </button>
             );

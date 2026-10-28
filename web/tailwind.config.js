@@ -8,40 +8,56 @@ export default {
   theme: {
     extend: {
       colors: {
-        cyber: {
-          dark: '#08090E',
-          card: 'rgba(15, 18, 28, 0.75)',
-          border: 'rgba(56, 189, 248, 0.18)',
-          glow: '#00f0ff',
-          neonPurple: '#a855f7',
-          neonCyan: '#38bdf8',
-          neonGreen: '#34d399',
-          neonOrange: '#fb923c',
-        }
+        // Optimus Color Architecture
+        optimus: {
+          bg: '#fafaf9',
+          fg: '#080503',
+          card: '#ffffff',
+          muted: '#5e534a',
+          border: '#dad7d0',
+          secondary: '#f3f2ee',
+          accent: '#e7e4dd',
+          subtle: '#ecebe7',
+        },
+        dark: {
+          bg: '#080503',
+          fg: '#fafaf9',
+          card: '#120f0d',
+          cardBorder: 'rgba(255, 255, 255, 0.1)',
+          muted: '#a89c92',
+          subtle: '#1c1917',
+        },
       },
       fontFamily: {
-        mono: ['Fira Code', 'JetBrains Mono', 'Consolas', 'monospace'],
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['"Instrument Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+        serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+        display: ['"Instrument Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'Fira Code', 'Consolas', 'monospace'],
       },
       animation: {
-        'glow-pulse': 'glowPulse 3s ease-in-out infinite',
-        'float-slow': 'float 5s ease-in-out infinite',
-        'scanline': 'scanline 8s linear infinite',
+        'char-in': 'charIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'line-reveal': 'lineReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'fade-in': 'fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'float-gentle': 'floatGentle 4s ease-in-out infinite',
       },
       keyframes: {
-        glowPulse: {
-          '0%, 100%': { filter: 'drop-shadow(0 0 18px rgba(56, 189, 248, 0.45))' },
-          '50%': { filter: 'drop-shadow(0 0 32px rgba(168, 85, 247, 0.65))' },
+        charIn: {
+          '0%': { opacity: '0', transform: 'translateY(15px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
-        float: {
+        lineReveal: {
+          '0%': { width: '0%' },
+          '100%': { width: '100%' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        floatGentle: {
           '0%, 100%': { transform: 'translateY(0px)' },
-          '50%': { transform: 'translateY(-10px)' },
+          '50%': { transform: 'translateY(-6px)' },
         },
-        scanline: {
-          '0%': { transform: 'translateY(-100%)' },
-          '100%': { transform: 'translateY(1000%)' },
-        }
-      }
+      },
     },
   },
   plugins: [],

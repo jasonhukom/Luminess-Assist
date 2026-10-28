@@ -216,43 +216,46 @@ export const DatabaseSchemaTab: React.FC<DatabaseSchemaTabProps> = ({
     <div className="space-y-8 animate-fade-in pb-16">
       
       {/* Database Banner */}
-      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/30 bg-gradient-to-r from-[#071311] via-[#090b14] to-[#070b1a] p-6 sm:p-8 shadow-[0_0_50px_rgba(16,185,129,0.15)]">
+      <div className="relative overflow-hidden rounded-3xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] p-6 sm:p-8 shadow-sm crosshair-corner">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 font-mono text-xs font-semibold text-emerald-300 mb-3">
-              <Database size={13} />
-              <span>POSTGRESQL &amp; SUPABASE ARCHITECTURE • DATA SYNC ENGINE</span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#dad7d0] dark:border-white/15 bg-[#080503]/5 dark:bg-white/5 px-3 py-1 font-mono text-[10px] font-semibold text-[#080503] dark:text-[#fafaf9] mb-3 uppercase tracking-wider">
+              <Database size={12} />
+              <span>POSTGRESQL &amp; SUPABASE ARCHITECTURE &bull; DATA SYNC ENGINE</span>
             </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Cloud Database <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400">&amp; Sync Architecture</span>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+              Cloud Database{' '}
+              <span className="editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+                &amp; Sync Architecture
+              </span>
             </h1>
-            <p className="mt-2 text-sm text-slate-400 max-w-2xl leading-relaxed">
+            <p className="mt-2 text-sm text-[#5e534a] dark:text-[#a89c92] max-w-2xl leading-relaxed">
               Explore the five core relational tables that bind your public web studio, admin control center, and desktop companion bots into one unified ecosystem.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={handleCopySql}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-mono font-medium text-slate-200 transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
             >
-              {copiedSql ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-              <span>{copiedSql ? 'DDL Copied!' : 'Copy SQL DDL'}</span>
+              {copiedSql ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+              <span>{copiedSql ? 'DDL Copied' : 'Copy SQL DDL'}</span>
             </button>
             <button
               type="button"
               onClick={handleDownloadSql}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-mono font-bold tracking-wide shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] hover:opacity-90 text-xs font-mono font-bold tracking-tight shadow-sm transition-all cursor-pointer"
             >
-              <Download size={14} />
+              <Download size={13} />
               <span>Download .SQL</span>
             </button>
           </div>
         </div>
 
         {/* 5 Core Tables Pill Selector */}
-        <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-white/[0.08]">
+        <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-[#dad7d0]/60 dark:border-white/10">
           {SCHEMA_DEFINITIONS.map((def) => {
             const isSelected = activeTable === def.table;
             return (
@@ -260,13 +263,13 @@ export const DatabaseSchemaTab: React.FC<DatabaseSchemaTabProps> = ({
                 key={def.table}
                 type="button"
                 onClick={() => setActiveTable(def.table)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-mono font-medium transition-all cursor-pointer ${
                   isSelected
-                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                    : 'border-white/[0.08] bg-black/20 text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                    ? 'border-[#080503] dark:border-white bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] shadow-sm'
+                    : 'border border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] text-[#5e534a] dark:text-[#a89c92] hover:border-[#080503]/30'
                 }`}
               >
-                <Table size={14} className={isSelected ? 'text-emerald-300' : 'text-slate-500'} />
+                <Table size={13} className={isSelected ? 'text-white dark:text-[#080503]' : 'opacity-60'} />
                 <span>{def.table}</span>
               </button>
             );

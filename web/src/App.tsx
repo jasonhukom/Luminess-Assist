@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Navbar, TabKey } from './components/Navbar.tsx';
 import { HeroSection } from './components/HeroSection.tsx';
+import { FeaturesBento } from './components/FeaturesBento.tsx';
 import { InstallationTab } from './components/InstallationTab.tsx';
 import { DependenciesTab } from './components/DependenciesTab.tsx';
 import { ArchitectureTab } from './components/ArchitectureTab.tsx';
@@ -9,8 +10,8 @@ import { CrocBuilderTab } from './components/CrocBuilderTab.tsx';
 import { BotStudioTab } from './components/BotStudioTab.tsx';
 import { AdminPanelTab } from './components/AdminPanelTab.tsx';
 import { DatabaseSchemaTab } from './components/DatabaseSchemaTab.tsx';
-import { Heart } from 'lucide-react';
 import { useLatestRelease } from './lib/useLatestRelease.ts';
+import { useTheme } from './lib/useTheme.ts';
 import {
   getInitialPlatformState,
   savePlatformState,
@@ -21,6 +22,7 @@ import {
   type GlobalConfigItem,
   type BotMemory,
 } from './lib/botPlatformStore.ts';
+import { ArrowUpRight, Heart, ShieldCheck, Terminal, Cpu } from 'lucide-react';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -30,7 +32,8 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const { version } = useLatestRelease();
+  const { version, tagName } = useLatestRelease();
+  const { theme, toggleTheme } = useTheme();
   const [platformState, setPlatformState] = useState<PlatformState>(getInitialPlatformState);
 
   const activeProfile = platformState.currentProfile;
@@ -91,177 +94,238 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#06070a] text-slate-100 cyber-grid relative selection:bg-cyan-500/25 selection:text-cyan-200">
+    <div className="min-h-screen flex flex-col bg-[#fafaf9] text-[#080503] dark:bg-[#080503] dark:text-[#fafaf9] transition-colors duration-300">
       
-      {/* Ambient Top Glow Orbs */}
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-b from-cyan-500/10 via-purple-600/5 to-transparent blur-3xl pointer-events-none -z-10" />
+      {/* Top Fixed Navbar */}
+      <Navbar
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
 
-      {/* Navbar */}
-      <Navbar activeTab={activeTab} onTabChange={setActiveTab} />
-
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 relative z-10">
+      {/* Main Content Viewport */}
+      <main className="flex-1 w-full max-w-[1400px] mx-auto px-6 lg:px-8">
         
-        {/* Render Tab based on state */}
+        {/* Overview Tab (Full Landing Page with Optimus Flow) */}
         {activeTab === 'overview' && (
-          <div className="space-y-16">
+          <div className="space-y-12">
             <HeroSection onNavigateTab={setActiveTab} />
+            <FeaturesBento onNavigateTab={setActiveTab} />
             <InstallationTab />
+            <DependenciesTab />
+            <ReleasesTab />
+          </div>
+        )}
+
+        {/* Dedicated Bot Studio */}
+        {activeTab === 'studio' && activeProfile && (
+          <div className="pt-24">
+            <BotStudioTab
+              profile={activeProfile}
+              onUpdateProfile={handleUpdateProfile}
+            />
+          </div>
+        )}
+
+        {/* Dedicated Installation Guide */}
+        {activeTab === 'install' && (
+          <div className="pt-24">
+            <InstallationTab />
+          </div>
+        )}
+
+        {/* Dedicated Specs & Storage Breakdown */}
+        {activeTab === 'dependencies' && (
+          <div className="pt-24">
             <DependenciesTab />
           </div>
         )}
 
-        {activeTab === 'studio' && activeProfile && (
-          <BotStudioTab
-            profile={activeProfile}
-            onUpdateProfile={handleUpdateProfile}
-          />
-        )}
-
-        {activeTab === 'install' && (
-          <InstallationTab />
-        )}
-
-        {activeTab === 'dependencies' && (
-          <DependenciesTab />
-        )}
-
+        {/* Dedicated Architecture & Multi-AI Core */}
         {activeTab === 'architecture' && (
-          <ArchitectureTab />
+          <div className="pt-24">
+            <ArchitectureTab />
+          </div>
         )}
 
+        {/* Dedicated Downloads & Releases Vault */}
         {activeTab === 'releases' && (
-          <ReleasesTab />
+          <div className="pt-24">
+            <ReleasesTab />
+          </div>
         )}
 
+        {/* Dedicated C.R.O.C. System Prompt Studio */}
         {activeTab === 'croc' && (
-          <CrocBuilderTab />
+          <div className="pt-24">
+            <CrocBuilderTab />
+          </div>
         )}
 
+        {/* Admin Control Center */}
         {activeTab === 'admin' && (
-          <AdminPanelTab
-            releases={platformState.releases}
-            featureFlags={platformState.featureFlags}
-            globalConfig={platformState.globalConfig}
-            onUpdateReleases={handleUpdateReleases}
-            onUpdateFeatureFlags={handleUpdateFeatureFlags}
-            onUpdateGlobalConfig={handleUpdateGlobalConfig}
-          />
+          <div className="pt-24">
+            <AdminPanelTab
+              releases={platformState.releases}
+              featureFlags={platformState.featureFlags}
+              globalConfig={platformState.globalConfig}
+              onUpdateReleases={handleUpdateReleases}
+              onUpdateFeatureFlags={handleUpdateFeatureFlags}
+              onUpdateGlobalConfig={handleUpdateGlobalConfig}
+            />
+          </div>
         )}
 
+        {/* Database Schema & Sync Engine */}
         {activeTab === 'database' && (
-          <DatabaseSchemaTab
-            platformState={platformState}
-            onUpdateMemories={handleUpdateMemories}
-            onUpdateGlobalConfig={handleUpdateGlobalConfig}
-          />
+          <div className="pt-24">
+            <DatabaseSchemaTab
+              platformState={platformState}
+              onUpdateMemories={handleUpdateMemories}
+              onUpdateGlobalConfig={handleUpdateGlobalConfig}
+            />
+          </div>
         )}
 
       </main>
 
-      {/* Futuristic Cyber Footer */}
-      <footer className="w-full border-t border-white/[0.08] bg-[#07080f]/90 backdrop-blur-xl mt-20 py-12 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* =========================================================================
+          OPTIMUS EDITORIAL FOOTER
+         ========================================================================= */}
+      <footer className="w-full border-t border-[#dad7d0] dark:border-white/10 bg-[#fafaf9] dark:bg-[#080503] mt-24 py-16">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 pb-12 border-b border-white/[0.06]">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-10 pb-16 border-b border-[#dad7d0]/60 dark:border-white/10">
             
-            {/* Col 1: Brand */}
-            <div className="space-y-3 md:col-span-2">
-              <div className="flex items-center gap-2.5">
-                <img 
-                  src="/robot-icon.svg" 
-                  alt="Luminess Assist Mascot" 
-                  className="w-7 h-7 object-contain filter drop-shadow-[0_0_10px_rgba(0,240,255,0.4)]"
-                />
-                <span className="font-bold text-white text-base">Luminess Assist</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-semibold">
-                  v{version}
+            {/* Col 1: Brand & Bio */}
+            <div className="md:col-span-2 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#080503] dark:bg-[#fafaf9] text-white dark:text-[#080503] flex items-center justify-center">
+                  <img
+                    src="/robot-icon.svg"
+                    alt="Luminess Mascot"
+                    className="w-4 h-4 object-contain filter invert dark:invert-0"
+                  />
+                </div>
+                <span className="font-display font-bold text-lg text-[#080503] dark:text-[#fafaf9]">
+                  Luminess Assist
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-[#5e534a] dark:text-[#a89c92]">
+                  {tagName}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-                A living, customizable AI desktop mascot for Windows. Powered by Tauri v2, Rust, and multi-model AI routing with connected web portal customization and real-time syncing.
+              <p className="text-sm text-[#5e534a] dark:text-[#a89c92] max-w-sm leading-relaxed">
+                A living, lightweight AI desktop companion for Windows. Built natively in Rust and Tauri v2 with multi-model intelligence and zero background bloat.
               </p>
-              <div className="flex items-center gap-3 pt-2">
+              <div className="pt-2">
                 <a
                   href="https://github.com/jasonhukom/Luminess-Assist"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs font-mono text-slate-400 hover:text-white transition-colors"
+                  className="inline-flex items-center gap-2 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover-underline"
                 >
                   <GithubIcon size={14} />
                   <span>jasonhukom/Luminess-Assist</span>
+                  <ArrowUpRight size={12} />
                 </a>
               </div>
             </div>
 
             {/* Col 2: Navigation */}
-            <div className="space-y-2.5">
-              <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider block">
-                Platform Navigation
+            <div className="space-y-3 font-mono text-xs">
+              <span className="font-bold text-[#080503] dark:text-white uppercase tracking-wider block">
+                Platform
               </span>
-              <ul className="space-y-1.5 text-xs text-slate-400 font-mono">
+              <ul className="space-y-2 text-[#5e534a] dark:text-[#a89c92]">
                 <li>
-                  <button type="button" onClick={() => setActiveTab('overview')} className="hover:text-cyan-300 transition-colors">
-                    &gt; Overview &amp; Mascot
+                  <button type="button" onClick={() => setActiveTab('overview')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Overview
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => setActiveTab('studio')} className="text-cyan-400 font-semibold hover:text-cyan-200 transition-colors">
-                    &gt; Bot Studio (Customizer) ★
+                  <button type="button" onClick={() => setActiveTab('studio')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Bot Studio (Creator)
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => setActiveTab('install')} className="hover:text-cyan-300 transition-colors">
-                    &gt; One-Click PowerShell
+                  <button type="button" onClick={() => setActiveTab('install')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    One-Click Install
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => setActiveTab('croc')} className="hover:text-cyan-300 transition-colors">
-                    &gt; C.R.O.C. Web Builder
+                  <button type="button" onClick={() => setActiveTab('releases')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Downloads &amp; Releases
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => setActiveTab('admin')} className="hover:text-cyan-300 transition-colors">
-                    &gt; Admin Control Center
-                  </button>
-                </li>
-                <li>
-                  <button type="button" onClick={() => setActiveTab('database')} className="hover:text-cyan-300 transition-colors">
-                    &gt; Database &amp; Sync Schema
+                  <button type="button" onClick={() => setActiveTab('croc')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    C.R.O.C. Prompt Studio
                   </button>
                 </li>
               </ul>
             </div>
 
-            {/* Col 3: Resources */}
-            <div className="space-y-2.5">
-              <span className="text-xs font-mono font-bold text-purple-400 uppercase tracking-wider block">
-                Resources
+            {/* Col 3: Technical */}
+            <div className="space-y-3 font-mono text-xs">
+              <span className="font-bold text-[#080503] dark:text-white uppercase tracking-wider block">
+                Architecture
               </span>
-              <ul className="space-y-1.5 text-xs text-slate-400 font-mono">
+              <ul className="space-y-2 text-[#5e534a] dark:text-[#a89c92]">
                 <li>
-                  <a href="https://github.com/jasonhukom/Luminess-Assist/releases" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
-                    &gt; GitHub Releases
+                  <button type="button" onClick={() => setActiveTab('architecture')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Multi-AI Core
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('dependencies')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Specs &amp; Storage Calculator
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('admin')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Admin Control Center
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setActiveTab('database')} className="hover:text-[#080503] dark:hover:text-white transition-colors">
+                    Database Schema Explorer
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            {/* Col 4: Ecosystem */}
+            <div className="space-y-3 font-mono text-xs">
+              <span className="font-bold text-[#080503] dark:text-white uppercase tracking-wider block">
+                Ecosystem
+              </span>
+              <ul className="space-y-2 text-[#5e534a] dark:text-[#a89c92]">
+                <li>
+                  <a href="https://github.com/jasonhukom/Luminess-Assist/releases" target="_blank" rel="noopener noreferrer" className="hover:text-[#080503] dark:hover:text-white transition-colors flex items-center gap-1">
+                    <span>GitHub Releases</span>
+                    <ArrowUpRight size={11} />
                   </a>
                 </li>
                 <li>
-                  <a href="https://tauri.app" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
-                    &gt; Tauri 2 Docs
+                  <a href="https://tauri.app" target="_blank" rel="noopener noreferrer" className="hover:text-[#080503] dark:hover:text-white transition-colors flex items-center gap-1">
+                    <span>Tauri 2 Runtime</span>
+                    <ArrowUpRight size={11} />
                   </a>
                 </li>
                 <li>
-                  <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
-                    &gt; Google AI Studio
+                  <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="hover:text-[#080503] dark:hover:text-white transition-colors flex items-center gap-1">
+                    <span>Google AI Studio</span>
+                    <ArrowUpRight size={11} />
                   </a>
                 </li>
                 <li>
-                  <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
-                    &gt; Anthropic Console
-                  </a>
-                </li>
-                <li>
-                  <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="hover:text-purple-300 transition-colors">
-                    &gt; Supabase PostgreSQL
+                  <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="hover:text-[#080503] dark:hover:text-white transition-colors flex items-center gap-1">
+                    <span>Anthropic Console</span>
+                    <ArrowUpRight size={11} />
                   </a>
                 </li>
               </ul>
@@ -270,14 +334,13 @@ export function App() {
           </div>
 
           {/* Bottom Bar */}
-          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 font-mono gap-4">
-            <div className="flex items-center gap-1.5">
-              <span>Crafted for Windows with</span>
-              <Heart size={13} className="text-pink-500 fill-current animate-pulse" />
-              <span>and Rust</span>
+          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-[#5e534a] dark:text-[#a89c92] font-mono gap-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Windows 10/11 x64 Native &bull; Rust Core &bull; MIT License</span>
             </div>
             <div>
-              <span>Luminess Assist &bull; Open Source under MIT</span>
+              <span>&copy; {new Date().getFullYear()} Luminess Assist &bull; Open Source Project</span>
             </div>
           </div>
 

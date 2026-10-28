@@ -1,5 +1,5 @@
-import React from 'react';
-import { Terminal, HardDrive, Cpu, Download, Sparkles, SlidersHorizontal, Palette, Shield, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Sun, Moon, ArrowUpRight, Menu, X, Sparkles, Terminal } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
@@ -22,139 +22,201 @@ export type TabKey =
 interface NavbarProps {
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
-  const { version } = useLatestRelease();
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  onTabChange,
+  theme = 'light',
+  onToggleTheme,
+}) => {
+  const { version, exeAsset } = useLatestRelease();
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems: { key: TabKey; label: string; icon: React.ReactNode; badge?: string }[] = [
-    { key: 'overview', label: 'Overview', icon: <Sparkles size={16} /> },
-    { key: 'studio', label: 'Bot Studio', icon: <Palette size={16} />, badge: 'CREATOR' },
-    { key: 'install', label: 'One-Click Install', icon: <Terminal size={16} /> },
-    { key: 'releases', label: 'Downloads', icon: <Download size={16} /> },
-    { key: 'croc', label: 'C.R.O.C.', icon: <SlidersHorizontal size={16} /> },
-    { key: 'admin', label: 'Admin Control', icon: <Shield size={16} /> },
-    { key: 'database', label: 'Database & Sync', icon: <Database size={16} /> },
-    { key: 'architecture', label: 'Multi-AI Core', icon: <Cpu size={16} /> },
-    { key: 'dependencies', label: 'Specs', icon: <HardDrive size={16} /> },
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navItems: { key: TabKey; label: string; badge?: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'studio', label: 'Bot Studio', badge: 'Creator' },
+    { key: 'install', label: 'Installation' },
+    { key: 'releases', label: 'Downloads' },
+    { key: 'croc', label: 'C.R.O.C.' },
+    { key: 'architecture', label: 'Multi-AI Core' },
+    { key: 'dependencies', label: 'Specs' },
+    { key: 'admin', label: 'Admin' },
+    { key: 'database', label: 'Database' },
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full backdrop-blur-2xl bg-[#08090e]/90 border-b border-cyan-500/20 shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
-      <div className="mx-auto flex h-20 w-full max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6 2xl:px-8">
-        
-        {/* Brand / Logo */}
-        <div 
-          className="group flex shrink-0 cursor-pointer items-center gap-2.5 whitespace-nowrap"
-          onClick={() => onTabChange('overview')}
-        >
-          <div className="relative flex items-center justify-center p-1">
-            <img 
-              src="/robot-icon.svg" 
-              alt="Luminess Assist Mascot" 
-              className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_0_18px_rgba(0,240,255,0.6)] transition-transform duration-300 group-hover:scale-110 sm:h-11 sm:w-11"
-            />
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="whitespace-nowrap text-base font-extrabold tracking-tight text-white transition-colors group-hover:text-cyan-300 sm:text-lg">
-                Luminess Assist
+    <header
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? 'bg-[#fafaf9]/90 dark:bg-[#080503]/90 backdrop-blur-md border-b border-[#dad7d0]/60 dark:border-white/10 shadow-[0_2px_12px_rgba(0,0,0,0.03)]'
+          : 'bg-transparent border-b border-[#dad7d0]/30 dark:border-white/5'
+      }`}
+    >
+      <nav className="mx-auto max-w-[1400px] px-6 lg:px-8">
+        <div className="flex h-20 items-center justify-between">
+          
+          {/* Brand Wordmark (Optimus Style) */}
+          <div
+            className="flex items-center gap-3 cursor-pointer group select-none"
+            onClick={() => {
+              onTabChange('overview');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          >
+            <div className="relative flex items-center justify-center w-9 h-9 rounded-lg bg-[#080503] dark:bg-[#fafaf9] text-[#fafaf9] dark:text-[#080503] transition-transform duration-300 group-hover:scale-105 shadow-sm">
+              <img
+                src="/robot-icon.svg"
+                alt="Luminess Mascot"
+                className="w-5 h-5 object-contain filter invert dark:invert-0"
+              />
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-display text-xl font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+                Luminess
               </span>
-              <span className="whitespace-nowrap rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-cyan-300">
+              <span className="text-[10px] font-mono font-medium text-[#5e534a] dark:text-[#a89c92] tracking-wider uppercase">
                 v{version}
               </span>
             </div>
-            <p className="whitespace-nowrap font-mono text-[10px] tracking-wider text-slate-400 sm:text-[11px]">DESKTOP AI COMPANION</p>
           </div>
-        </div>
 
-        {/* Tab Navigation Menu */}
-        <nav className="hidden min-w-0 shrink items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-1 xl:flex">
-          {navItems.map((item) => {
-            const isActive = activeTab === item.key;
-            return (
+          {/* Desktop Horizontal Navigation Links */}
+          <div className="hidden xl:flex items-center gap-7">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => onTabChange(item.key)}
+                  className={`relative text-sm tracking-tight transition-colors duration-200 cursor-pointer py-1 group flex items-center gap-1.5 ${
+                    isActive
+                      ? 'text-[#080503] dark:text-[#fafaf9] font-semibold'
+                      : 'text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9]'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.badge && (
+                    <span className="rounded-full bg-[#080503]/5 dark:bg-white/10 px-1.5 py-0.2 text-[9px] font-mono uppercase tracking-wider text-[#080503] dark:text-[#fafaf9]">
+                      {item.badge}
+                    </span>
+                  )}
+                  {/* Optimus Animated Slide-in Underline */}
+                  <span
+                    className={`absolute -bottom-1 left-0 h-[1.5px] bg-[#080503] dark:bg-[#fafaf9] transition-all duration-300 ${
+                      isActive ? 'w-full' : 'w-0 group-hover:w-full'
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Right Controls & CTAs */}
+          <div className="flex items-center gap-3">
+            
+            {/* Theme Toggle (Light / Dark) */}
+            {onToggleTheme && (
               <button
-                key={item.key}
                 type="button"
-                onClick={() => onTabChange(item.key)}
-                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 py-2 text-xs font-medium transition-all duration-200 cursor-pointer 2xl:px-3 ${
-                  isActive
-                    ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/20 text-cyan-200 border border-cyan-400/40 shadow-[0_0_18px_rgba(56,189,248,0.35)] font-semibold'
-                    : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
-                }`}
+                onClick={onToggleTheme}
+                aria-label="Toggle theme"
+                className="w-9 h-9 rounded-full flex items-center justify-center border border-[#dad7d0] dark:border-white/10 text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-white hover:bg-[#080503]/5 dark:hover:bg-white/5 transition-all cursor-pointer"
               >
-                <span className={isActive ? 'text-cyan-300' : 'text-slate-500'}>
-                  {item.icon}
-                </span>
-                <span>{item.label}</span>
-                {item.badge && (
-                  <span className="ml-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 px-1.5 py-0.2 text-[9px] font-mono font-bold text-cyan-300">
-                    {item.badge}
-                  </span>
-                )}
+                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
               </button>
-            );
-          })}
-        </nav>
+            )}
 
-        {/* Right Actions */}
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onTabChange('studio')}
-            className="hidden sm:flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 px-3 py-2 font-mono text-xs font-semibold text-purple-300 transition-all duration-200 cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.2)]"
-          >
-            <Palette size={14} className="text-purple-400" />
-            <span>CUSTOMIZER</span>
-          </button>
+            {/* GitHub Repo Link */}
+            <a
+              href="https://github.com/jasonhukom/Luminess-Assist"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:flex items-center gap-2 h-9 px-3.5 rounded-full border border-[#dad7d0] dark:border-white/15 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-[#080503]/5 dark:hover:bg-white/10 transition-all"
+            >
+              <GithubIcon size={14} />
+              <span>GitHub</span>
+              <ArrowUpRight size={12} className="opacity-60" />
+            </a>
 
-          <a
-            href="https://github.com/jasonhukom/Luminess-Assist"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-xs font-medium text-slate-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
-          >
-            <GithubIcon size={15} />
-            <span className="hidden sm:inline">GitHub</span>
-          </a>
+            {/* Solid Pill CTA Button (Optimus signature) */}
+            <a
+              href={exeAsset.url}
+              className="flex items-center gap-2 h-9 px-4 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] hover:opacity-90 transition-all font-mono text-xs font-semibold tracking-tight shadow-sm cursor-pointer"
+            >
+              <Download size={13} />
+              <span>DOWNLOAD</span>
+            </a>
 
-          <button
-            type="button"
-            onClick={() => onTabChange('install')}
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-3 py-2.5 font-mono text-xs font-bold tracking-wide text-slate-950 shadow-[0_0_22px_rgba(56,189,248,0.45)] transition-all duration-200 hover:from-cyan-300 hover:to-blue-400 hover:shadow-[0_0_30px_rgba(56,189,248,0.7)] cursor-pointer"
-          >
-            <Terminal size={15} />
-            <span>QUICK START</span>
-          </button>
+            {/* Mobile Hamburger Button */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="xl:hidden w-9 h-9 rounded-full flex items-center justify-center border border-[#dad7d0] dark:border-white/10 text-[#080503] dark:text-[#fafaf9] cursor-pointer"
+            >
+              {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+            </button>
+
+          </div>
+
         </div>
 
-      </div>
+        {/* Mobile Navigation Drawer */}
+        {mobileMenuOpen && (
+          <div className="xl:hidden border-t border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#080503] py-4 px-2 space-y-1">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    onTabChange(item.key);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm text-left transition-colors ${
+                    isActive
+                      ? 'bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] font-medium'
+                      : 'text-[#5e534a] dark:text-[#a89c92] hover:bg-[#080503]/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.badge && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <div className="pt-3 border-t border-[#dad7d0]/40 dark:border-white/10 flex items-center justify-between px-3">
+              <a
+                href="https://github.com/jasonhukom/Luminess-Assist"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs font-mono text-[#5e534a] dark:text-[#a89c92]"
+              >
+                <GithubIcon size={14} />
+                <span>jasonhukom/Luminess-Assist</span>
+              </a>
+              <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">v{version}</span>
+            </div>
+          </div>
+        )}
 
-      {/* Mobile Tab Scrollbar */}
-      <div className="flex xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
-        {navItems.map((item) => {
-          const isActive = activeTab === item.key;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onTabChange(item.key)}
-              className={`flex-shrink-0 flex items-center gap-1.5 whitespace-nowrap px-3.5 py-1.5 rounded-lg text-xs font-medium ${
-                isActive
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {item.label}
-              {item.badge && (
-                <span className="ml-1 rounded bg-cyan-500/20 border border-cyan-400/30 px-1 text-[9px] text-cyan-300">
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      </nav>
     </header>
   );
 };

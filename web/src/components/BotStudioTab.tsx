@@ -188,48 +188,50 @@ export const BotStudioTab: React.FC<BotStudioTabProps> = ({ profile, onUpdatePro
     <div className="space-y-8 animate-fade-in pb-16">
       
       {/* Studio Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl border border-cyan-500/30 bg-gradient-to-r from-[#0b0e1a] via-[#090b14] to-[#0d091a] p-6 sm:p-8 shadow-[0_0_50px_rgba(56,189,248,0.15)]">
-        <div className="absolute top-0 right-0 -mt-12 -mr-12 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="relative overflow-hidden rounded-3xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] p-6 sm:p-8 shadow-sm crosshair-corner">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 font-mono text-xs font-semibold text-cyan-300 mb-3">
-              <Sparkles size={13} />
-              <span>LUMINESS BOT STUDIO • V2 COMPANION CREATOR</span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#dad7d0] dark:border-white/15 bg-[#080503]/5 dark:bg-white/5 px-3 py-1 font-mono text-[10px] font-semibold text-[#080503] dark:text-[#fafaf9] mb-3 uppercase tracking-wider">
+              <Sparkles size={12} />
+              <span>BOT STUDIO &bull; COMPANION CREATOR</span>
             </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Design Your Desktop <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400">AI Companion</span>
+            <h1 className="text-3xl sm:text-4xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+              Design Your Desktop{' '}
+              <span className="editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+                AI Companion
+              </span>
             </h1>
-            <p className="mt-2 text-sm text-slate-400 max-w-2xl leading-relaxed">
-              Customize visual looks, personality sliders, voice pitch, and Windows PC permissions. When you're ready, pair it instantly to your desktop companion with one click.
+            <p className="mt-2 text-sm text-[#5e534a] dark:text-[#a89c92] max-w-2xl leading-relaxed">
+              Customize visual looks, personality matrix, voice pitch, and Windows PC permissions. When you're ready, pair it instantly to your desktop companion with one click.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={handleCopyLink}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-mono font-medium text-slate-200 transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
             >
-              {copiedLink ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-              <span>{copiedLink ? 'Deep Link Copied!' : 'Copy Deep Link'}</span>
+              {copiedLink ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+              <span>{copiedLink ? 'Deep Link Copied' : 'Copy Deep Link'}</span>
             </button>
             <button
               type="button"
               onClick={handleDownloadConfig}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 text-xs font-mono font-bold tracking-wide shadow-[0_0_20px_rgba(56,189,248,0.4)] transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] hover:opacity-90 text-xs font-mono font-bold tracking-tight shadow-sm transition-all cursor-pointer"
             >
-              <Download size={14} />
+              <Download size={13} />
               <span>Export Config</span>
             </button>
           </div>
         </div>
 
         {/* 4-Step Navigation Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-8 pt-6 border-t border-white/[0.08]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-8 pt-6 border-t border-[#dad7d0]/60 dark:border-white/10">
           {[
             { id: 'appearance', label: '01. Appearance', icon: Palette, summary: appearance.paletteName },
-            { id: 'personality', label: '02. C.R.O.C. Personality', icon: Sliders, summary: personality.botName },
-            { id: 'permissions', label: '03. PC Permissions', icon: ShieldCheck, summary: 'Windows Capabilities' },
+            { id: 'personality', label: '02. C.R.O.C. Matrix', icon: Sliders, summary: personality.botName },
+            { id: 'permissions', label: '03. PC Permissions', icon: ShieldCheck, summary: 'Windows Loadout' },
             { id: 'sync', label: '04. Sync & Deploy', icon: Laptop, summary: `Code: ${pairingCode}` },
           ].map((step) => {
             const isActive = activeStep === step.id;
@@ -241,18 +243,18 @@ export const BotStudioTab: React.FC<BotStudioTabProps> = ({ profile, onUpdatePro
                 onClick={() => setActiveStep(step.id as any)}
                 className={`flex items-center gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                   isActive
-                    ? 'border-cyan-400/50 bg-cyan-500/15 shadow-[0_0_25px_rgba(56,189,248,0.25)]'
-                    : 'border-white/[0.06] bg-black/20 hover:bg-white/[0.04]'
+                    ? 'border-[#080503] dark:border-white bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] shadow-sm'
+                    : 'border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] hover:border-[#080503]/30 text-[#5e534a] dark:text-[#a89c92]'
                 }`}
               >
-                <div className={`p-2 rounded-xl shrink-0 ${isActive ? 'bg-cyan-400 text-slate-950 font-bold' : 'bg-white/5 text-slate-400'}`}>
-                  <Icon size={16} />
+                <div className={`p-2 rounded-xl shrink-0 ${isActive ? 'bg-white/20 dark:bg-black/20' : 'bg-black/5 dark:bg-white/10'}`}>
+                  <Icon size={15} />
                 </div>
                 <div className="min-w-0">
-                  <div className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-cyan-300' : 'text-slate-300'}`}>
+                  <div className="text-xs font-bold uppercase tracking-wider">
                     {step.label}
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate font-mono">
+                  <div className={`text-[11px] truncate font-mono ${isActive ? 'opacity-80' : 'text-[#5e534a] dark:text-[#a89c92]'}`}>
                     {step.summary}
                   </div>
                 </div>

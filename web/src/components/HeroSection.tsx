@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { LivingRobot, MascotEmotion } from './LivingRobot.tsx';
-import { 
-  Sparkles, 
-  Terminal, 
-  Download, 
-  ShieldCheck, 
-  Cpu, 
-  Zap, 
-  Compass,
+import {
+  Download,
+  Terminal,
+  Palette,
   ArrowRight,
-  Palette
+  Check,
+  Copy,
+  Zap,
+  ShieldCheck,
+  Cpu,
+  Sparkles,
+  Command,
+  MousePointer,
+  Keyboard,
 } from 'lucide-react';
 import type { TabKey } from './Navbar.tsx';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
@@ -20,180 +24,345 @@ interface HeroSectionProps {
 
 export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
   const [activeEmotion, setActiveEmotion] = useState<MascotEmotion>('idle');
-  const { tagName, exeAsset } = useLatestRelease();
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [activePromptSample, setActivePromptSample] = useState(0);
+  const { tagName, exeAsset, msiAsset } = useLatestRelease();
+
+  const installCmd = 'irm https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/install.ps1 | iex';
+
+  const handleCopyInstall = () => {
+    navigator.clipboard.writeText(installCmd);
+    setCopiedCmd(true);
+    setTimeout(() => setCopiedCmd(false), 2200);
+  };
+
+  const PROMPT_SAMPLES = [
+    {
+      query: "Organize my Downloads folder by file extension",
+      reply: "Scanning ~/Downloads: 14 PDFs, 8 ZIPs, and 23 images sorted into ~/Downloads/Sorted/ with zero disk clutter.",
+      emotion: 'joy' as MascotEmotion,
+      engine: 'Gemini 2.5 Flash',
+    },
+    {
+      query: "What's my current CPU and RAM usage?",
+      reply: "Luminess is consuming 41.8 MB RAM (0.02% CPU). System memory: 12.4 GB / 32 GB available.",
+      emotion: 'thinking' as MascotEmotion,
+      engine: 'Rust Win32 Core',
+    },
+    {
+      query: "Explain the changes in my active git repository",
+      reply: "Detected branch 'main' ahead by 1 commit with Bot Studio and connected schema sync ready to ship.",
+      emotion: 'curiosity' as MascotEmotion,
+      engine: 'Claude 3.5 Sonnet',
+    },
+  ];
 
   return (
-    <section className="relative overflow-hidden pt-8 pb-16 lg:py-20">
+    <section className="relative pt-28 pb-20 lg:pt-36 lg:pb-32 overflow-hidden blueprint-grid">
       
-      {/* Background Glow Orbs */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-cyan-500/15 via-purple-500/15 to-blue-500/10 rounded-full blur-[110px] pointer-events-none" />
-      <div className="absolute top-1/2 right-10 w-[280px] h-[280px] bg-cyan-500/10 rounded-full blur-[90px] pointer-events-none" />
+      {/* Optimus Subtle Architectural Grid Lines */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
+        <div className="absolute h-px bg-[#080503]/10 dark:bg-white/10" style={{ top: '15%', left: 0, right: 0 }} />
+        <div className="absolute h-px bg-[#080503]/10 dark:bg-white/10" style={{ top: '55%', left: 0, right: 0 }} />
+        <div className="absolute h-px bg-[#080503]/10 dark:bg-white/10" style={{ top: '85%', left: 0, right: 0 }} />
+        <div className="absolute w-px bg-[#080503]/10 dark:bg-white/10" style={{ left: '10%', top: 0, bottom: 0 }} />
+        <div className="absolute w-px bg-[#080503]/10 dark:bg-white/10" style={{ left: '90%', top: 0, bottom: 0 }} />
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8 relative z-10">
+        
+        {/* Eyebrow Header (Optimus style: Horizontal rule + Monospace text) */}
+        <div className="mb-6 flex items-center gap-3 animate-fade-in">
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#5e534a] dark:text-[#a89c92] uppercase">
+            Windows AI Desktop Mascot &bull; Tauri v2 &amp; Rust &bull; {tagName}
+          </span>
+        </div>
+
+        {/* Massive Editorial Headline */}
+        <div className="mb-10 max-w-5xl">
+          <h1 className="text-[clamp(2.75rem,7.5vw,7.25rem)] font-display font-bold leading-[0.94] tracking-tight text-[#080503] dark:text-[#fafaf9]">
+            The living AI companion
+            <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+              to elevate your desktop flow.
+            </span>
+          </h1>
+        </div>
+
+        {/* Split Two-Column: Product Description & Primary Windows Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mb-16 pb-12 border-b border-[#dad7d0] dark:border-white/10">
           
-          {/* Left Column: Headlines & CTA */}
-          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            
-            {/* Top Chip */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-400/25 text-cyan-300 text-xs font-mono tracking-wide shadow-[0_0_16px_rgba(56,189,248,0.2)]">
-              <Sparkles size={14} className="text-cyan-400 animate-spin" style={{ animationDuration: '6s' }} />
-              <span className="font-semibold">RELEASE {tagName} IS LIVE</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-slate-300">Tauri 2 + Multi-AI Engine</span>
-            </div>
-
-            {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.12]">
-              The Living AI Mascot{' '}
-              <span className="bg-gradient-to-r from-cyan-300 via-sky-400 to-purple-400 bg-clip-text text-transparent text-glow-cyan">
-                on Your Desktop
-              </span>
-            </h1>
-
-            {/* Subtitle */}
-            <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto lg:mx-0 font-normal leading-relaxed">
-              Luminess Assist is a floating, transparent companion robot for Windows. Powered by 
-              <strong className="text-cyan-300 font-medium"> Gemini 2.5</strong>, 
-              <strong className="text-orange-300 font-medium"> Claude 3.5</strong>, and 
-              <strong className="text-emerald-300 font-medium"> OpenAI Codex</strong>. 
-              Zero background drag, 11 emotional expressions, and native PC task execution.
+          <div className="lg:col-span-7">
+            <p className="text-lg lg:text-xl text-[#5e534a] dark:text-[#a89c92] leading-relaxed max-w-2xl">
+              Luminess Assist is a frameless, transparent companion robot designed for Windows. 
+              Engineered with <strong className="text-[#080503] dark:text-white font-semibold">Tauri v2 and Rust</strong> for an ultra-compact 2.11 MB binary footprint, 11 emotional expressions, local PC automation, and multi-model intelligence across Gemini 2.5, Claude 3.5, and OpenAI.
             </p>
 
-            {/* Quick Feature Badges */}
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2 text-xs font-mono text-slate-300">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08]">
-                <Zap size={14} className="text-amber-400" />
-                <span>2.11 MB Ultra-Lightweight</span>
+            {/* Quick Specs Badges */}
+            <div className="flex flex-wrap items-center gap-3 pt-6 text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#080503]/5 dark:bg-white/5 border border-[#dad7d0] dark:border-white/10">
+                <Zap size={13} className="text-amber-500" />
+                <span>2.11 MB Ultra-Compact</span>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08]">
-                <ShieldCheck size={14} className="text-emerald-400" />
-                <span>Client-Side Local API Keys</span>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#080503]/5 dark:bg-white/5 border border-[#dad7d0] dark:border-white/10">
+                <ShieldCheck size={13} className="text-emerald-500" />
+                <span>100% Client-Side Local Keys</span>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08]">
-                <Cpu size={14} className="text-cyan-400" />
-                <span>Native Rust + Tauri v2</span>
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#080503]/5 dark:bg-white/5 border border-[#dad7d0] dark:border-white/10">
+                <Cpu size={13} className="text-blue-500" />
+                <span>Zero Background Drag</span>
               </div>
             </div>
+          </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-4">
-              <button
-                type="button"
-                onClick={() => onNavigateTab('studio')}
-                className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-cyan-500 hover:from-purple-400 hover:to-cyan-400 text-white font-mono font-bold text-sm tracking-wide shadow-[0_0_28px_rgba(168,85,247,0.45)] hover:shadow-[0_0_36px_rgba(168,85,247,0.65)] transition-all duration-200 cursor-pointer"
-              >
-                <Palette size={17} />
-                <span>DESIGN YOUR COMPANION</span>
-                <ArrowRight size={15} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onNavigateTab('install')}
-                className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-5 py-3.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/40 text-cyan-200 font-mono font-bold text-sm tracking-wide transition-all duration-200 cursor-pointer shadow-[0_0_20px_rgba(56,189,248,0.2)]"
-              >
-                <Terminal size={16} />
-                <span>ONE-CLICK INSTALL</span>
-              </button>
-
+          {/* Action CTAs Column */}
+          <div className="lg:col-span-5 flex flex-col gap-3">
+            
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              {/* Primary Download Pill */}
               <a
                 href={exeAsset.url}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.12] hover:border-cyan-400/40 text-slate-200 hover:text-white font-mono text-sm transition-all duration-200 cursor-pointer shadow-[0_0_15px_rgba(0,0,0,0.4)]"
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] hover:opacity-90 font-mono text-xs font-bold tracking-tight shadow-sm transition-all"
               >
-                <Download size={16} className="text-cyan-400" />
-                <span>{tagName} (.exe)</span>
+                <Download size={14} />
+                <span>DOWNLOAD {tagName} (.EXE)</span>
+              </a>
+
+              {/* MSI Installer Pill */}
+              <a
+                href={msiAsset.url}
+                className="flex items-center justify-center gap-2 px-4 py-3 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 text-[#080503] dark:text-[#fafaf9] hover:bg-[#080503]/5 dark:hover:bg-white/10 font-mono text-xs font-medium transition-all"
+              >
+                <span>.MSI INSTALLER</span>
               </a>
             </div>
 
-            {/* Quick Terminal snippet preview */}
-            <div className="pt-2">
-              <div 
-                onClick={() => onNavigateTab('install')}
-                className="p-3 rounded-xl bg-[#090b14]/90 border border-cyan-500/20 max-w-xl mx-auto lg:mx-0 flex items-center justify-between gap-3 text-xs font-mono text-slate-400 hover:border-cyan-400/40 transition-all cursor-pointer group"
+            {/* Quick Bot Studio / Customizer Pill */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigateTab('studio')}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-[#080503]/5 dark:hover:bg-white/5 transition-all cursor-pointer"
               >
-                <div className="flex items-center gap-2 truncate">
-                  <span className="text-cyan-400 font-bold">$</span>
-                  <span className="truncate text-slate-300">
-                    irm https://raw.githubusercontent.com/.../install.ps1 | iex
-                  </span>
-                </div>
-                <span className="text-[11px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 group-hover:bg-cyan-500/20 transition-colors flex-shrink-0">
-                  Click to View & Copy
-                </span>
-              </div>
+                <Palette size={13} />
+                <span>BOT STUDIO &amp; CHARACTER CREATOR</span>
+                <ArrowRight size={12} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigateTab('install')}
+                className="px-3.5 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9] transition-all cursor-pointer"
+              >
+                <Terminal size={13} />
+              </button>
             </div>
 
-          </div>
-
-          {/* Right Column: Interactive Living Robot Showcase */}
-          <div className="lg:col-span-5 flex flex-col items-center">
-            <div className="relative p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-white/[0.06] via-white/[0.02] to-transparent border border-white/[0.1] backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.7)] w-full max-w-md flex flex-col items-center">
-              
-              {/* Corner decorative cyberpunk ticks */}
-              <div className="absolute top-3 left-3 w-3 h-3 border-t-2 border-l-2 border-cyan-400/60" />
-              <div className="absolute top-3 right-3 w-3 h-3 border-t-2 border-r-2 border-cyan-400/60" />
-              <div className="absolute bottom-3 left-3 w-3 h-3 border-b-2 border-l-2 border-cyan-400/60" />
-              <div className="absolute bottom-3 right-3 w-3 h-3 border-b-2 border-r-2 border-cyan-400/60" />
-
-              {/* Header inside card */}
-              <div className="w-full flex items-center justify-between border-b border-white/[0.06] pb-3 mb-4 text-xs font-mono text-slate-400">
-                <span className="flex items-center gap-1.5 text-cyan-300">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  MASCOT SIMULATOR
-                </span>
-                <span>DESKTOP PREVIEW</span>
+            {/* PowerShell Snippet Box with 1-Click Copy */}
+            <div className="mt-1 flex items-center justify-between p-2.5 rounded-xl border border-[#dad7d0] dark:border-white/10 bg-[#f3f2ee] dark:bg-[#120f0d] text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
+              <div className="flex items-center gap-2 truncate pr-2">
+                <span className="text-[#080503] dark:text-[#fafaf9] font-bold select-none">&gt;</span>
+                <span className="truncate select-all">{installCmd}</span>
               </div>
-
-              {/* The Robot */}
-              <LivingRobot
-                currentEmotion={activeEmotion}
-                onEmotionChange={setActiveEmotion}
-                size={240}
-                interactive={true}
-              />
-
-              {/* Hint badge */}
-              <p className="mt-4 text-[11px] text-center text-slate-400 font-mono">
-                💡 <span className="text-slate-300">Hover & move your cursor</span> to watch Luminess track your eyes. Click to trigger audio feedback and emotion shifts!
-              </p>
-
+              <button
+                type="button"
+                onClick={handleCopyInstall}
+                className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] text-[11px] font-mono hover:opacity-85 transition-opacity shrink-0 cursor-pointer"
+              >
+                {copiedCmd ? (
+                  <>
+                    <Check size={12} />
+                    <span>COPIED</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span>COPY</span>
+                  </>
+                )}
+              </button>
             </div>
+
           </div>
 
         </div>
 
-        {/* Feature Grid Spotlight */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 pt-12 border-t border-white/[0.06]">
+        {/* =========================================================================
+            LIVING PRODUCT DEMONSTRATION SHOWCASE (Optimus Architectural Frame)
+           ========================================================================= */}
+        <div className="relative rounded-2xl border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-[#120f0d] shadow-sm overflow-hidden crosshair-corner">
           
-          <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/[0.07] hover:border-cyan-500/30 transition-all duration-300">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-4 border border-cyan-500/20">
-              <Compass size={20} />
+          {/* Mockup Frame Header */}
+          <div className="flex flex-wrap items-center justify-between px-5 py-3 border-b border-[#dad7d0] dark:border-white/10 bg-[#f3f2ee] dark:bg-[#171411] text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
+            
+            {/* Window Dots & Status */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+              </div>
+              <span className="font-semibold text-[#080503] dark:text-[#fafaf9]">
+                Luminess-Assist.exe
+              </span>
+              <span className="hidden sm:inline text-[11px] opacity-60">
+                [FRAMELESS TRANSPARENT RUNTIME]
+              </span>
             </div>
-            <h3 className="text-base font-bold text-white mb-2">Frameless & Transparent</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Lives gracefully above your editor, browser, or games. Drag it anywhere, resize with your mouse wheel, or let it glide back with smooth physics.
-            </p>
+
+            {/* Right Telemetry info */}
+            <div className="flex items-center gap-4 text-[11px]">
+              <span className="hidden md:inline">
+                STATUS: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">ONLINE</strong>
+              </span>
+              <span>
+                MEMORY: <strong className="text-[#080503] dark:text-[#fafaf9] font-mono">41.8 MB</strong>
+              </span>
+              <span className="hidden lg:inline">
+                FPS: <strong className="text-[#080503] dark:text-[#fafaf9] font-mono">60.0</strong>
+              </span>
+            </div>
+
           </div>
 
-          <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/[0.07] hover:border-purple-500/30 transition-all duration-300">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-4 border border-purple-500/20">
-              <Cpu size={20} />
-            </div>
-            <h3 className="text-base font-bold text-white mb-2">3 AI Engines in One</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Switch on the fly between Google Gemini, Anthropic Claude, and OpenAI Codex/GPT. Save credentials locally without sending tokens to third-party relays.
-            </p>
-          </div>
+          {/* Mockup Body Content */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 p-6 lg:p-10 items-center blueprint-grid-dense">
+            
+            {/* Left: The Mascot Robot & Emotion Controller */}
+            <div className="lg:col-span-5 flex flex-col items-center justify-center p-6 rounded-xl border border-[#dad7d0]/60 dark:border-white/5 bg-[#fafaf9] dark:bg-[#0c0907] relative">
+              
+              <div className="absolute top-3 left-3 text-[10px] font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92]">
+                Interactive Eye-Tracking
+              </div>
 
-          <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/[0.07] hover:border-emerald-500/30 transition-all duration-300">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20">
-              <ShieldCheck size={20} />
+              {/* The Robot Mascot */}
+              <div className="my-2">
+                <LivingRobot
+                  currentEmotion={activeEmotion}
+                  onEmotionChange={setActiveEmotion}
+                  size={220}
+                  interactive={true}
+                />
+              </div>
+
+              {/* Emotion Selector Chips */}
+              <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+                {(['idle', 'joy', 'curiosity', 'love', 'surprise', 'thinking'] as MascotEmotion[]).map((emo) => (
+                  <button
+                    key={emo}
+                    type="button"
+                    onClick={() => setActiveEmotion(emo)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-mono capitalize transition-all cursor-pointer ${
+                      activeEmotion === emo
+                        ? 'bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] font-semibold'
+                        : 'bg-[#080503]/5 dark:bg-white/5 text-[#5e534a] dark:text-[#a89c92] hover:bg-[#080503]/10 dark:hover:bg-white/10'
+                    }`}
+                  >
+                    {emo}
+                  </button>
+                ))}
+              </div>
+
+              <p className="mt-3 text-[11px] text-center font-mono text-[#5e534a] dark:text-[#a89c92]">
+                Hover to test eye tracking &bull; Click robot for audio chirp
+              </p>
+
             </div>
-            <h3 className="text-base font-bold text-white mb-2">Local Desktop Tools</h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Supported actions include inspecting directory trees, opening files, and executing PowerShell commands—protected by mandatory permission approval dialogues.
-            </p>
+
+            {/* Right: Live Interactive Companion Dialogue & Keyboard Shortcuts HUD */}
+            <div className="lg:col-span-7 space-y-6">
+              
+              {/* Prompt Scenario Selector */}
+              <div>
+                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] block mb-2">
+                  Sample Desktop Instructions (Click to Test):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {PROMPT_SAMPLES.map((sample, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setActivePromptSample(idx);
+                        setActiveEmotion(sample.emotion);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-mono text-left transition-all cursor-pointer border ${
+                        activePromptSample === idx
+                          ? 'border-[#080503] dark:border-white bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] font-semibold'
+                          : 'border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#171411] text-[#5e534a] dark:text-[#a89c92] hover:border-[#080503]/40'
+                      }`}
+                    >
+                      {sample.query}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Simulated Live Response Box */}
+              <div className="p-5 rounded-xl border border-[#dad7d0] dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] space-y-3">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="flex items-center gap-1.5 font-bold text-[#080503] dark:text-[#fafaf9]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    LUMINESS RESPONSE
+                  </span>
+                  <span className="text-[11px] text-[#5e534a] dark:text-[#a89c92] px-2 py-0.5 rounded bg-black/5 dark:bg-white/5">
+                    Model: {PROMPT_SAMPLES[activePromptSample].engine}
+                  </span>
+                </div>
+                
+                <p className="text-sm font-sans text-[#080503] dark:text-[#fafaf9] leading-relaxed">
+                  {PROMPT_SAMPLES[activePromptSample].reply}
+                </p>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-[#dad7d0]/60 dark:border-white/5 text-[11px] font-mono text-[#5e534a] dark:text-[#a89c92]">
+                  <span>Execution: 12ms</span>
+                  <span>&bull;</span>
+                  <span>Sandbox Security: Verified</span>
+                  <span>&bull;</span>
+                  <span>Win32 API: Hooked</span>
+                </div>
+              </div>
+
+              {/* Real Shortcuts HUD (From Latest App Features) */}
+              <div>
+                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] block mb-2">
+                  Windows Companion Shortcuts:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                  
+                  <div className="p-2.5 rounded-lg border border-[#dad7d0]/80 dark:border-white/10 bg-white dark:bg-[#171411] flex items-center justify-between">
+                    <span className="text-[#5e534a] dark:text-[#a89c92]">Move bot to cursor</span>
+                    <kbd className="px-2 py-0.5 rounded bg-[#080503]/5 dark:bg-white/10 border border-[#dad7d0] dark:border-white/20 font-bold text-[#080503] dark:text-white">
+                      Alt + Left Click
+                    </kbd>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg border border-[#dad7d0]/80 dark:border-white/10 bg-white dark:bg-[#171411] flex items-center justify-between">
+                    <span className="text-[#5e534a] dark:text-[#a89c92]">Toggle chat window</span>
+                    <kbd className="px-2 py-0.5 rounded bg-[#080503]/5 dark:bg-white/10 border border-[#dad7d0] dark:border-white/20 font-bold text-[#080503] dark:text-white">
+                      Win + Shift + C
+                    </kbd>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg border border-[#dad7d0]/80 dark:border-white/10 bg-white dark:bg-[#171411] flex items-center justify-between">
+                    <span className="text-[#5e534a] dark:text-[#a89c92]">Dock vertical flip</span>
+                    <kbd className="px-2 py-0.5 rounded bg-[#080503]/5 dark:bg-white/10 border border-[#dad7d0] dark:border-white/20 font-bold text-[#080503] dark:text-white">
+                      Page Up / Down
+                    </kbd>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg border border-[#dad7d0]/80 dark:border-white/10 bg-white dark:bg-[#171411] flex items-center justify-between">
+                    <span className="text-[#5e534a] dark:text-[#a89c92]">Terminate Luminess</span>
+                    <kbd className="px-2 py-0.5 rounded bg-[#080503]/5 dark:bg-white/10 border border-[#dad7d0] dark:border-white/20 font-bold text-[#080503] dark:text-white">
+                      Win + Esc
+                    </kbd>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
           </div>
 
         </div>

@@ -1,14 +1,13 @@
 import React from 'react';
-import { 
-  Download, 
-  Tag, 
-  Sparkles, 
-  FileCheck, 
-  ExternalLink, 
-  HardDrive, 
-  CheckCircle2, 
-  Clock, 
-  Monitor
+import {
+  Download,
+  Tag,
+  Clock,
+  ExternalLink,
+  ShieldCheck,
+  CheckCircle2,
+  FileCode,
+  ArrowUpRight,
 } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
 
@@ -16,79 +15,92 @@ export const ReleasesTab: React.FC = () => {
   const { version, tagName, publishedAt, htmlUrl, assets } = useLatestRelease();
 
   const highlights = [
-    '✨ Persistent Companion Personality & Adaptive Relationship Memory engine',
-    '🕹️ Continuous real-time keyboard locomotion with diagonal vectoring & conflict resolution',
-    '🔄 Automatic viewport bounce-back & dynamic chat window screen auto-flip',
-    '🔍 Mouse-anchored precision zooming with persistent scaling',
-    '🚀 Smart multi-tier Windows desktop app launcher with heuristic search',
-    '🎨 Glassmorphic setup console with live emotion telemetry & zero cloud telemetry',
+    'Intelligent AI Authentication with normalized error recovery for Google, Claude, and OpenAI',
+    'Antigravity CLI local detection and supported process bridge',
+    'Adaptive desktop companion shortcuts: Alt + Click (magnet move), Win + Shift + C (chat), Page Up/Down (dock flip)',
+    'Persistent relationship memory engine with long-term cross-session fact storage',
+    'Smooth vector locomotion with keyboard conflict resolution and viewport boundary bounce',
+    'Automated Web Studio pairing tokens and custom prompt synchronization',
   ];
 
   return (
-    <div className="py-8 space-y-10">
+    <section className="py-16 lg:py-24 border-t border-[#dad7d0] dark:border-white/10">
       
       {/* Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 text-xs font-mono">
-          <Tag size={14} />
-          <span>PRODUCTION BINARIES</span>
+      <div className="max-w-4xl mx-auto mb-12 text-center">
+        <div className="inline-flex items-center gap-3 mb-4">
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#5e534a] dark:text-[#a89c92] uppercase">
+            VERIFIED WINDOWS BINARIES &bull; {tagName}
+          </span>
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
         </div>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          Download Luminess Assist {tagName}
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+          Direct download.
+          <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+            Signed, audited, and lightweight.
+          </span>
         </h2>
-        <p className="text-slate-400 text-sm sm:text-base">
-          All binaries are compiled directly from source and verified. Choose the installer format that suits your system.
+        <p className="mt-4 text-base sm:text-lg text-[#5e534a] dark:text-[#a89c92] max-w-2xl mx-auto leading-relaxed">
+          Every Luminess release is compiled natively with Rust and Tauri v2. Choose the standard Windows installer (`.msi`) or the standalone portable executable (`.exe`).
         </p>
       </div>
 
-      {/* Asset Download Cards */}
-      <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Download Asset Cards */}
+      <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
         {assets.map((asset) => (
           <div
             key={asset.name}
-            className={`p-6 rounded-2xl border ${asset.color} backdrop-blur-xl flex flex-col justify-between space-y-6 shadow-[0_15px_35px_rgba(0,0,0,0.6)]`}
+            className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-[#120f0d] flex flex-col justify-between space-y-6 shadow-sm crosshair-corner"
           >
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.08] text-white">
+                <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-[#080503]/5 dark:bg-white/10 text-[#080503] dark:text-[#fafaf9] font-semibold uppercase tracking-wider">
                   {asset.tag}
                 </span>
-                <span className="text-xs font-mono font-bold text-white">
+                <span className="text-xs font-mono font-bold text-[#080503] dark:text-[#fafaf9]">
                   {asset.size}
                 </span>
               </div>
 
               <div>
-                <h3 className="text-lg font-bold text-white mb-1">{asset.title}</h3>
-                <code className="text-xs font-mono text-slate-400 block mb-2">{asset.name}</code>
-                <p className="text-xs text-slate-300 leading-relaxed">
+                <h3 className="text-xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-1">
+                  {asset.title}
+                </h3>
+                <code className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92] block mb-3 break-all">
+                  {asset.name}
+                </code>
+                <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
                   {asset.desc}
                 </p>
               </div>
             </div>
 
-            <a
-              href={asset.url}
-              className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-mono text-xs font-bold transition-all ${asset.btnColor}`}
-            >
-              <Download size={15} />
-              <span>DOWNLOAD {asset.size}</span>
-            </a>
+            <div className="pt-4 border-t border-[#dad7d0]/60 dark:border-white/10 flex items-center justify-between">
+              <a
+                href={asset.url}
+                className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] hover:opacity-90 font-mono text-xs font-bold tracking-tight transition-all shadow-sm cursor-pointer"
+              >
+                <Download size={14} />
+                <span>DOWNLOAD {asset.size}</span>
+              </a>
+            </div>
           </div>
         ))}
       </div>
 
       {/* Changelog & Release Notes */}
-      <div className="max-w-4xl mx-auto p-6 sm:p-8 rounded-2xl bg-[#090b14] border border-white/[0.08] space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
+      <div className="max-w-4xl mx-auto p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] space-y-6">
+        
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#dad7d0]/60 dark:border-white/10">
           <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-            <h3 className="text-base font-bold text-white font-mono">
-              CHANGELOG // VERSION {version} RELEASE NOTES
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <h3 className="font-mono text-sm font-bold text-[#080503] dark:text-[#fafaf9] uppercase tracking-wider">
+              Changelog &bull; Release {tagName}
             </h3>
           </div>
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
-            <span className="flex items-center gap-1">
+          <div className="flex items-center gap-4 text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
+            <span className="flex items-center gap-1.5">
               <Clock size={13} />
               {publishedAt}
             </span>
@@ -96,42 +108,36 @@ export const ReleasesTab: React.FC = () => {
               href={htmlUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 transition-colors"
+              className="flex items-center gap-1 text-[#080503] dark:text-white hover:underline transition-colors"
             >
               <span>GitHub Release</span>
-              <ExternalLink size={12} />
+              <ArrowUpRight size={12} />
             </a>
           </div>
         </div>
 
-        <div className="space-y-4">
-          <h4 className="text-sm font-semibold text-slate-200">Key Enhancements:</h4>
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-300">
-            {highlights.map((h, i) => (
-              <li key={i} className="flex items-start gap-2 bg-white/[0.02] p-2.5 rounded-xl border border-white/[0.04]">
-                <CheckCircle2 size={15} className="text-cyan-400 shrink-0 mt-0.5" />
-                <span>{h}</span>
-              </li>
-            ))}
-          </ul>
+        {/* Highlights List */}
+        <div className="space-y-3">
+          {highlights.map((item, idx) => (
+            <div key={idx} className="flex items-start gap-3 text-sm text-[#5e534a] dark:text-[#a89c92]">
+              <span className="font-mono text-xs text-[#080503] dark:text-[#fafaf9] font-bold select-none mt-0.5">
+                0{idx + 1}
+              </span>
+              <span className="leading-relaxed">{item}</span>
+            </div>
+          ))}
         </div>
 
-        <div className="pt-4 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-400">
-          <div className="flex items-center gap-2">
-            <FileCheck size={14} className="text-emerald-400" />
-            <span>Target: Windows 10/11 x64 (x86_64-pc-windows-msvc)</span>
-          </div>
-          <a
-            href="https://github.com/jasonhukom/Luminess-Assist/releases"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline"
-          >
-            Browse all past releases →
-          </a>
+        {/* SHA-256 Verification Guarantee */}
+        <div className="pt-4 border-t border-[#dad7d0]/60 dark:border-white/10 flex items-center gap-2 text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
+          <ShieldCheck size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span>
+            Binary integrity guaranteed via GitHub Actions automated release pipeline with SHA-256 validation.
+          </span>
         </div>
+
       </div>
 
-    </div>
+    </section>
   );
 };

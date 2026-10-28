@@ -20,7 +20,7 @@ import {
 } from "../lib/crocPrompt.ts";
 
 const fieldClassName =
-  "mt-2 w-full rounded-xl border border-white/10 bg-[#080a10] px-3.5 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/10";
+  "mt-2 w-full rounded-xl border border-[#dad7d0] dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] px-3.5 py-2.5 text-sm text-[#080503] dark:text-[#fafaf9] outline-none transition placeholder:text-[#5e534a]/60 dark:placeholder:text-[#a89c92]/50 focus:border-[#080503] dark:focus:border-white focus:ring-1 focus:ring-[#080503]/20";
 
 function TextField(props: {
   label: string;
@@ -32,14 +32,14 @@ function TextField(props: {
 }) {
   return (
     <label className="block min-w-0 text-sm">
-      <span className="font-medium text-slate-200">{props.label}</span>
-      {props.helper ? <span className="mt-1 block text-xs leading-relaxed text-slate-500">{props.helper}</span> : null}
+      <span className="font-medium text-[#080503] dark:text-[#fafaf9]">{props.label}</span>
+      {props.helper ? <span className="mt-1 block text-xs leading-relaxed text-[#5e534a] dark:text-[#a89c92]">{props.helper}</span> : null}
       <input
         type={props.type ?? "text"}
         value={props.value}
         placeholder={props.placeholder}
         onChange={(event) => props.onChange(event.target.value)}
-        className={props.type === "color" ? "mt-2 h-12 w-full cursor-pointer rounded-xl border border-white/10 bg-[#080a10] p-1.5" : fieldClassName}
+        className={props.type === "color" ? "mt-2 h-11 w-full cursor-pointer rounded-xl border border-[#dad7d0] dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] p-1.5" : fieldClassName}
       />
     </label>
   );
@@ -52,12 +52,12 @@ function ToneSlider(props: {
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="block rounded-xl border border-white/[0.07] bg-black/20 p-4">
+    <label className="block rounded-xl border border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] p-4">
       <span className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-slate-200">{props.label}</span>
-        <span className="rounded-md border border-cyan-400/20 bg-cyan-400/[0.08] px-2 py-1 font-mono text-xs text-cyan-200">{props.value}/10</span>
+        <span className="text-sm font-medium text-[#080503] dark:text-[#fafaf9]">{props.label}</span>
+        <span className="rounded-md border border-[#dad7d0] dark:border-white/10 bg-black/5 dark:bg-white/5 px-2 py-0.5 font-mono text-xs text-[#080503] dark:text-[#fafaf9]">{props.value}/10</span>
       </span>
-      <span className="mt-1 block text-xs leading-relaxed text-slate-500">{props.description}</span>
+      <span className="mt-1 block text-xs leading-relaxed text-[#5e534a] dark:text-[#a89c92]">{props.description}</span>
       <input
         type="range"
         min={0}
@@ -65,9 +65,9 @@ function ToneSlider(props: {
         step={1}
         value={props.value}
         onChange={(event) => props.onChange(Number(event.target.value))}
-        className="mt-4 w-full cursor-pointer accent-cyan-400"
+        className="mt-4 w-full cursor-pointer accent-[#080503] dark:accent-white"
       />
-      <span className="mt-1 flex justify-between font-mono text-[10px] uppercase tracking-wide text-slate-600">
+      <span className="mt-1 flex justify-between font-mono text-[10px] uppercase tracking-wide text-[#5e534a] dark:text-[#a89c92]">
         <span>Low</span>
         <span>High</span>
       </span>
@@ -82,10 +82,10 @@ function PermissionToggle(props: {
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-white/[0.07] bg-black/20 p-4 transition hover:border-cyan-400/20">
+    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] p-4 transition hover:border-[#080503]/30">
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-slate-200">{props.title}</span>
-        <span className="mt-1 block text-xs leading-relaxed text-slate-500">{props.description}</span>
+        <span className="block text-sm font-medium text-[#080503] dark:text-[#fafaf9]">{props.title}</span>
+        <span className="mt-1 block text-xs leading-relaxed text-[#5e534a] dark:text-[#a89c92]">{props.description}</span>
       </span>
       <span className="relative mt-0.5 shrink-0">
         <input
@@ -94,7 +94,7 @@ function PermissionToggle(props: {
           onChange={(event) => props.onChange(event.target.checked)}
           className="peer sr-only"
         />
-        <span className="block h-6 w-11 rounded-full bg-slate-700 transition peer-checked:bg-cyan-500/80 peer-focus-visible:ring-2 peer-focus-visible:ring-cyan-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#0b0e16] after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform after:content-[''] peer-checked:after:translate-x-5" />
+        <span className="block h-6 w-11 rounded-full bg-black/20 dark:bg-white/20 transition peer-checked:bg-[#080503] dark:peer-checked:bg-white after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white dark:after:bg-[#080503] after:transition-transform peer-checked:after:translate-x-5" />
       </span>
     </label>
   );
@@ -102,14 +102,14 @@ function PermissionToggle(props: {
 
 function SectionCard(props: { title: string; description: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0b0e16]/90 shadow-[0_20px_60px_rgba(0,0,0,0.2)]">
-      <div className="flex items-start gap-3 border-b border-white/[0.07] px-5 py-4 sm:px-6">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/[0.08] text-cyan-300">
+    <section className="overflow-hidden rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] shadow-sm crosshair-corner">
+      <div className="flex items-start gap-3 border-b border-[#dad7d0]/60 dark:border-white/10 px-5 py-4 sm:px-6 bg-[#f3f2ee] dark:bg-[#171411]">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#080503]/5 dark:bg-white/10 text-[#080503] dark:text-[#fafaf9]">
           {props.icon}
         </span>
         <span className="min-w-0">
-          <span className="block font-semibold text-white">{props.title}</span>
-          <span className="mt-1 block text-xs leading-relaxed text-slate-500">{props.description}</span>
+          <span className="block font-semibold text-[#080503] dark:text-[#fafaf9]">{props.title}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-[#5e534a] dark:text-[#a89c92]">{props.description}</span>
         </span>
       </div>
       <div className="space-y-5 p-5 sm:p-6">{props.children}</div>
@@ -128,7 +128,7 @@ export function CrocBuilderTab() {
     try {
       window.localStorage.setItem(CROC_STORAGE_KEY, JSON.stringify(settings));
     } catch {
-      // Local persistence is optional; the builder remains usable without it.
+      // Local persistence
     }
   }, [settings]);
 
@@ -148,13 +148,13 @@ export function CrocBuilderTab() {
   async function copyPrompt() {
     try {
       if (!navigator.clipboard?.writeText) {
-        setNotice("Clipboard access is unavailable here. Select the prompt and copy it manually.");
+        setNotice("Clipboard access unavailable. Select prompt manually.");
         return;
       }
       await navigator.clipboard.writeText(prompt);
-      setNotice("C.R.O.C. prompt copied to the clipboard.");
+      setNotice("C.R.O.C. prompt copied to clipboard.");
     } catch {
-      setNotice("The browser blocked clipboard access. Select the prompt and copy it manually.");
+      setNotice("Select prompt and copy manually.");
     }
   }
 
@@ -163,7 +163,7 @@ export function CrocBuilderTab() {
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
-    anchor.download = "luminess-web-croc-prompt.txt";
+    anchor.download = "luminess-croc-prompt.txt";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -177,94 +177,104 @@ export function CrocBuilderTab() {
   }
 
   return (
-    <div className="space-y-7 py-4 sm:py-8">
+    <section className="py-12 sm:py-16 space-y-8 border-t border-[#dad7d0] dark:border-white/10">
+      
+      {/* Header */}
       <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
         <div className="max-w-3xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/[0.07] px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-            <Sparkles size={13} />
-            Context · Role · Output · Constraints
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#dad7d0] dark:border-white/15 bg-[#080503]/5 dark:bg-white/5 px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[#080503] dark:text-[#fafaf9]">
+            <Sparkles size={12} />
+            Context &bull; Role &bull; Output &bull; Constraints
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl lg:text-5xl">
-            C.R.O.C. <span className="text-cyan-300">for the Web</span>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+            C.R.O.C. Studio
+            <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+              System Prompt Architect
+            </span>
           </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400 sm:text-base">
-            Build AURA's web-specific system prompt, tune the companion's personality, and define the browser actions it may request. Windows-only powers stay outside the browser.
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[#5e534a] dark:text-[#a89c92] sm:text-base">
+            Build Luminess's structured system prompt, tune conversational tone, and define capability boundaries with mathematical rigor.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3 rounded-xl border border-white/10 bg-[#0b0e16]/90 px-4 py-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
-            <ShieldCheck size={19} />
+
+        <div className="flex shrink-0 items-center gap-3 rounded-full border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] px-4 py-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck size={16} />
           </span>
-          <span>
-            <span className="block text-xs font-semibold text-slate-200">Local draft</span>
-            <span className="mt-0.5 block text-[11px] text-slate-500">Saved in this browser only</span>
-          </span>
+          <div className="text-xs font-mono">
+            <span className="block font-semibold text-[#080503] dark:text-white">Local Draft</span>
+            <span className="text-[11px] text-[#5e534a] dark:text-[#a89c92]">Saved in browser</span>
+          </div>
         </div>
       </div>
 
       {mandatoryUpdate ? (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-400/25 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
-          <ShieldCheck className="mt-0.5 shrink-0 text-amber-300" size={18} />
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
+          <ShieldCheck className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" size={18} />
           <span>
-            <strong>Mandatory update rule is active.</strong> Client {settings.clientVersion} is behind {settings.latestVersion}; the generated prompt requires a SHOW_UPDATE_BANNER action.
+            <strong>Mandatory update rule active:</strong> Client {settings.clientVersion} is behind latest server version {settings.latestVersion}. The generated prompt injects an explicit update directive.
           </span>
         </div>
       ) : null}
 
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(390px,0.98fr)]">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]">
+        
+        {/* Left Column: Form Controls */}
         <div className="space-y-6">
           <SectionCard
-            title="Context & identity"
-            description="The profile information AURA may use in its replies."
-            icon={<UserRound size={19} />}
+            title="Context & Identity"
+            description="The profile information Luminess references in conversational exchanges."
+            icon={<UserRound size={17} />}
           >
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextField label="Companion name" value={settings.botName} onChange={(value) => updateField("botName", value)} placeholder="AURA" />
-              <TextField label="User name" value={settings.userName} onChange={(value) => updateField("userName", value)} placeholder="Optional" />
+              <TextField label="Companion name" value={settings.botName} onChange={(value) => updateField("botName", value)} placeholder="Luminess" />
+              <TextField label="User callsign" value={settings.userName} onChange={(value) => updateField("userName", value)} placeholder="Pilot" />
               <TextField label="Avatar model" value={settings.appearanceModel} onChange={(value) => updateField("appearanceModel", value)} placeholder="Luminess Robot" />
-              <TextField label="Avatar accessory" value={settings.appearanceAccessory} onChange={(value) => updateField("appearanceAccessory", value)} placeholder="None" />
+              <TextField label="Avatar accessory" value={settings.appearanceAccessory} onChange={(value) => updateField("appearanceAccessory", value)} placeholder="Headphones" />
               <TextField label="Primary avatar color" type="color" value={settings.appearanceColor} onChange={(value) => updateField("appearanceColor", value)} />
               <TextField label="Personality archetype" value={settings.personalityArchetype} onChange={(value) => updateField("personalityArchetype", value)} placeholder="Witty Hacker" />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <TextField label="Client version" value={settings.clientVersion} onChange={(value) => updateField("clientVersion", value)} placeholder="1.1.0" />
-              <TextField label="Latest server version" value={settings.latestVersion} onChange={(value) => updateField("latestVersion", value)} placeholder="1.1.0" />
+            <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-[#dad7d0]/60 dark:border-white/5">
+              <TextField label="Client version" value={settings.clientVersion} onChange={(value) => updateField("clientVersion", value)} placeholder="1.1.2" />
+              <TextField label="Latest server version" value={settings.latestVersion} onChange={(value) => updateField("latestVersion", value)} placeholder="1.1.2" />
             </div>
 
             <PermissionToggle
-              title="Mandatory update"
-              description="When enabled and the client version is behind the latest version, require the update banner action."
+              title="Mandatory update flag"
+              description="When enabled, companion alerts the user if their client version is outdated."
               checked={settings.isMandatoryUpdate}
               onChange={(checked) => updateField("isMandatoryUpdate", checked)}
             />
           </SectionCard>
 
           <SectionCard
-            title="Personality tuning"
-            description="Set tone values from 0 (low) to 10 (high)."
-            icon={<SlidersHorizontal size={19} />}
+            title="Personality Tuning"
+            description="Adjust tone values from 0 (conservative) to 10 (pronounced)."
+            icon={<SlidersHorizontal size={17} />}
           >
             <div className="grid gap-3 sm:grid-cols-3">
-              <ToneSlider label="Formality" description="Casual to formal" value={settings.toneFormality} onChange={(value) => updateField("toneFormality", value)} />
-              <ToneSlider label="Humor" description="Straight-laced to playful" value={settings.toneHumor} onChange={(value) => updateField("toneHumor", value)} />
-              <ToneSlider label="Verbosity" description="Brief to detailed" value={settings.toneVerbosity} onChange={(value) => updateField("toneVerbosity", value)} />
+              <ToneSlider label="Formality" description="Casual to strict" value={settings.toneFormality} onChange={(value) => updateField("toneFormality", value)} />
+              <ToneSlider label="Humor" description="Dry to playful" value={settings.toneHumor} onChange={(value) => updateField("toneHumor", value)} />
+              <ToneSlider label="Verbosity" description="Snappy to detailed" value={settings.toneVerbosity} onChange={(value) => updateField("toneVerbosity", value)} />
             </div>
+            
             <label className="block text-sm">
-              <span className="font-medium text-slate-200">Custom backstory or notes</span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-500">These notes shape style and preferences, but cannot override security or administrator rules.</span>
+              <span className="font-medium text-[#080503] dark:text-[#fafaf9]">Custom backstory and behavioral guidelines</span>
+              <span className="mt-1 block text-xs leading-relaxed text-[#5e534a] dark:text-[#a89c92]">Injected as master persona instructions.</span>
               <textarea
                 rows={4}
                 maxLength={4000}
                 value={settings.userCustomPrompt}
                 onChange={(event) => updateField("userCustomPrompt", event.target.value)}
-                placeholder="Optional background, preferred communication style, recurring goals..."
-                className={fieldClassName + " resize-y"}
+                placeholder="Optional background, preferred code formatting, workflow goals..."
+                className={fieldClassName + " resize-y font-mono text-xs"}
               />
-              <span className="mt-1 block text-right font-mono text-[10px] text-slate-600">{settings.userCustomPrompt.length}/4000</span>
+              <span className="mt-1 block text-right font-mono text-[10px] text-[#5e534a] dark:text-[#a89c92]">{settings.userCustomPrompt.length}/4000</span>
             </label>
+
             <label className="block text-sm">
-              <span className="font-medium text-slate-200">Maximum reply words</span>
+              <span className="font-medium text-[#080503] dark:text-[#fafaf9]">Maximum reply words</span>
               <input
                 type="number"
                 min={10}
@@ -277,81 +287,87 @@ export function CrocBuilderTab() {
           </SectionCard>
 
           <SectionCard
-            title="Browser permission loadout"
-            description="These flags describe allowed capabilities; the real web client must enforce them independently."
-            icon={<ShieldCheck size={19} />}
+            title="Desktop Permission Loadout"
+            description="Explicit authorization boundaries for desktop task execution."
+            icon={<ShieldCheck size={17} />}
           >
             <div className="space-y-3">
-              <PermissionToggle title="Open external URLs" description="Allow requesting a validated http/https destination. Confirmation is still required." checked={settings.permissions.canOpenUrls} onChange={(checked) => updatePermission("canOpenUrls", checked)} />
-              <PermissionToggle title="Navigate within this website" description="Allow changing to same-origin routes only; never navigate to arbitrary origins." checked={settings.permissions.canNavigateRoutes} onChange={(checked) => updatePermission("canNavigateRoutes", checked)} />
-              <PermissionToggle title="Download safe exports" description="Allow user-requested text or configuration exports. Executables and unverified installers are never allowed." checked={settings.permissions.canDownloadFiles} onChange={(checked) => updatePermission("canDownloadFiles", checked)} />
-              <PermissionToggle title="Read clipboard context" description="Off by default. A browser integration must obtain permission and explicit user interaction; the prompt itself cannot read it." checked={settings.permissions.canReadClipboard} onChange={(checked) => updatePermission("canReadClipboard", checked)} />
-              <PermissionToggle title="Write to clipboard" description="Allow copying text only through a supported browser API and a user-initiated action." checked={settings.permissions.canWriteClipboard} onChange={(checked) => updatePermission("canWriteClipboard", checked)} />
-              <PermissionToggle title="Use in-page timers" description="Allow timers inside the web experience, not native Windows timers or background OS actions." checked={settings.permissions.canSetTimers} onChange={(checked) => updatePermission("canSetTimers", checked)} />
-            </div>
-            <div className="flex items-start gap-2 rounded-xl border border-amber-400/15 bg-amber-400/[0.04] p-3 text-xs leading-relaxed text-amber-100/80">
-              <ShieldCheck size={15} className="mt-0.5 shrink-0 text-amber-300" />
-              A prompt is not a security boundary. The application must verify each requested action and permission before executing anything.
+              <PermissionToggle title="Open external URLs" description="Allow opening browser destinations with user validation." checked={settings.permissions.canOpenUrls} onChange={(checked) => updatePermission("canOpenUrls", checked)} />
+              <PermissionToggle title="Read clipboard context" description="Read clipboard text only when explicitly invoked by user." checked={settings.permissions.canReadClipboard} onChange={(checked) => updatePermission("canReadClipboard", checked)} />
+              <PermissionToggle title="Write to clipboard" description="Copy formatted responses or code directly to clipboard." checked={settings.permissions.canWriteClipboard} onChange={(checked) => updatePermission("canWriteClipboard", checked)} />
+              <PermissionToggle title="Use in-app timers" description="Set Pomodoro and focus sprint reminders." checked={settings.permissions.canSetTimers} onChange={(checked) => updatePermission("canSetTimers", checked)} />
             </div>
           </SectionCard>
         </div>
 
+        {/* Right Column: Live Prompt Preview */}
         <aside className="xl:sticky xl:top-28">
-          <section className="overflow-hidden rounded-2xl border border-cyan-400/20 bg-[#080b13]/95 shadow-[0_24px_80px_rgba(0,0,0,0.3)]">
-            <div className="border-b border-white/[0.08] bg-gradient-to-r from-cyan-400/[0.08] to-purple-500/[0.06] p-5 sm:p-6">
+          <section className="overflow-hidden rounded-2xl border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-[#120f0d] shadow-sm crosshair-corner">
+            
+            <div className="border-b border-[#dad7d0]/60 dark:border-white/10 bg-[#f3f2ee] dark:bg-[#171411] p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    Live prompt preview
+                  <div className="flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[#080503] dark:text-[#fafaf9]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Prompt Output
                   </div>
-                  <h2 className="mt-2 text-xl font-bold text-white">Generated C.R.O.C.</h2>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">Copy the prompt into your supported web AI runtime.</p>
+                  <h2 className="mt-1 text-xl font-display font-bold text-[#080503] dark:text-[#fafaf9]">
+                    Generated Master Prompt
+                  </h2>
                 </div>
-                <span className="rounded-lg border border-white/10 bg-black/20 p-2 text-cyan-300">
-                  <Sparkles size={18} />
+                <span className="p-2 rounded-full border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-white/5 text-[#080503] dark:text-[#fafaf9]">
+                  <Sparkles size={16} />
                 </span>
               </div>
+
               <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" onClick={copyPrompt} className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-3.5 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-300">
-                  <Copy size={14} />
-                  Copy prompt
+                <button
+                  type="button"
+                  onClick={copyPrompt}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] px-4 py-2 text-xs font-mono font-bold hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
+                >
+                  <Copy size={13} />
+                  <span>Copy Prompt</span>
                 </button>
-                <button type="button" onClick={downloadPrompt} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.08]">
-                  <Download size={14} />
-                  Export .txt
+                <button
+                  type="button"
+                  onClick={downloadPrompt}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 px-3.5 py-2 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
+                >
+                  <Download size={13} />
+                  <span>Export .txt</span>
                 </button>
-                <button type="button" onClick={resetSettings} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-slate-400 transition hover:text-white">
-                  <RotateCcw size={14} />
-                  Reset
+                <button
+                  type="button"
+                  onClick={resetSettings}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 px-3 py-2 text-xs font-mono font-medium text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-white transition-all cursor-pointer"
+                >
+                  <RotateCcw size={13} />
                 </button>
               </div>
-              {notice ? (
-                <p role="status" className="mt-3 flex items-center gap-2 text-xs text-emerald-300">
-                  <Check size={14} />
-                  {notice}
+
+              {notice && (
+                <p role="status" className="mt-3 flex items-center gap-1.5 text-xs font-mono text-emerald-600 dark:text-emerald-400">
+                  <Check size={13} />
+                  <span>{notice}</span>
                 </p>
-              ) : null}
+              )}
             </div>
-            <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3 font-mono text-[10px] uppercase tracking-wide text-slate-500 sm:px-6">
-              <span>Plain-text system prompt</span>
+
+            <div className="flex items-center justify-between gap-3 border-b border-[#dad7d0]/60 dark:border-white/5 px-5 py-2.5 font-mono text-[11px] text-[#5e534a] dark:text-[#a89c92] bg-[#fafaf9] dark:bg-[#0c0907]">
+              <span>System Prompt Format</span>
               <span>{promptWordCount.toLocaleString()} words</span>
             </div>
-            <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-[11px] leading-6 text-slate-300 sm:p-6">{prompt}</pre>
-            <div className="border-t border-white/[0.06] px-5 py-4 text-xs leading-relaxed text-slate-500 sm:px-6">
-              Settings are stored locally in this browser. This builder does not sync a cloud profile or execute the generated actions.
-            </div>
+
+            <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-xs leading-relaxed text-[#080503] dark:text-[#fafaf9] bg-[#fafaf9] dark:bg-[#0c0907] select-all">
+              {prompt}
+            </pre>
+
           </section>
-          <div className="mt-4 flex items-start gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-4">
-            <ShieldCheck size={17} className="mt-0.5 shrink-0 text-cyan-300" />
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200">Browser-safe by design</h3>
-              <p className="mt-1 text-xs leading-relaxed text-slate-500">Web actions are limited to browser capabilities and explicit permissions. Desktop-only capabilities must remain in the trusted native client.</p>
-            </div>
-          </div>
         </aside>
+
       </div>
-    </div>
+    </section>
   );
 }
 

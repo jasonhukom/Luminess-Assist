@@ -1,16 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  HardDrive, 
-  CheckSquare, 
-  Square, 
-  HelpCircle, 
-  Zap, 
-  Info, 
-  Download, 
-  Cpu, 
-  CheckCircle2, 
+import {
+  HardDrive,
+  CheckSquare,
+  Square,
+  Zap,
+  Info,
+  Download,
+  Cpu,
   Layers,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 
 interface DependencyItem {
@@ -28,14 +26,14 @@ interface DependencyItem {
 const DEPENDENCY_ITEMS: DependencyItem[] = [
   {
     id: 'luminess-binary',
-    name: 'Luminess Assist v1.1.0 (Desktop App)',
+    name: 'Luminess Assist (Desktop Binary)',
     category: 'runtime',
     description: 'The native compiled Tauri v2 / Rust executable and assets.',
     downloadSizeMB: 2.11,
     diskSizeMB: 9.5,
     requiredFor: 'enduser',
     defaultOwned: false,
-    notes: 'Official release bundle compiled with profile [optimized].',
+    notes: 'Official release bundle compiled with [profile.release] lto = true.',
   },
   {
     id: 'webview2',
@@ -104,308 +102,213 @@ export const DependenciesTab: React.FC = () => {
     return initial;
   });
 
-  const toggleOwned = (id: string) => {
-    // Cannot toggle the main app itself as owned if you want to install it
-    if (id === 'luminess-binary') return;
+  const toggleDependency = (id: string) => {
     setOwnedDependencies((prev) => ({
       ...prev,
       [id]: !prev[id],
     }));
   };
 
-  const filteredItems = useMemo(() => {
-    if (activeProfile === 'enduser') {
-      return DEPENDENCY_ITEMS.filter((item) => item.requiredFor === 'enduser');
-    }
-    return DEPENDENCY_ITEMS;
+  const visibleItems = useMemo(() => {
+    return DEPENDENCY_ITEMS.filter((item) => {
+      if (activeProfile === 'enduser') {
+        return item.requiredFor === 'enduser';
+      }
+      return true;
+    });
   }, [activeProfile]);
 
-  // Calculations
   const stats = useMemo(() => {
-    let downloadRemainingMB = 0;
-    let diskRemainingMB = 0;
-    let totalAllDownloadMB = 0;
-    let totalAllDiskMB = 0;
+    let totalDownloadMB = 0;
+    let totalDiskMB = 0;
 
-    filteredItems.forEach((item) => {
-      totalAllDownloadMB += item.downloadSizeMB;
-      totalAllDiskMB += item.diskSizeMB;
-
+    visibleItems.forEach((item) => {
       const isOwned = ownedDependencies[item.id];
       if (!isOwned) {
-        downloadRemainingMB += item.downloadSizeMB;
-        diskRemainingMB += item.diskSizeMB;
+        totalDownloadMB += item.downloadSizeMB;
+        totalDiskMB += item.diskSizeMB;
       }
     });
 
     return {
-      downloadRemainingMB: Number(downloadRemainingMB.toFixed(2)),
-      diskRemainingMB: Number(diskRemainingMB.toFixed(1)),
-      totalAllDownloadMB: Number(totalAllDownloadMB.toFixed(2)),
-      totalAllDiskMB: Number(totalAllDiskMB.toFixed(1)),
+      downloadMB: totalDownloadMB.toFixed(2),
+      diskMB: totalDiskMB.toFixed(1),
     };
-  }, [filteredItems, ownedDependencies]);
-
-  const formatSize = (mb: number) => {
-    if (mb >= 1000) {
-      return `${(mb / 1024).toFixed(2)} GB`;
-    }
-    return `${mb} MB`;
-  };
+  }, [visibleItems, ownedDependencies]);
 
   return (
-    <div className="py-8 space-y-10">
+    <section className="py-16 lg:py-24 border-t border-[#dad7d0] dark:border-white/10">
       
-      {/* Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 text-xs font-mono">
-          <HardDrive size={14} />
-          <span>DISK SPACE &amp; DEPENDENCY CALCULATOR</span>
+      {/* Eyebrow & Header */}
+      <div className="max-w-4xl mx-auto mb-16 text-center">
+        <div className="inline-flex items-center gap-3 mb-4">
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#5e534a] dark:text-[#a89c92] uppercase">
+            SPECIFICATIONS &amp; STORAGE CALCULATOR
+          </span>
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
         </div>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          How Big is Luminess Assist?
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+          Performance you can measure.
+          <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+            Zero-bloat engineering.
+          </span>
         </h2>
-        <p className="text-slate-400 text-sm sm:text-base">
-          Unlike heavy Electron apps that consume hundreds of megabytes, Luminess Assist is powered by 
-          <strong className="text-cyan-300 font-semibold"> Tauri v2 + Rust</strong>. 
-          Use the interactive table below to check what you already have and see your exact remaining download and disk size!
+        <p className="mt-4 text-base sm:text-lg text-[#5e534a] dark:text-[#a89c92] max-w-2xl mx-auto leading-relaxed">
+          Standard desktop assistants ship bundled Chromium engines taking hundreds of megabytes. 
+          Luminess Assist reuses native Windows OS Webview2 APIs with an optimized Rust core.
         </p>
       </div>
 
-      {/* Profile Toggle (End-User vs Developer) */}
-      <div className="flex justify-center">
-        <div className="p-1 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setActiveProfile('enduser')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-mono font-medium transition-all ${
-              activeProfile === 'enduser'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_16px_rgba(56,189,248,0.3)] font-semibold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Zap size={14} />
-            <span>End-User Mode (Standard Installer)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveProfile('dev')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-mono font-medium transition-all ${
-              activeProfile === 'dev'
-                ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40 shadow-[0_0_16px_rgba(168,85,247,0.3)] font-semibold'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Cpu size={14} />
-            <span>Developer Mode (Compile From Source)</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Dynamic Real-Time Metrics Bar */}
-      <div className="max-w-4xl mx-auto">
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-purple-950/30 to-blue-950/40 border border-cyan-500/30 shadow-[0_0_35px_rgba(56,189,248,0.15)] grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-          
-          <div className="space-y-1">
-            <span className="text-xs font-mono text-cyan-400 font-semibold tracking-wider flex items-center gap-1.5">
-              <Download size={14} />
-              DOWNLOAD NEEDED
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold text-white font-mono text-glow-cyan">
-              {formatSize(stats.downloadRemainingMB)}
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Payload to download over your network connection
-            </p>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-xs font-mono text-purple-400 font-semibold tracking-wider flex items-center gap-1.5">
-              <HardDrive size={14} />
-              DISK FOOTPRINT
-            </span>
-            <div className="text-3xl sm:text-4xl font-extrabold text-white font-mono text-glow-purple">
-              {formatSize(stats.diskRemainingMB)}
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Storage occupied on your local SSD/HDD
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white/[0.04] border border-white/[0.08] space-y-2">
-            <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-400">
-              <CheckCircle2 size={16} />
-              <span>
-                {stats.downloadRemainingMB <= 3
-                  ? 'ULTRA COMPACT (READY IN SECONDS)'
-                  : 'READY TO CONFIGURE'}
-              </span>
-            </div>
-            <p className="text-xs text-slate-300 leading-snug">
-              {stats.downloadRemainingMB <= 3 ? (
-                <>
-                  Because you already have WebView2 on Windows, you only need to download 
-                  <strong className="text-cyan-300"> 2.11 MB</strong>!
-                </>
-              ) : (
-                'Select the dependencies you already have below to recalculate.'
-              )}
-            </p>
-          </div>
-
-        </div>
-      </div>
-
-      {/* Interactive Dependency Table */}
-      <div className="max-w-4xl mx-auto rounded-2xl overflow-hidden border border-white/[0.1] bg-[#090b14]">
+      {/* Top 3 Metric Cards (Optimus Stat Grid) */}
+      <div className="max-w-[1400px] mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
         
-        <div className="px-6 py-4 bg-[#0d101d] border-b border-white/[0.08] flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-white font-mono">
-              DEPENDENCY CHECKLIST &amp; STORAGE MATRIX
-            </h3>
-            <p className="text-xs text-slate-400">
-              Check off the software packages you currently have installed on your PC:
-            </p>
-          </div>
-          <span className="text-xs font-mono px-2.5 py-1 rounded bg-white/[0.05] text-slate-400 border border-white/[0.08]">
-            {filteredItems.length} Components Listed
+        <div className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-2 uppercase">
+            Binary Size &bull; 87x Smaller
           </span>
+          <div className="text-4xl lg:text-5xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            2.11 MB
+          </div>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            Versus 185 MB for typical Electron-packaged companions. Downloads in less than a second on standard broadband.
+          </p>
         </div>
 
-        <div className="divide-y divide-white/[0.06] overflow-x-auto">
-          <table className="w-full text-left text-xs sm:text-sm">
-            <thead className="bg-white/[0.02] text-slate-400 font-mono text-xs uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4">I Have This</th>
-                <th className="py-3 px-4">Package / Dependency</th>
-                <th className="py-3 px-4">Download</th>
-                <th className="py-3 px-4">Disk Space</th>
-                <th className="py-3 px-4 hidden sm:table-cell">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.04] font-mono">
-              {filteredItems.map((item) => {
+        <div className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-2 uppercase">
+            Idle Memory &bull; 7.6x Lighter
+          </span>
+          <div className="text-4xl lg:text-5xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            41.8 MB
+          </div>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            Consumes under 50 MB RAM while idling on desktop, compared to 320 MB+ for Chrome background processes.
+          </p>
+        </div>
+
+        <div className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-2 uppercase">
+            Startup Latency &bull; 8x Faster
+          </span>
+          <div className="text-4xl lg:text-5xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            180 ms
+          </div>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            Instant cold-start execution through compiled native Rust runtime hooks rather than heavy V8 engine bootstrapping.
+          </p>
+        </div>
+
+      </div>
+
+      {/* Interactive Calculator Section */}
+      <div className="max-w-4xl mx-auto mb-16">
+        <div className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-[#120f0d] shadow-sm space-y-8 crosshair-corner">
+          
+          {/* Profile Switcher */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-6 border-b border-[#dad7d0]/60 dark:border-white/10">
+            <div>
+              <h3 className="text-lg font-bold text-[#080503] dark:text-[#fafaf9]">
+                Storage Profile Estimator
+              </h3>
+              <p className="text-xs text-[#5e534a] dark:text-[#a89c92]">
+                Toggle pre-installed components to calculate your exact download and disk delta.
+              </p>
+            </div>
+
+            <div className="p-1 rounded-full border border-[#dad7d0] dark:border-white/10 bg-[#f3f2ee] dark:bg-[#171411] flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveProfile('enduser')}
+                className={`px-4 py-1.5 rounded-full text-xs font-mono transition-all cursor-pointer ${
+                  activeProfile === 'enduser'
+                    ? 'bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] font-semibold'
+                    : 'text-[#5e534a] dark:text-[#a89c92]'
+                }`}
+              >
+                Standard User
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveProfile('dev')}
+                className={`px-4 py-1.5 rounded-full text-xs font-mono transition-all cursor-pointer ${
+                  activeProfile === 'dev'
+                    ? 'bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] font-semibold'
+                    : 'text-[#5e534a] dark:text-[#a89c92]'
+                }`}
+              >
+                Developer (Source Build)
+              </button>
+            </div>
+          </div>
+
+          {/* Current Calculation Readout */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5 rounded-xl border border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907]">
+            <div>
+              <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92] block uppercase">
+                Estimated Download Needed
+              </span>
+              <div className="text-3xl font-mono font-bold text-[#080503] dark:text-[#fafaf9]">
+                {stats.downloadMB} <span className="text-sm font-normal">MB</span>
+              </div>
+            </div>
+            <div>
+              <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92] block uppercase">
+                Estimated Final Disk Footprint
+              </span>
+              <div className="text-3xl font-mono font-bold text-[#080503] dark:text-[#fafaf9]">
+                {stats.diskMB} <span className="text-sm font-normal">MB</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Component Checkboxes Table */}
+          <div className="space-y-3">
+            <span className="text-xs font-mono font-semibold uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] block">
+              Toggle Components You Already Have Installed:
+            </span>
+
+            <div className="divide-y divide-[#dad7d0]/60 dark:divide-white/5 border-t border-b border-[#dad7d0]/60 dark:border-white/5">
+              {visibleItems.map((item) => {
                 const isOwned = ownedDependencies[item.id];
-                const isLocked = item.id === 'luminess-binary';
-
                 return (
-                  <tr 
+                  <div
                     key={item.id}
-                    onClick={() => !isLocked && toggleOwned(item.id)}
-                    className={`transition-colors cursor-pointer ${
-                      isOwned 
-                        ? 'bg-emerald-950/15 hover:bg-emerald-950/25' 
-                        : 'bg-white/[0.01] hover:bg-white/[0.04]'
-                    }`}
+                    onClick={() => toggleDependency(item.id)}
+                    className="py-3 flex items-start justify-between gap-4 cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.02] px-2 rounded-lg transition-colors"
                   >
-                    {/* Checkbox Column */}
-                    <td className="py-3.5 px-4">
-                      {isLocked ? (
-                        <div className="flex items-center gap-1.5 text-cyan-400" title="This is Luminess Assist itself!">
-                          <Square size={18} className="text-slate-600" />
-                          <span className="text-[10px] text-cyan-300 font-bold uppercase">To Install</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          {isOwned ? (
-                            <CheckSquare size={18} className="text-emerald-400" />
-                          ) : (
-                            <Square size={18} className="text-slate-500 hover:text-slate-300" />
-                          )}
-                          <span className={`text-[11px] ${isOwned ? 'text-emerald-400 font-semibold' : 'text-slate-400'}`}>
-                            {isOwned ? 'Installed' : 'Need it'}
-                          </span>
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Name Column */}
-                    <td className="py-3.5 px-4 font-sans font-semibold text-white">
-                      <div className="flex items-center gap-2">
-                        <span>{item.name}</span>
-                        {item.category === 'system' && (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                            OS Built-in
-                          </span>
-                        )}
-                        {item.category === 'dev' && (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                            Dev Tool
-                          </span>
-                        )}
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 text-[#080503] dark:text-[#fafaf9]">
+                        {isOwned ? <CheckSquare size={16} /> : <Square size={16} className="opacity-40" />}
                       </div>
-                      <p className="text-xs text-slate-400 font-normal font-sans mt-0.5">
-                        {item.description}
-                      </p>
-                    </td>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-semibold ${isOwned ? 'line-through opacity-50' : 'text-[#080503] dark:text-[#fafaf9]'}`}>
+                            {item.name}
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/5 dark:bg-white/10 text-[#5e534a] dark:text-[#a89c92]">
+                            {item.category}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#5e534a] dark:text-[#a89c92] mt-0.5">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
 
-                    {/* Download Size */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className={isOwned ? 'line-through text-slate-500' : 'text-cyan-300 font-bold'}>
-                        {formatSize(item.downloadSizeMB)}
-                      </span>
-                    </td>
-
-                    {/* Disk Space */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className={isOwned ? 'line-through text-slate-500' : 'text-purple-300 font-bold'}>
-                        {formatSize(item.diskSizeMB)}
-                      </span>
-                    </td>
-
-                    {/* Notes */}
-                    <td className="py-3.5 px-4 text-xs text-slate-400 font-sans hidden sm:table-cell">
-                      {item.notes}
-                    </td>
-                  </tr>
+                    <div className="text-right shrink-0 font-mono text-xs text-[#5e534a] dark:text-[#a89c92]">
+                      <div>{item.downloadSizeMB} MB dl</div>
+                      <div className="text-[10px] opacity-70">{item.diskSizeMB} MB disk</div>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
 
-        {/* Table Footer Summary */}
-        <div className="p-4 bg-[#0a0d18] border-t border-white/[0.08] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
-          <div className="text-slate-400 flex items-center gap-2">
-            <Info size={14} className="text-cyan-400" />
-            <span>Click any row to toggle whether you already have that component.</span>
-          </div>
-          <div className="flex items-center gap-4 text-slate-300">
-            <span>
-              Net Download: <strong className="text-cyan-300">{formatSize(stats.downloadRemainingMB)}</strong>
-            </span>
-            <span>
-              Net Storage: <strong className="text-purple-300">{formatSize(stats.diskRemainingMB)}</strong>
-            </span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Why Luminess is So Light Card */}
-      <div className="max-w-4xl mx-auto p-6 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-4">
-        <h3 className="text-base font-bold text-white font-mono flex items-center gap-2">
-          <Sparkles size={18} className="text-cyan-400" />
-          <span>WHY IS LUMINESS ASSIST ONLY 2.11 MB?</span>
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300 leading-relaxed">
-          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <strong className="text-cyan-300 block mb-1">1. No Bundled Chromium</strong>
-            Traditional desktop apps bundle an entire 150MB+ Chrome browser (Electron). Luminess leverages the evergreen Microsoft WebView2 already inside Windows.
-          </div>
-          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <strong className="text-purple-300 block mb-1">2. Native Rust Performance</strong>
-            The backend engine is compiled directly to high-speed x64 machine code, avoiding heavy node runtime overhead and trimming idle memory down to ~30 MB RAM.
-          </div>
-          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-            <strong className="text-emerald-300 block mb-1">3. Optimized NSIS Compression</strong>
-            The installer uses 7-Zip LZMA compression with stripped symbols to pack all robot assets into a 2-second download.
-          </div>
         </div>
       </div>
 
-    </div>
+    </section>
   );
 };

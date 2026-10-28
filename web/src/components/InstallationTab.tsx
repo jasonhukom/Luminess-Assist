@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  Terminal, 
-  Copy, 
-  Check, 
-  Sparkles, 
-  Download, 
-  Play, 
-  ArrowRight, 
-  ShieldCheck, 
-  FolderPlus, 
+import {
+  Terminal,
+  Copy,
+  Check,
+  Download,
+  ShieldCheck,
+  FolderPlus,
   Monitor,
-  CheckCircle2,
-  Code2
+  Code2,
+  ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 
 export const InstallationTab: React.FC = () => {
@@ -25,7 +23,7 @@ export const InstallationTab: React.FC = () => {
   };
 
   const psOneLiner = `powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/install.ps1 | iex"`;
-  
+
   const devSourceScript = `# 1. Clone the repository
 git clone https://github.com/jasonhukom/Luminess-Assist.git
 cd Luminess-Assist
@@ -37,202 +35,160 @@ npm install
 npm run tauri dev`;
 
   return (
-    <div className="py-8 space-y-10">
+    <section className="py-16 lg:py-24 border-t border-[#dad7d0] dark:border-white/10">
       
-      {/* Tab Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 text-xs font-mono">
-          <Terminal size={14} />
-          <span>ZERO-CONFIG AUTOMATION</span>
+      {/* Eyebrow and Section Headline (Optimus Style) */}
+      <div className="max-w-4xl mx-auto mb-12 text-center">
+        <div className="inline-flex items-center gap-3 mb-4">
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#5e534a] dark:text-[#a89c92] uppercase">
+            AUTOMATED INSTALLATION PIPELINE
+          </span>
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
         </div>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          Install Luminess in One Paste
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+          One command.
+          <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+            Zero configuration needed.
+          </span>
         </h2>
-        <p className="text-slate-400 text-sm sm:text-base">
-          Copy the single-line command below, open your Windows PowerShell or Command Prompt, and press Enter. 
-          The script downloads the release, generates a Desktop shortcut, and starts Luminess instantly.
+        <p className="mt-4 text-base sm:text-lg text-[#5e534a] dark:text-[#a89c92] max-w-2xl mx-auto leading-relaxed">
+          Open Windows PowerShell and paste the command below. The verified installer downloads the latest release binary, creates a Desktop shortcut, and boots the frameless companion in seconds.
         </p>
       </div>
 
-      {/* Method Switcher */}
-      <div className="flex justify-center">
-        <div className="p-1 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-1.5">
+      {/* Method Switcher Pills */}
+      <div className="flex justify-center mb-10">
+        <div className="p-1 rounded-full border border-[#dad7d0] dark:border-white/10 bg-[#f3f2ee] dark:bg-[#120f0d] flex items-center gap-1">
           <button
             type="button"
             onClick={() => setInstallMethod('powershell')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-mono font-medium transition-all ${
+            className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-mono transition-all cursor-pointer ${
               installMethod === 'powershell'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-[0_0_16px_rgba(56,189,248,0.3)] font-semibold'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] font-semibold shadow-sm'
+                : 'text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9]'
             }`}
           >
-            <Terminal size={14} />
+            <Terminal size={13} />
             <span>One-Click PowerShell (Recommended)</span>
           </button>
 
           <button
             type="button"
             onClick={() => setInstallMethod('source')}
-            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-mono font-medium transition-all ${
+            className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-mono transition-all cursor-pointer ${
               installMethod === 'source'
-                ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40 shadow-[0_0_16px_rgba(168,85,247,0.3)] font-semibold'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] font-semibold shadow-sm'
+                : 'text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9]'
             }`}
           >
-            <Code2 size={14} />
+            <Code2 size={13} />
             <span>Compile from Source (Developer)</span>
           </button>
         </div>
       </div>
 
       {/* Main Terminal Box */}
-      <div className="max-w-4xl mx-auto">
-        <div className="rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#090b14] shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_35px_-5px_rgba(56,189,248,0.25)]">
+      <div className="max-w-4xl mx-auto mb-16">
+        <div className="rounded-2xl border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-[#120f0d] shadow-sm overflow-hidden crosshair-corner">
           
-          {/* Terminal Window Chrome */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#0d101d] border-b border-white/[0.08]">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-rose-500/80" />
-              <span className="w-3 h-3 rounded-full bg-amber-500/80" />
-              <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
-              <span className="ml-3 text-xs font-mono text-slate-400">
-                {installMethod === 'powershell' ? 'Windows PowerShell / Terminal' : 'Git Bash / Command Prompt'}
+          {/* Terminal Window Header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-[#dad7d0] dark:border-white/10 bg-[#f3f2ee] dark:bg-[#171411]">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#dad7d0] dark:bg-white/20" />
+              <span className="ml-2 font-mono text-xs text-[#5e534a] dark:text-[#a89c92]">
+                {installMethod === 'powershell' ? 'powershell.exe' : 'bash — developer workspace'}
               </span>
             </div>
 
             <button
               type="button"
-              onClick={() => copyToClipboard(installMethod === 'powershell' ? psOneLiner : devSourceScript, 'main-code')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-300 text-xs font-mono transition-all cursor-pointer"
+              onClick={() => copyToClipboard(installMethod === 'powershell' ? psOneLiner : devSourceScript, 'terminal')}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] text-xs font-mono font-medium hover:opacity-90 transition-opacity cursor-pointer"
             >
-              {copiedKey === 'main-code' ? (
+              {copiedKey === 'terminal' ? (
                 <>
-                  <Check size={13} className="text-emerald-400" />
-                  <span className="text-emerald-300 font-semibold">COPIED TO CLIPBOARD!</span>
+                  <Check size={12} />
+                  <span>COPIED TO CLIPBOARD</span>
                 </>
               ) : (
                 <>
-                  <Copy size={13} />
+                  <Copy size={12} />
                   <span>COPY COMMAND</span>
                 </>
               )}
             </button>
           </div>
 
-          {/* Terminal Code Content */}
-          <div className="p-6 font-mono text-sm sm:text-base leading-relaxed overflow-x-auto">
+          {/* Terminal Body */}
+          <div className="p-6 font-mono text-xs sm:text-sm bg-[#fafaf9] dark:bg-[#0c0907] overflow-x-auto text-[#080503] dark:text-[#fafaf9] leading-relaxed">
             {installMethod === 'powershell' ? (
               <div className="space-y-3">
-                <p className="text-slate-500 text-xs">// Run in Windows PowerShell (Win + X &gt; Terminal / PowerShell):</p>
-                <div className="flex items-start gap-3">
-                  <span className="text-cyan-400 select-none font-bold text-lg leading-none pt-1">&gt;</span>
-                  <code className="text-cyan-200 break-all select-all font-semibold">
+                <div className="flex items-start gap-2">
+                  <span className="text-[#5e534a] dark:text-[#a89c92] select-none font-bold">PS &gt;</span>
+                  <span className="text-emerald-700 dark:text-emerald-400 font-bold select-all break-all">
                     {psOneLiner}
-                  </code>
+                  </span>
+                </div>
+                <div className="pt-2 text-xs text-[#5e534a] dark:text-[#a89c92] space-y-1 select-none border-t border-[#dad7d0]/60 dark:border-white/5">
+                  <p>&bull; Target Directory: %LOCALAPPDATA%\Luminess-Assist</p>
+                  <p>&bull; Binary: Luminess-Assist.exe (x64 Windows Portable / MSI)</p>
+                  <p>&bull; Architecture: Rust + Tauri 2 + WebView2 runtime</p>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <p className="text-slate-500 text-xs">// Build Luminess Assist from source with Rust &amp; Node:</p>
-                <pre className="text-purple-200 text-xs sm:text-sm whitespace-pre-wrap select-all">
-                  {devSourceScript}
-                </pre>
-              </div>
+              <pre className="whitespace-pre-wrap select-all text-xs sm:text-sm">
+                {devSourceScript}
+              </pre>
             )}
           </div>
 
-          {/* Footer Note inside Terminal */}
-          <div className="px-6 py-3 bg-[#0c0e1a] border-t border-white/[0.05] flex flex-wrap items-center justify-between text-xs font-mono text-slate-400 gap-2">
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <CheckCircle2 size={14} />
-              Verified SHA-256 for release v1.1.0
-            </span>
-            <span className="text-slate-500">Requires Windows 10 / 11 64-bit</span>
-          </div>
-
         </div>
       </div>
 
-      {/* Automated Pipeline Walkthrough (What Happens Next) */}
-      <div className="max-w-4xl mx-auto space-y-4 pt-6">
-        <h3 className="text-lg font-bold text-white font-mono flex items-center gap-2">
-          <Sparkles size={18} className="text-cyan-400" />
-          <span>WHAT THIS ONE-LINER DOES AUTOMATICALLY:</span>
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] relative">
-            <div className="text-cyan-400 font-mono text-xs font-bold mb-1">STEP 01</div>
-            <div className="font-semibold text-white text-sm mb-1 flex items-center gap-1.5">
-              <Download size={14} className="text-cyan-400" />
-              <span>Release Fetch</span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Downloads the official 2.11 MB setup bundle (<code className="text-cyan-300">v1.1.0</code>) directly from GitHub releases.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] relative">
-            <div className="text-cyan-400 font-mono text-xs font-bold mb-1">STEP 02</div>
-            <div className="font-semibold text-white text-sm mb-1 flex items-center gap-1.5">
-              <ShieldCheck size={14} className="text-emerald-400" />
-              <span>Silent Install</span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Installs binary and dependencies into your local user folder without requiring admin rights.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] relative">
-            <div className="text-cyan-400 font-mono text-xs font-bold mb-1">STEP 03</div>
-            <div className="font-semibold text-white text-sm mb-1 flex items-center gap-1.5">
-              <Monitor size={14} className="text-purple-400" />
-              <span>Desktop Shortcut</span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Creates <strong className="text-slate-200">"Luminess Assist.lnk"</strong> on your Windows Desktop with the high-res robot icon.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] relative">
-            <div className="text-cyan-400 font-mono text-xs font-bold mb-1">STEP 04</div>
-            <div className="font-semibold text-white text-sm mb-1 flex items-center gap-1.5">
-              <Play size={14} className="text-amber-400" />
-              <span>Instant Launch</span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Starts Luminess immediately above your current apps. Whenever you want to reopen it, simply double-click the desktop shortcut!
-            </p>
-          </div>
-
-        </div>
-      </div>
-
-      {/* Manual Fallback Downloads Card */}
-      <div className="max-w-4xl mx-auto p-5 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div>
-          <h4 className="text-sm font-bold text-white mb-1">Prefer manual installation?</h4>
-          <p className="text-xs text-slate-400">
-            You can download the Windows Setup (.exe) or Windows Installer (.msi) files directly.
+      {/* Step-by-Step Execution Pipeline (3 Cards) */}
+      <div className="max-w-[1400px] mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <div className="p-6 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] relative crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-3">
+            01 &bull; VERIFY &amp; FETCH
+          </span>
+          <h3 className="text-lg font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            GitHub Release Handshake
+          </h3>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            The installer queries GitHub's official API for the latest production tag (`v1.1.2`), verifies SHA-256 asset checksums, and pulls the lightweight 2.11 MB executable directly.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <a
-            href="https://github.com/jasonhukom/Luminess-Assist/releases/download/v1.1.0/Luminess.Assist_1.1.0_x64-setup.exe"
-            className="px-4 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-300 font-mono text-xs font-medium transition-all"
-          >
-            Download .exe (2.11 MB)
-          </a>
-          <a
-            href="https://github.com/jasonhukom/Luminess-Assist/releases/download/v1.1.0/Luminess.Assist_1.1.0_x64_en-US.msi"
-            className="px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] text-slate-300 font-mono text-xs font-medium transition-all"
-          >
-            Download .msi (3.12 MB)
-          </a>
+
+        <div className="p-6 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] relative crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-3">
+            02 &bull; DESKTOP SHORTCUT
+          </span>
+          <h3 className="text-lg font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            Local Windows Pin
+          </h3>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            A standard `.lnk` shortcut is automatically written to your Windows Desktop and Start Menu, enabling immediate keyboard search and launch via `Win + S` &rarr; "Luminess".
+          </p>
         </div>
+
+        <div className="p-6 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] relative crosshair-corner">
+          <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92] block mb-3">
+            03 &bull; FRAMELESS BOOT
+          </span>
+          <h3 className="text-lg font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
+            Live Companion Window
+          </h3>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+            The companion appears gracefully floating above your workspace. Configure your Gemini, Claude, or OpenAI key locally with zero telemetry relays.
+          </p>
+        </div>
+
       </div>
 
-    </div>
+    </section>
   );
 };

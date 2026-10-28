@@ -1,15 +1,15 @@
 import React from 'react';
-import { 
-  Cpu, 
-  ShieldCheck, 
-  Lock, 
-  KeyRound, 
-  Sparkles, 
-  CheckCircle2, 
-  Layers, 
+import {
+  Cpu,
+  ShieldCheck,
+  Lock,
+  KeyRound,
+  CheckCircle2,
   ExternalLink,
-  Zap,
-  EyeOff
+  ArrowUpRight,
+  Server,
+  Layers,
+  Terminal,
 } from 'lucide-react';
 
 export const ArchitectureTab: React.FC = () => {
@@ -18,152 +18,172 @@ export const ArchitectureTab: React.FC = () => {
       name: 'Google Gemini',
       tag: 'Default Provider',
       model: 'gemini-2.5-flash / Pro',
-      color: 'from-blue-500/20 to-cyan-500/10 border-blue-400/30 text-blue-300',
       badge: 'Free Tier Available',
       keyUrl: 'https://aistudio.google.com/app/apikey',
       keyLabel: 'Google AI Studio',
-      description: 'Rapid multimodel inference, function calling, and structured JSON output. Integrates natively with Google Sign-In or API keys.',
-      features: ['Structured tool calling', 'Fastest response latency', 'High free rate limits'],
+      description: 'Ultra-low latency multimodel inference, function calling, and structured JSON output. Supports Google Sign-In or local API keys.',
+      features: ['Native tool & function calling', 'Sub-300ms token generation', 'High free-tier quota'],
     },
     {
       name: 'Anthropic Claude',
       tag: 'Reasoning Engine',
       model: 'claude-3-5-sonnet',
-      color: 'from-orange-500/20 to-amber-500/10 border-orange-400/30 text-orange-300',
-      badge: 'High Reasoning',
+      badge: 'Analytical Precision',
       keyUrl: 'https://console.anthropic.com/settings/keys',
       keyLabel: 'Anthropic Console',
-      description: 'Elite coding reasoning, complex workflow orchestration, and deep analytical problem-solving directly on your desktop.',
-      features: ['Superior coding logic', 'Nuanced conversational tone', 'Direct Anthropic API routing'],
+      description: 'Superior coding reasoning, complex workflow orchestration, and deep analytical problem-solving directly on your desktop.',
+      features: ['Nuanced conversational tone', 'Advanced codebase debugging', 'Direct Anthropic SDK routing'],
     },
     {
       name: 'OpenAI Codex',
       tag: 'System Automation',
       model: 'gpt-4o / Codex',
-      color: 'from-emerald-500/20 to-teal-500/10 border-emerald-400/30 text-emerald-300',
       badge: 'General Automation',
       keyUrl: 'https://platform.openai.com/api-keys',
       keyLabel: 'OpenAI Platform',
-      description: 'Battle-tested general-purpose model with broad tool execution fidelity and command generation precision.',
-      features: ['PowerShell command generation', 'Extensive knowledge base', 'Reliable tool parsing'],
+      description: 'Battle-tested general-purpose model with broad tool execution fidelity and precise Windows command generation.',
+      features: ['PowerShell command synthesis', 'Extensive knowledge base', 'Reliable tool parsing'],
     },
   ];
 
   return (
-    <div className="py-8 space-y-10">
+    <section className="py-16 lg:py-24 border-t border-[#dad7d0] dark:border-white/10">
       
       {/* Header */}
-      <div className="text-center max-w-3xl mx-auto space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 text-xs font-mono">
-          <Cpu size={14} />
-          <span>MULTI-PROVIDER AI MATRIX</span>
+      <div className="max-w-4xl mx-auto mb-16 text-center">
+        <div className="inline-flex items-center gap-3 mb-4">
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#5e534a] dark:text-[#a89c92] uppercase">
+            MULTI-MODEL AI ARCHITECTURE
+          </span>
+          <span className="w-8 h-px bg-[#080503]/40 dark:bg-white/40" />
         </div>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          One Companion. Any AI Provider.
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+          Provider-agnostic.
+          <span className="block editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
+            Zero vendor lock-in.
+          </span>
         </h2>
-        <p className="text-slate-400 text-sm sm:text-base">
-          Luminess Assist is provider-agnostic. You own your intelligence pipeline. Choose your preferred AI backend, 
-          switch anytime, and keep all credentials strictly private on your machine.
+        <p className="mt-4 text-base sm:text-lg text-[#5e534a] dark:text-[#a89c92] max-w-2xl mx-auto leading-relaxed">
+          Luminess Assist connects directly from your Windows desktop to your model provider. 
+          Your API keys never route through third-party proxy servers, ensuring absolute confidentiality and zero markup.
         </p>
       </div>
 
-      {/* Provider Cards */}
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* 3 Provider Cards */}
+      <div className="max-w-[1400px] mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
         {providers.map((p) => (
           <div
             key={p.name}
-            className={`p-6 rounded-2xl bg-gradient-to-b ${p.color} border backdrop-blur-xl flex flex-col justify-between space-y-5 transition-transform hover:-translate-y-1 duration-300 shadow-[0_10px_30px_rgba(0,0,0,0.5)]`}
+            className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] flex flex-col justify-between space-y-6 shadow-sm crosshair-corner"
           >
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.08] text-white border border-white/[0.1]">
+                <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-[#080503]/5 dark:bg-white/10 text-[#080503] dark:text-[#fafaf9] font-semibold uppercase tracking-wider">
                   {p.tag}
                 </span>
-                <span className="text-xs font-mono text-slate-300">
+                <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">
                   {p.badge}
                 </span>
               </div>
 
               <div>
-                <h3 className="text-xl font-bold text-white mb-1">{p.name}</h3>
-                <span className="text-xs font-mono text-slate-400 block mb-2">{p.model}</span>
-                <p className="text-xs text-slate-300 leading-relaxed">
+                <h3 className="text-xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-1">
+                  {p.name}
+                </h3>
+                <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92] block mb-3">
+                  {p.model}
+                </span>
+                <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
                   {p.description}
                 </p>
               </div>
 
-              <div className="space-y-1.5 pt-2 border-t border-white/[0.08]">
+              <div className="space-y-2 pt-3 border-t border-[#dad7d0]/60 dark:border-white/10">
                 {p.features.map((feat) => (
-                  <div key={feat} className="flex items-center gap-2 text-xs text-slate-300">
-                    <CheckCircle2 size={13} className="text-cyan-400 flex-shrink-0" />
+                  <div key={feat} className="flex items-center gap-2 text-xs text-[#5e534a] dark:text-[#a89c92]">
+                    <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span>{feat}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <a
-              href={p.keyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] text-xs font-mono font-medium text-white transition-all"
-            >
-              <span>Get Key ({p.keyLabel})</span>
-              <ExternalLink size={12} />
-            </a>
+            <div className="pt-4 border-t border-[#dad7d0]/60 dark:border-white/10">
+              <a
+                href={p.keyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-[#080503]/5 dark:hover:bg-white/5 transition-all"
+              >
+                <span>Get Key &bull; {p.keyLabel}</span>
+                <ArrowUpRight size={13} />
+              </a>
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Security & Zero-Leakage Guarantee */}
-      <div className="max-w-5xl mx-auto rounded-2xl p-6 sm:p-8 bg-[#090b14] border border-emerald-500/25 shadow-[0_0_35px_rgba(16,185,129,0.12)] space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center flex-shrink-0">
-            <Lock size={20} />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-white font-mono">
-              ZERO-TELEMETRY &amp; CLIENT-SIDE SECURITY ARCHITECTURE
-            </h3>
-            <p className="text-xs text-slate-400">
-              How Luminess Assist guarantees privacy and keeps your API tokens secure.
-            </p>
-          </div>
+      {/* System Architecture Blueprint (Inverted Canvas Section) */}
+      <div className="max-w-4xl mx-auto rounded-2xl bg-[#080503] text-[#fafaf9] p-8 sm:p-10 shadow-sm crosshair-corner border border-white/10">
+        
+        <div className="mb-6 flex items-center gap-3">
+          <span className="w-6 h-px bg-white/40" />
+          <span className="font-mono text-xs font-semibold tracking-widest text-[#a89c92] uppercase">
+            LOCAL SYSTEM EXECUTION GUARANTEES
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs text-slate-300 leading-relaxed">
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 font-bold text-white font-mono">
-              <EyeOff size={14} className="text-emerald-400" />
-              <span>Local Storage Only</span>
+        <h3 className="text-2xl font-display font-bold tracking-tight text-white mb-6">
+          Four layers of desktop privacy
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm text-[#a89c92]">
+          
+          <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2">
+            <div className="flex items-center gap-2 text-white font-mono text-xs font-bold uppercase">
+              <Lock size={14} className="text-amber-400" />
+              <span>01 &bull; Local Key Vault</span>
             </div>
-            <p>
-              Your API keys never touch any intermediary Luminess server. Requests are sent directly from your local PC to the official API endpoints (Google, Anthropic, or OpenAI).
+            <p className="text-xs leading-relaxed">
+              API tokens are stored exclusively inside your local Windows AppData sandbox or encrypted browser storage. Never transmitted to third-party database mirrors.
             </p>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 font-bold text-white font-mono">
-              <ShieldCheck size={14} className="text-cyan-400" />
-              <span>Permission Guard</span>
+          <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2">
+            <div className="flex items-center gap-2 text-white font-mono text-xs font-bold uppercase">
+              <Server size={14} className="text-emerald-400" />
+              <span>02 &bull; Direct Provider TLS</span>
             </div>
-            <p>
-              When the assistant wants to execute a desktop tool (e.g. running PowerShell, inspecting files), a security modal prompts you to Approve or Deny before anything executes.
+            <p className="text-xs leading-relaxed">
+              Requests travel directly over encrypted HTTPS/TLS from your PC to Google, Anthropic, or OpenAI endpoints, ensuring zero intermediate proxy surveillance.
             </p>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 font-bold text-white font-mono">
-              <Zap size={14} className="text-purple-400" />
-              <span>Fully Open Source</span>
+          <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2">
+            <div className="flex items-center gap-2 text-white font-mono text-xs font-bold uppercase">
+              <Terminal size={14} className="text-cyan-400" />
+              <span>03 &bull; Explicit Tool Approval</span>
             </div>
-            <p>
-              Every line of Rust and React code is completely inspectable on GitHub. No hidden phone-home telemetry, ad trackers, or background coin miners.
+            <p className="text-xs leading-relaxed">
+              Any destructive action—such as executing arbitrary PowerShell scripts or deleting files—requires explicit user confirmation before execution.
             </p>
           </div>
+
+          <div className="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2">
+            <div className="flex items-center gap-2 text-white font-mono text-xs font-bold uppercase">
+              <ShieldCheck size={14} className="text-purple-400" />
+              <span>04 &bull; Antigravity CLI Bridge</span>
+            </div>
+            <p className="text-xs leading-relaxed">
+              Detects local Google Antigravity CLI installations and safely connects over supported process interfaces with verified exit code handling.
+            </p>
+          </div>
+
         </div>
+
       </div>
 
-    </div>
+    </section>
   );
 };
