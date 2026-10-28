@@ -52,8 +52,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     { key: 'croc', label: 'C.R.O.C.' },
     { key: 'architecture', label: 'Multi-AI Core' },
     { key: 'dependencies', label: 'Specs' },
-    { key: 'admin', label: 'Admin' },
-    { key: 'database', label: 'Database' },
   ];
 
   return (
