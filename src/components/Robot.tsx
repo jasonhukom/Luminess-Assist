@@ -284,6 +284,7 @@ export function Robot({
   const lastActivityTimeRef = useRef<number>(Date.now());
   const lastImpactTimeRef = useRef<number>(0);
   const idleBusyRef = useRef<boolean>(false);
+  const autonomousBusyRef = useRef<boolean>(false);
   const heartIdCounterRef = useRef<number>(1);
   const isDizzyRef = useRef<boolean>(false);
   const isPattingRef = useRef<boolean>(false);
@@ -523,6 +524,16 @@ export function Robot({
       isLonelySad ||
       isWhiteBot ||
       frustration >= 20;
+    autonomousBusyRef.current =
+      isHovered ||
+      isGrabbed ||
+      isDragging ||
+      isFlying ||
+      isBroken ||
+      isDizzy ||
+      isPatting ||
+      isLonelySad ||
+      isWhiteBot;
   });
 
   // Completely randomized idle animations: happy, spin, hop, look around, or visit the cursor
@@ -566,7 +577,7 @@ export function Robot({
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (
-        idleBusyRef.current ||
+        autonomousBusyRef.current ||
         dragStateRef.current.active ||
         rafRef.current ||
         isBrokenRef.current
