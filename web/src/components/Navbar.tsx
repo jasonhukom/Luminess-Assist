@@ -29,35 +29,35 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
 
   return (
     <header className="sticky top-0 z-50 w-full backdrop-blur-2xl bg-[#08090e]/90 border-b border-cyan-500/20 shadow-[0_4px_30px_rgba(0,0,0,0.5)]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-22 sm:h-24 flex items-center justify-between">
+      <div className="mx-auto flex h-20 w-full max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6 2xl:px-8">
         
         {/* Brand / Logo */}
         <div 
-          className="flex items-center gap-3.5 cursor-pointer group"
+          className="group flex shrink-0 cursor-pointer items-center gap-2.5 whitespace-nowrap"
           onClick={() => onTabChange('overview')}
         >
           <div className="relative flex items-center justify-center p-1">
             <img 
               src="/robot-icon.svg" 
               alt="Luminess Assist Mascot" 
-              className="w-11 h-11 sm:w-12 sm:h-12 object-contain filter drop-shadow-[0_0_18px_rgba(0,240,255,0.6)] group-hover:scale-110 transition-transform duration-300"
+              className="h-10 w-10 shrink-0 object-contain drop-shadow-[0_0_18px_rgba(0,240,255,0.6)] transition-transform duration-300 group-hover:scale-110 sm:h-11 sm:w-11"
             />
           </div>
           <div>
             <div className="flex items-center gap-2.5">
-              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-white group-hover:text-cyan-300 transition-colors">
+              <span className="whitespace-nowrap text-base font-extrabold tracking-tight text-white transition-colors group-hover:text-cyan-300 sm:text-lg">
                 Luminess Assist
               </span>
-              <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold tracking-wide">
+              <span className="whitespace-nowrap rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-cyan-300">
                 v{version}
               </span>
             </div>
-            <p className="text-[11px] sm:text-xs text-slate-400 tracking-wider font-mono">DESKTOP AI COMPANION</p>
+            <p className="whitespace-nowrap font-mono text-[10px] tracking-wider text-slate-400 sm:text-[11px]">DESKTOP AI COMPANION</p>
           </div>
         </div>
 
         {/* Tab Navigation Menu */}
-        <nav className="hidden xl:flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
+        <nav className="hidden min-w-0 shrink items-center gap-1 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-1 2xl:flex">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
             return (
@@ -65,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
                 key={item.key}
                 type="button"
                 onClick={() => onTabChange(item.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 cursor-pointer ${
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 py-2 text-xs font-medium transition-all duration-200 cursor-pointer 2xl:px-3 ${
                   isActive
                     ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/20 text-cyan-200 border border-cyan-400/40 shadow-[0_0_18px_rgba(56,189,248,0.35)] font-semibold'
                     : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
@@ -81,12 +81,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
         </nav>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           <a
             href="https://github.com/jasonhukom/Luminess-Assist"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-all duration-200"
+            className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-xs font-medium text-slate-300 transition-all duration-200 hover:bg-white/[0.08] hover:text-white"
           >
             <GithubIcon size={15} />
             <span className="hidden sm:inline">GitHub</span>
@@ -95,7 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
           <button
             type="button"
             onClick={() => onTabChange('install')}
-            className="flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold font-mono tracking-wide bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 shadow-[0_0_22px_rgba(56,189,248,0.45)] hover:shadow-[0_0_30px_rgba(56,189,248,0.7)] transition-all duration-200 cursor-pointer"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-3 py-2.5 font-mono text-xs font-bold tracking-wide text-slate-950 shadow-[0_0_22px_rgba(56,189,248,0.45)] transition-all duration-200 hover:from-cyan-300 hover:to-blue-400 hover:shadow-[0_0_30px_rgba(56,189,248,0.7)] cursor-pointer"
           >
             <Terminal size={15} />
             <span>QUICK START</span>
@@ -105,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
       </div>
 
       {/* Mobile Tab Scrollbar */}
-      <div className="flex xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
+      <div className="flex 2xl:hidden overflow-x-auto px-4 py-2.5 gap-1.5 border-t border-white/[0.05] bg-[#07080d]">
         {navItems.map((item) => {
           const isActive = activeTab === item.key;
           return (
@@ -113,7 +113,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
               key={item.key}
               type="button"
               onClick={() => onTabChange(item.key)}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium ${
+              className={`flex-shrink-0 flex items-center gap-1.5 whitespace-nowrap px-3.5 py-1.5 rounded-lg text-xs font-medium ${
                 isActive
                   ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40'
                   : 'text-slate-400 hover:text-white'
