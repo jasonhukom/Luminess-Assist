@@ -9,10 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "web:dev": "npm --prefix web run dev",
-    "web:run": "python web/manage.py runserver 3000",
-    "web:build": "npm --prefix web run build"
+    "tauri": "tauri"
   },
   "dependencies": {
     "@google/genai": "^2.28.0",
