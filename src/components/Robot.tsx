@@ -84,6 +84,7 @@ const EMOTION_FACES: Record<Emotion, FaceConfig> = {
   idle: {
     left: 'M 65 94 C 65 86, 85 86, 85 94 C 85 102, 65 102, 65 94 Z',
     right: 'M 115 94 C 115 86, 135 86, 135 94 C 135 102, 115 102, 115 94 Z',
+    mouth: 'M 87 116 Q 100 123 113 116',
   },
   joy: {
     left: 'M 60 98 Q 75 74 90 98 Q 75 84 60 98',
@@ -1501,7 +1502,7 @@ export function Robot({
             <stop offset="100%" stopColor="#141522" />
           </linearGradient>
 
-          <filter id="neon-eye-glow" x="-60%" y="-60%" width="220%" height="220%">
+          <filter id="neon-eye-glow" x="-120%" y="-120%" width="340%" height="340%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur1" />
             <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur2" />
             <feMerge>
@@ -1649,3 +1650,4 @@ export function Robot({
     </div>
   );
 }
+

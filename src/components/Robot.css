@@ -307,7 +307,7 @@
   stroke-linejoin: round;
   filter: drop-shadow(0 0 6px var(--current-glow));
   transition: d 0.26s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.35s ease, opacity 0.25s ease;
-  opacity: 0;
+  opacity: 1;
 }
 
 .cheek-blush {
@@ -444,9 +444,14 @@
 .emotion-idle .eye {
   fill: #38bdf8;
   filter:
-    drop-shadow(0 0 2.5px #e0f2fe)
-    drop-shadow(0 0 7px #38bdf8)
-    drop-shadow(0 0 16px rgba(56, 189, 248, 0.85));
+    drop-shadow(0 0 2px #e0f2fe)
+    drop-shadow(0 0 6px #38bdf8);
+}
+
+.emotion-idle .mouth {
+  stroke: #38bdf8;
+  stroke-width: 3.2px;
+  filter: drop-shadow(0 0 5px #38bdf8);
 }
 
 .emotion-joy {
@@ -898,3 +903,4 @@
 .robot-container.is-broken.is-dragging {
   cursor: grabbing;
 }
+
