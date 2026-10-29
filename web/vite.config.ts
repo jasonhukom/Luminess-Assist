@@ -6,7 +6,7 @@ export default defineConfig({
   base: process.env.VITE_BASE_URL || '/',
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
   server: {
     port: 3000,

@@ -88,6 +88,8 @@ const PROVIDER_INFO: Record<
   },
 };
 
+const CHAT_BOT_GAP = 28;
+
 function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
   const [bootComplete, setBootComplete] = useState<boolean>(false);
@@ -232,10 +234,20 @@ function App() {
       }
     }
 
+    let botCenter: { x: number; y: number } | null = null;
+    if (robotWrapRef.current) {
+      const r = robotWrapRef.current.getBoundingClientRect();
+      botCenter = {
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+      };
+    }
+
     void invoke('set_interactive_regions', {
       rects,
       forceInteractive: !bootComplete || showApiModal || isDraggingBot,
       companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
+      botCenter,
     }).catch(() => {});
   }, [bootComplete, showApiModal, chatOpen, isDraggingBot, brokenSeconds]);
 
@@ -270,7 +282,7 @@ function App() {
         const targetCssW = showApiModal
           ? 520
           : chatOpen
-            ? panelSize.width + 12 + robotSize + 144
+            ? panelSize.width + CHAT_BOT_GAP + robotSize + 144
             : robotSize + 144;
 
         const targetCssH = showApiModal
@@ -380,7 +392,7 @@ function App() {
           let oldRobotTop = 72;
           if (prev.chatOpen) {
             if (prev.chatSide === 'left') {
-              oldRobotLeft = 72 + panelSize.width + 12;
+              oldRobotLeft = 72 + panelSize.width + CHAT_BOT_GAP;
             }
             if (prev.chatVert === 'up') {
               const oldTargetH = Math.max(panelSize.height, oldRobotSize) + 144;
@@ -400,7 +412,7 @@ function App() {
           let newRobotTop = 72;
           if (chatOpen) {
             if (effectiveSide === 'left') {
-              newRobotLeft = 72 + panelSize.width + 12;
+              newRobotLeft = 72 + panelSize.width + CHAT_BOT_GAP;
             }
             if (effectiveVert === 'up') {
               newRobotTop = targetCssH - 72 - robotSize;
@@ -424,7 +436,7 @@ function App() {
           let oldRobotTop = 72;
           if (prev.chatOpen) {
             if (prev.chatSide === 'left') {
-              oldRobotLeft = 72 + panelSize.width + 12;
+              oldRobotLeft = 72 + panelSize.width + CHAT_BOT_GAP;
             }
             if (prev.chatVert === 'up') {
               const oldTargetH = Math.max(panelSize.height, oldRobotSize) + 144;
@@ -438,7 +450,7 @@ function App() {
           let newRobotTop = 72;
           if (chatOpen) {
             if (effectiveSide === 'left') {
-              newRobotLeft = 72 + panelSize.width + 12;
+              newRobotLeft = 72 + panelSize.width + CHAT_BOT_GAP;
             }
             if (effectiveVert === 'up') {
               newRobotTop = targetCssH - 72 - robotSize;
@@ -682,7 +694,7 @@ function App() {
       const curPanel = panelSizeRef.current;
 
       const targetCssW = isChat
-        ? curPanel.width + 12 + curRobotSize + 144
+        ? curPanel.width + CHAT_BOT_GAP + curRobotSize + 144
         : curRobotSize + 144;
       const targetCssH = isChat
         ? Math.max(curPanel.height, curRobotSize) + 144
@@ -705,7 +717,7 @@ function App() {
       if (isChat) {
         // Horizontal wall check:
         if (currentSide === 'right') {
-          const chatScreenRight = botFloatPos.x + Math.round((curRobotSize + 12 + curPanel.width) * dpr);
+          const chatScreenRight = botFloatPos.x + Math.round((curRobotSize + CHAT_BOT_GAP + curPanel.width) * dpr);
           const rightWall = bounds.monitor_x + bounds.monitor_width;
           if (chatScreenRight >= rightWall) {
             // Chat hit right wall -> chat goes to the left of the bot!
@@ -714,7 +726,7 @@ function App() {
             setChatSide('left');
           }
         } else {
-          const chatScreenLeft = botFloatPos.x - Math.round((12 + curPanel.width) * dpr);
+          const chatScreenLeft = botFloatPos.x - Math.round((CHAT_BOT_GAP + curPanel.width) * dpr);
           const leftWall = bounds.monitor_x;
           if (chatScreenLeft <= leftWall) {
             // Chat hit left wall -> chat goes to the right of the bot!
@@ -751,7 +763,7 @@ function App() {
       let newWinBotCssTop = 72;
       if (isChat) {
         if (nextSide === 'left') {
-          newWinBotCssLeft = 72 + curPanel.width + 12;
+          newWinBotCssLeft = 72 + curPanel.width + CHAT_BOT_GAP;
         }
         if (nextVert === 'up') {
           newWinBotCssTop = targetCssH - 72 - curRobotSize;
@@ -809,7 +821,7 @@ function App() {
         let botCssOffsetTop = 72;
         if (isChat) {
           if (currentSide === 'left') {
-            botCssOffsetLeft = 72 + curPanel.width + 12;
+            botCssOffsetLeft = 72 + curPanel.width + CHAT_BOT_GAP;
           }
           if (currentVert === 'up') {
             botCssOffsetTop = targetCssH - 72 - curRobotSize;

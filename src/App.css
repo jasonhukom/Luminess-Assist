@@ -25,7 +25,7 @@
 
 .app-container.companion-chat-open {
   padding: 72px;
-  gap: 12px;
+  gap: 28px;
 }
 
 .app-container.companion-chat-open.chat-side-left {
@@ -345,11 +345,14 @@
 }
 
 .api-modal-form {
+
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 28px;
   margin-top: 4px;
+  gap: 12px;
+
 }
 
 .api-input-group {
@@ -416,6 +419,8 @@
   border: 1px solid rgba(239, 68, 68, 0.35);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   text-align: left;
+  gap: 12px;
+
 }
 
 .lum-error-card.kind-unsupported_credentials {
@@ -476,6 +481,8 @@
   align-items: center;
   gap: 8px;
   margin-top: 4px;
+  gap: 12px;
+
 }
 
 .lum-error-action-btn {
@@ -596,15 +603,18 @@
 }
 
 .google-account-card {
+
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 28px;
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.14);
   text-align: left;
+  gap: 12px;
+
 }
 
 .google-avatar {

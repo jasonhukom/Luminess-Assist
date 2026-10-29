@@ -3,7 +3,6 @@ import { LivingRobot, MascotEmotion } from './LivingRobot.tsx';
 import {
   Download,
   Terminal,
-  Palette,
   ArrowRight,
   Check,
   Copy,
@@ -14,6 +13,7 @@ import {
   Command,
   MousePointer,
   Keyboard,
+  Users,
 } from 'lucide-react';
 import type { TabKey } from './Navbar.tsx';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
@@ -51,7 +51,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
     },
     {
       query: "Explain the changes in my active git repository",
-      reply: "Detected branch 'main' ahead by 1 commit with Bot Studio and connected schema sync ready to ship.",
+      reply: "Detected branch 'main' ahead by 1 commit with Community Bot Hub and live companion pairing ready to ship.",
       emotion: 'curiosity' as MascotEmotion,
       engine: 'Claude 3.5 Sonnet',
     },
@@ -137,22 +137,23 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigateTab }) => {
               </a>
             </div>
 
-            {/* Quick Bot Studio / Customizer Pill */}
+            {/* Quick Community Bot Hub Pill (Big CTA Button in Hero) */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onNavigateTab('studio')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-[#080503]/5 dark:hover:bg-white/5 transition-all cursor-pointer"
+                onClick={() => onNavigateTab('community')}
+                className="flex-1 flex items-center justify-center gap-2.5 px-5 py-3 rounded-full border-2 border-[#080503] dark:border-white bg-[#080503]/5 dark:bg-white/10 hover:bg-[#080503] hover:text-[#fafaf9] dark:hover:bg-white dark:hover:text-[#080503] text-xs font-mono font-bold text-[#080503] dark:text-[#fafaf9] transition-all cursor-pointer shadow-sm group"
               >
-                <Palette size={13} />
-                <span>BOT STUDIO &amp; CHARACTER CREATOR</span>
-                <ArrowRight size={12} />
+                <Users size={14} className="text-cyan-600 dark:text-cyan-400 group-hover:text-inherit" />
+                <span>COMMUNITY BOTS &bull; 24+ MASCOTS</span>
+                <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
               </button>
 
               <button
                 type="button"
                 onClick={() => onNavigateTab('install')}
-                className="px-3.5 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9] transition-all cursor-pointer"
+                className="px-3.5 py-3 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-mono text-[#5e534a] dark:text-[#a89c92] hover:text-[#080503] dark:hover:text-[#fafaf9] transition-all cursor-pointer"
+                title="Installation Guide"
               >
                 <Terminal size={13} />
               </button>

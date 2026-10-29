@@ -219,6 +219,12 @@ pub struct InteractiveRect {
     pub height: f64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct InteractivePoint {
+    pub x: f64,
+    pub y: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct AutoGlide {
     pub start_x: f64,
@@ -253,6 +259,7 @@ pub struct CompanionState {
     pub has_initial_docked: bool,
     pub auto_glide: Option<AutoGlide>,
     pub preferred_dock_vert: String,
+    pub bot_center: Option<InteractivePoint>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -490,12 +497,14 @@ fn set_interactive_regions(
     rects: Vec<InteractiveRect>,
     force_interactive: bool,
     companion_active: bool,
+    bot_center: Option<InteractivePoint>,
 ) -> Result<(), String> {
     if let Ok(mut st) = state.lock() {
         let was_active = st.companion_active;
         st.rects = rects;
         st.force_interactive = force_interactive;
         st.companion_active = companion_active;
+        if let Some(bc) = bot_center { st.bot_center = Some(bc); }
         if force_interactive {
             st.auto_glide = None;
         }
@@ -667,16 +676,24 @@ fn do_glide_to_cursor(
         let max_win_y = (m_pos.y + m_size.height as i32 - taskbar_margin - win_h + pad - (8.0 * scale).round() as i32).max(min_win_y);
 
         // Center the companion near the cursor location
-        let target_x = (cx - win_w / 2).clamp(min_win_x, max_win_x);
-        let target_y = (cy - win_h / 2).clamp(min_win_y, max_win_y);
+        let bot_center = state.lock().ok().and_then(|st| st.bot_center);
+        let (bot_cx_rel, bot_cy_rel) = if let Some(bc) = bot_center {
+            ((bc.x * scale).round() as i32, (bc.y * scale).round() as i32)
+        } else {
+            (win_w / 2, win_h / 2)
+        };
+
+        // Center the bot mascot precisely at the cursor location (cx, cy)
+        let target_x = (cx - bot_cx_rel).clamp(min_win_x, max_win_x);
+        let target_y = (cy - bot_cy_rel).clamp(min_win_y, max_win_y);
 
         let dist = ((target_x - win_pos.x) as f64).hypot((target_y - win_pos.y) as f64);
         if dist < 12.0 {
             return false;
         }
 
-        let center_x = target_x + win_w / 2;
-        let center_y = target_y + win_h / 2;
+        let center_x = target_x + bot_cx_rel;
+        let center_y = target_y + bot_cy_rel;
         let side = if center_x < m_pos.x + (m_size.width as i32 / 2) {
             "left".to_string()
         } else {

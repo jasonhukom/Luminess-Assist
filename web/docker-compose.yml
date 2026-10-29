@@ -11,26 +11,42 @@ services:
       - DJANGO_DEBUG=False
       - DJANGO_SECRET_KEY=luminess-docker-production-secret-key-9284
       - DJANGO_ALLOWED_HOSTS=*
-      - DATABASE_URL=postgres://luminess:luminess_pass@db:5432/luminess_db
+      - DATABASE_URL=mysql://luminess:luminess_pass@db:3306/luminess_db
     depends_on:
       db:
         condition: service_healthy
 
   db:
-    image: postgres:16-alpine
-    container_name: luminess-assist-db
+    image: mariadb:11.4
+    container_name: luminess-assist-mariadb
     restart: unless-stopped
     environment:
-      POSTGRES_USER: luminess
-      POSTGRES_PASSWORD: luminess_pass
-      POSTGRES_DB: luminess_db
+      - MYSQL_ROOT_PASSWORD=luminess_root_pass
+      - MYSQL_DATABASE=luminess_db
+      - MYSQL_USER=luminess
+      - MYSQL_PASSWORD=luminess_pass
+    ports:
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mariadb_data:/var/lib/mysql
+      - ../scripts/init_mariadb.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U luminess -d luminess_db"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  db-admin:
+    image: adminer:latest
+    container_name: luminess-assist-db-admin
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
 
 volumes:
-  postgres_data:
+  mariadb_data:

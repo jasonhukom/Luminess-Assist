@@ -1,39 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   Palette,
-  Volume2,
-  Sliders,
-  ShieldCheck,
-  Download,
-  Copy,
-  Check,
-  RefreshCw,
-  ExternalLink,
-  Laptop,
   Play,
-  Heart,
-  Smile,
-  HelpCircle,
+  Pause,
+  Layers,
+  Video,
+  Image as ImageIcon,
+  Bot,
+  Plus,
+  Trash2,
+  MessageSquare,
+  GitFork,
+  Send,
+  Database,
+  ExternalLink,
+  Download,
+  CheckCircle2,
+  Radio,
   Wand2,
-  Headphones,
   Eye,
   Crown,
-  Radio,
-  CheckCircle2,
+  Headphones,
 } from 'lucide-react';
 import {
   type BotProfile,
   type AppearanceConfig,
   type PersonalityConfig,
-  type VoiceConfig,
-  type BotPermissions,
-  generatePairingCode,
+  type SpriteFrame,
+  type PlatformUser,
+  saveBotCreationToBackend,
+  testBotChat,
 } from '../lib/botPlatformStore.ts';
+import { LivingRobot } from './LivingRobot.tsx';
 
-interface BotStudioTabProps {
+const GithubIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+  </svg>
+);
+
+export interface BotStudioTabProps {
   profile: BotProfile;
+  currentUser?: PlatformUser | null;
   onUpdateProfile: (updated: BotProfile) => void;
+  onSavedToCommunity?: (bot: BotProfile) => void;
+  onOpenAuth?: () => void;
 }
 
 const COLOR_PRESETS = [
@@ -47,10 +59,10 @@ const COLOR_PRESETS = [
 
 const ACCESSORIES = [
   { id: 'none', label: 'None', icon: null },
-  { id: 'headphones', label: 'Studio Headphones', icon: Headphones },
-  { id: 'cat_ears', label: 'Cyber Cat Ears', icon: Radio },
+  { id: 'headphones', label: 'Headphones', icon: Headphones },
+  { id: 'cat_ears', label: 'Cat Ears', icon: Radio },
   { id: 'wizard_hat', label: 'Wizard Hat', icon: Wand2 },
-  { id: 'visor', label: 'AR Cyber Visor', icon: Eye },
+  { id: 'visor', label: 'AR Visor', icon: Eye },
   { id: 'halo', label: 'Angel Halo', icon: Crown },
 ];
 
@@ -87,21 +99,109 @@ const ARCHETYPES = [
   },
 ];
 
-const VOICES = [
-  { id: 'luna-neural', name: 'Luna Neural', desc: 'Female, expressive & crisp', defaultPitch: 1.1, defaultSpeed: 1.0 },
-  { id: 'jarvis-male', name: 'Jarvis AI', desc: 'Male, calm & authoritative', defaultPitch: 0.9, defaultSpeed: 0.95 },
-  { id: 'nova-cyber', name: 'Nova Synth', desc: 'Playful cyber synth robotic tone', defaultPitch: 1.25, defaultSpeed: 1.05 },
-  { id: 'echo-soft', name: 'Echo Soft', desc: 'Gentle, soothing companion voice', defaultPitch: 1.0, defaultSpeed: 0.9 },
+const SAMPLE_FRAME_PRESETS = [
+  {
+    id: 'f_idle1',
+    name: 'Idle Frame 1',
+    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+    state: 'idle' as const,
+  },
+  {
+    id: 'f_idle2',
+    name: 'Idle Frame 2',
+    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+    state: 'idle' as const,
+  },
+  {
+    id: 'f_talk',
+    name: 'Speaking Frame',
+    url: 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=300&q=80',
+    state: 'talking' as const,
+  },
+  {
+    id: 'f_happy',
+    name: 'Emote Happy',
+    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+    state: 'happy' as const,
+  },
 ];
 
-export const BotStudioTab: React.FC<BotStudioTabProps> = ({ profile, onUpdateProfile }) => {
-  const [activeStep, setActiveStep] = useState<'appearance' | 'personality' | 'permissions' | 'sync'>('appearance');
-  const [testEmotion, setTestEmotion] = useState<'idle' | 'joy' | 'puzzled' | 'love'>('idle');
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+const SAMPLE_VIDEOS = [
+  { name: 'Cosmic Nebula Loop', url: 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1610-large.mp4' },
+  { name: 'Retro Neon Wave', url: 'https://assets.mixkit.co/videos/preview/mixkit-tunnel-of-futuristic-neon-lights-42510-large.mp4' },
+  { name: 'Digital Matrix Grid', url: 'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-with-code-31911-large.mp4' },
+];
 
-  const { appearance, personality, voice, permissions, pairingCode } = profile;
+export const BotStudioTab: React.FC<BotStudioTabProps> = ({
+  profile,
+  currentUser,
+  onUpdateProfile,
+  onSavedToCommunity,
+  onOpenAuth,
+}) => {
+  const [activeStep, setActiveStep] = useState<'look' | 'identity' | 'chat' | 'github'>('look');
+  const [testEmotion, setTestEmotion] = useState<'idle' | 'joy' | 'puzzled' | 'love'>('idle');
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Per-Frame Sprite Animation State
+  const [currentFrameIdx, setCurrentFrameIdx] = useState(0);
+  const [isPlayingFrames, setIsPlayingFrames] = useState(true);
+  const [frameFps, setFrameFps] = useState(4);
+
+  // Live Chat Sandbox in Studio
+  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'bot'; text: string }>>([
+    {
+      sender: 'bot',
+      text: profile.greetingMessage || 'Hello Pilot! I am ready to assist.',
+    },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [isBotReplying, setIsBotReplying] = useState(false);
+
+  // New Frame input state
+  const [newFrameUrl, setNewFrameUrl] = useState('');
+  const [newFrameName, setNewFrameName] = useState('');
+  const [newFrameState, setNewFrameState] = useState<'idle' | 'talking' | 'happy' | 'thinking'>('idle');
+
+  const appearance = profile.appearance || {
+    model: 'robot',
+    color: '#38bdf8',
+    paletteName: 'Cyber Cyan',
+    accessory: 'headphones',
+    scale: 1.0,
+  };
+  const personality = profile.personality || {
+    botName: profile.botName || 'Luminess',
+    userName: 'Pilot',
+    archetype: 'witty_hacker',
+    formality: 3,
+    humor: 8,
+    verbosity: 4,
+    customPrompt: '',
+  };
+  const frames = profile.framesConfig || [];
+
+  // Frame cycle player
+  useEffect(() => {
+    if (profile.visualMode !== 'sprite_frames' || !isPlayingFrames || frames.length <= 1) return;
+    const intervalMs = Math.round(1000 / frameFps);
+    const timer = setInterval(() => {
+      setCurrentFrameIdx((prev) => (prev + 1) % frames.length);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [profile.visualMode, isPlayingFrames, frames.length, frameFps]);
+
+  const updateVisualMode = (mode: BotProfile['visualMode']) => {
+    const nextFrames = (mode === 'sprite_frames' && frames.length === 0) ? SAMPLE_FRAME_PRESETS : frames;
+    const nextVideo = (mode === 'video' && !profile.videoUrl) ? SAMPLE_VIDEOS[0].url : profile.videoUrl;
+    onUpdateProfile({
+      ...profile,
+      visualMode: mode,
+      framesConfig: nextFrames,
+      videoUrl: nextVideo,
+    });
+  };
 
   const updateAppearance = (patch: Partial<AppearanceConfig>) => {
     onUpdateProfile({
@@ -114,566 +214,568 @@ export const BotStudioTab: React.FC<BotStudioTabProps> = ({ profile, onUpdatePro
     onUpdateProfile({
       ...profile,
       personality: { ...personality, ...patch },
+      botName: patch.botName !== undefined ? patch.botName : profile.botName,
     });
   };
 
-  const updateVoice = (patch: Partial<VoiceConfig>) => {
+  const addFrame = () => {
+    if (!newFrameUrl.trim()) return;
+    const frameItem: SpriteFrame = {
+      id: `f_${Date.now()}`,
+      name: newFrameName.trim() || `Frame ${frames.length + 1}`,
+      url: newFrameUrl.trim(),
+      state: newFrameState,
+    };
     onUpdateProfile({
       ...profile,
-      voice: { ...voice, ...patch },
+      framesConfig: [...frames, frameItem],
     });
+    setNewFrameUrl('');
+    setNewFrameName('');
   };
 
-  const updatePermissions = (patch: Partial<BotPermissions>) => {
+  const removeFrame = (frameId: string) => {
     onUpdateProfile({
       ...profile,
-      permissions: { ...permissions, ...patch },
+      framesConfig: frames.filter((f) => f.id !== frameId),
     });
   };
 
-  const handleRegenerateCode = () => {
-    onUpdateProfile({
-      ...profile,
-      pairingCode: generatePairingCode(),
-    });
+  const handleStudioChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isBotReplying) return;
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
+    setIsBotReplying(true);
+
+    try {
+      const res = await testBotChat(profile.id, userMsg, profile);
+      setChatMessages((prev) => [...prev, { sender: 'bot', text: res.reply }]);
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { sender: 'bot', text: `[${profile.botName}]: Got it, Pilot! Testing prompt response.` },
+      ]);
+    } finally {
+      setIsBotReplying(false);
+    }
   };
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(pairingCode);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
+  const handleSaveToDatabase = async () => {
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const savedBot = await saveBotCreationToBackend({
+        ...profile,
+        userId: currentUser?.id || profile.userId,
+        creator: currentUser ? {
+          id: currentUser.id,
+          username: currentUser.username,
+          displayName: currentUser.displayName,
+          avatarUrl: currentUser.avatarUrl,
+          githubUsername: currentUser.githubUsername,
+          githubRepoUrl: currentUser.githubRepoUrl,
+        } : profile.creator,
+      });
+
+      onUpdateProfile(savedBot);
+      if (onSavedToCommunity) {
+        onSavedToCommunity(savedBot);
+      }
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleCopyLink = () => {
-    const deepLink = `luminess://sync?code=${pairingCode}`;
-    navigator.clipboard.writeText(deepLink);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-  };
-
-  const handleDownloadConfig = () => {
-    const payload = JSON.stringify(profile, null, 2);
-    const blob = new Blob([payload], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `luminess-${profile.botName.toLowerCase().replace(/\s+/g, '-')}-config.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handlePlayVoicePreview = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    setIsPlayingAudio(true);
-
-    const greeting =
-      personality.archetype === 'witty_hacker'
-        ? `Hey! I'm ${personality.botName}. Your desktop companion is online and ready to cause some orderly chaos.`
-        : personality.archetype === 'study_buddy'
-          ? `Hello ${personality.userName || 'there'}! I'm ${personality.botName}. Let's set a 25-minute Pomodoro timer and get to work!`
-          : personality.archetype === 'coder'
-            ? `Greetings! I am ${personality.botName}. Copy any error trace to your clipboard and I will diagnose it.`
-            : `Hello! I am ${personality.botName}, your personal desktop assistant. Ready to manage your Windows tasks.`;
-
-    const utterance = new SpeechSynthesisUtterance(greeting);
-    utterance.pitch = voice.pitch;
-    utterance.rate = voice.speed;
-    utterance.onend = () => setIsPlayingAudio(false);
-    utterance.onerror = () => setIsPlayingAudio(false);
-    window.speechSynthesis.speak(utterance);
-  };
+  const githubUser = currentUser?.githubUsername || currentUser?.username || 'jasonhukom';
+  const forkRepo = `${githubUser}/Luminess-Assist`;
+  const forkUrl = `https://github.com/${forkRepo}`;
 
   return (
-    <div className="space-y-8 animate-fade-in pb-16">
+    <div className="relative pt-28 pb-20 px-6 max-w-[1400px] mx-auto min-h-screen">
       
-      {/* Studio Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] p-6 sm:p-8 shadow-sm crosshair-corner">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#dad7d0] dark:border-white/15 bg-[#080503]/5 dark:bg-white/5 px-3 py-1 font-mono text-[10px] font-semibold text-[#080503] dark:text-[#fafaf9] mb-3 uppercase tracking-wider">
-              <Sparkles size={12} />
-              <span>BOT STUDIO &bull; COMPANION CREATOR</span>
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-display font-bold tracking-tight text-[#080503] dark:text-[#fafaf9]">
-              Design Your Desktop{' '}
-              <span className="editorial-serif font-normal text-[#5e534a] dark:text-[#a89c92]">
-                AI Companion
-              </span>
-            </h1>
-            <p className="mt-2 text-sm text-[#5e534a] dark:text-[#a89c92] max-w-2xl leading-relaxed">
-              Customize visual looks, personality matrix, voice pitch, and Windows PC permissions. When you're ready, pair it instantly to your desktop companion with one click.
-            </p>
+      {/* Studio Header */}
+      <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-6 mb-8 pb-6 border-b border-[#dad7d0]/60 dark:border-white/10">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-xs font-mono font-medium mb-3">
+            <Sparkles size={13} />
+            <span>Full Bot Customization &bull; MariaDB &bull; GitHub Fork</span>
           </div>
-
-          <div className="flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#dad7d0] dark:border-white/15 bg-white dark:bg-white/5 text-xs font-mono font-medium text-[#080503] dark:text-[#fafaf9] hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
-            >
-              {copiedLink ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-              <span>{copiedLink ? 'Deep Link Copied' : 'Copy Deep Link'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadConfig}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] hover:opacity-90 text-xs font-mono font-bold tracking-tight shadow-sm transition-all cursor-pointer"
-            >
-              <Download size={13} />
-              <span>Export Config</span>
-            </button>
-          </div>
+          <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-[#080503] dark:text-[#fafaf9]">
+            Bot Creation Studio
+          </h1>
+          <p className="text-sm text-[#5e534a] dark:text-[#a89c92] mt-1.5 max-w-2xl">
+            Design your companion's visual look (per-frame sprite cycles, animated video loops, or interactive robots),
+            customize chat behaviors and prompts, and synchronize with your forked GitHub repository.
+          </p>
         </div>
 
-        {/* 4-Step Navigation Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-8 pt-6 border-t border-[#dad7d0]/60 dark:border-white/10">
-          {[
-            { id: 'appearance', label: '01. Appearance', icon: Palette, summary: appearance.paletteName },
-            { id: 'personality', label: '02. C.R.O.C. Matrix', icon: Sliders, summary: personality.botName },
-            { id: 'permissions', label: '03. PC Permissions', icon: ShieldCheck, summary: 'Windows Loadout' },
-            { id: 'sync', label: '04. Sync & Deploy', icon: Laptop, summary: `Code: ${pairingCode}` },
-          ].map((step) => {
-            const isActive = activeStep === step.id;
-            const Icon = step.icon;
-            return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => setActiveStep(step.id as any)}
-                className={`flex items-center gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                  isActive
-                    ? 'border-[#080503] dark:border-white bg-[#080503] text-[#fafaf9] dark:bg-white dark:text-[#080503] shadow-sm'
-                    : 'border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#0c0907] hover:border-[#080503]/30 text-[#5e534a] dark:text-[#a89c92]'
-                }`}
-              >
-                <div className={`p-2 rounded-xl shrink-0 ${isActive ? 'bg-white/20 dark:bg-black/20' : 'bg-black/5 dark:bg-white/10'}`}>
-                  <Icon size={15} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold uppercase tracking-wider">
-                    {step.label}
-                  </div>
-                  <div className={`text-[11px] truncate font-mono ${isActive ? 'opacity-80' : 'text-[#5e534a] dark:text-[#a89c92]'}`}>
-                    {step.summary}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+        {/* Save to MariaDB CTA */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSaveToDatabase}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#080503] dark:bg-[#fafaf9] text-[#fafaf9] dark:text-[#080503] text-xs font-semibold tracking-wide hover:opacity-90 transition-all cursor-pointer shadow-lg disabled:opacity-50"
+          >
+            <Database size={14} />
+            <span>{isSaving ? 'Saving to MariaDB...' : 'Save to MariaDB Database'}</span>
+          </button>
         </div>
       </div>
 
-      {/* Main Split Layout: Viewport on Left/Top, Controls on Right */}
+      {saveSuccess && (
+        <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} />
+            <span>
+              <strong>Saved to MariaDB Database!</strong> Your bot is now active and anyone can explore it in the Community Showcase.
+            </span>
+          </div>
+          <span className="font-mono text-[11px] font-bold">Pairing: {profile.pairingCode}</span>
+        </div>
+      )}
+
+      {/* Main Studio Grid: Left Canvas & Live Preview / Right Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* Left Column: Live Visual Mascot Viewport */}
-        <div className="lg:col-span-5 sticky top-24 space-y-4">
-          <div className="relative rounded-3xl border border-white/10 bg-[#070913] p-6 shadow-2xl overflow-hidden flex flex-col items-center justify-center min-h-[380px]">
-            {/* Ambient Background Grid and Glow */}
-            <div className="absolute inset-0 cyber-grid opacity-30 pointer-events-none" />
-            <div
-              className="absolute w-64 h-64 rounded-full blur-3xl pointer-events-none transition-all duration-700"
-              style={{ background: appearance.color, opacity: 0.2 }}
-            />
-
-            {/* Model Badge */}
-            <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border border-white/10 bg-white/5 text-slate-300 backdrop-blur-md">
-                MODEL: {appearance.model.toUpperCase()}
-              </span>
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 backdrop-blur-md">
-                {appearance.paletteName}
-              </span>
-            </div>
-
-            {/* LIVE MASCOT VISUAL RENDERER */}
-            <div className="relative z-10 flex flex-col items-center justify-center transition-all duration-300 my-6" style={{ transform: `scale(${appearance.scale})` }}>
-              
-              {/* Accessory Rendering */}
-              {appearance.accessory === 'wizard_hat' && (
-                <div className="relative -mb-4 z-30 transition-transform animate-bounce-subtle">
-                  <svg width="84" height="60" viewBox="0 0 100 80" className="filter drop-shadow-[0_0_12px_rgba(168,85,247,0.7)]">
-                    <polygon points="50,5 20,65 80,65" fill="#581c87" stroke="#c084fc" strokeWidth="2.5" />
-                    <ellipse cx="50" cy="65" rx="42" ry="8" fill="#3b0764" stroke="#c084fc" strokeWidth="2" />
-                    <rect x="35" y="58" width="30" height="7" rx="2" fill="#facc15" />
-                    <circle cx="50" cy="5" r="4" fill="#facc15" />
-                  </svg>
+        {/* Left Side: Live Visual Companion Canvas (5 cols) */}
+        <div className="lg:col-span-5 sticky top-28 space-y-4">
+          <div className="relative rounded-3xl bg-[#080503] border border-[#dad7d0]/40 dark:border-white/10 overflow-hidden shadow-2xl p-6 flex flex-col items-center justify-center min-h-[460px]">
+            
+            {/* Visual Look Canvas depending on mode */}
+            {profile.visualMode === 'video' && profile.videoUrl ? (
+              <div className="relative w-full h-[320px] rounded-2xl overflow-hidden shadow-inner">
+                <video
+                  src={profile.videoUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-sm text-[10px] font-mono text-white/80 flex items-center gap-1">
+                  <Video size={11} className="text-purple-400" />
+                  <span>Video Loop Player</span>
                 </div>
-              )}
-
-              {appearance.accessory === 'cat_ears' && (
-                <div className="flex justify-between w-32 -mb-5 z-30 px-3">
-                  <div className="w-7 h-8 bg-slate-900 border-2 rounded-t-lg transform -rotate-12" style={{ borderColor: appearance.color }}>
-                    <div className="w-3 h-5 mx-auto mt-1 rounded-t-md opacity-80" style={{ background: appearance.color }} />
-                  </div>
-                  <div className="w-7 h-8 bg-slate-900 border-2 rounded-t-lg transform rotate-12" style={{ borderColor: appearance.color }}>
-                    <div className="w-3 h-5 mx-auto mt-1 rounded-t-md opacity-80" style={{ background: appearance.color }} />
-                  </div>
-                </div>
-              )}
-
-              {appearance.accessory === 'halo' && (
-                <div className="w-36 h-8 rounded-full border-2 border-amber-300 bg-amber-300/20 shadow-[0_0_20px_rgba(252,211,77,0.8)] -mb-4 z-30 animate-pulse" />
-              )}
-
-              {/* MODEL 1: 3D Robot Mascot */}
-              {appearance.model === 'robot' && (
-                <div className="relative w-40 h-40 flex items-center justify-center animate-bob">
-                  {/* Head body */}
-                  <div
-                    className="relative w-36 h-32 rounded-3xl border-2 flex flex-col items-center justify-center p-3 shadow-2xl transition-all duration-300 bg-gradient-to-b from-slate-900 to-[#0e1322]"
-                    style={{ borderColor: appearance.color, boxShadow: `0 0 35px ${appearance.color}40` }}
-                  >
-                    {/* Antenna */}
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                      <div className="w-3 h-3 rounded-full animate-ping" style={{ background: appearance.color }} />
-                      <div className="w-1.5 h-4 bg-slate-700 -mt-1.5" />
-                    </div>
-
-                    {/* Visor Screen */}
-                    <div className="w-full h-16 rounded-2xl bg-[#03050a] border border-white/10 flex items-center justify-around px-4 shadow-inner relative overflow-hidden">
-                      {/* Scanline overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/[0.04] to-transparent pointer-events-none" />
-
-                      {/* Visor Eyes based on Test Emotion */}
-                      {testEmotion === 'idle' && (
-                        <>
-                          <div className="w-5 h-7 rounded-full shadow-[0_0_12px]" style={{ background: appearance.color, boxShadow: `0 0 15px ${appearance.color}` }} />
-                          <div className="w-5 h-7 rounded-full shadow-[0_0_12px]" style={{ background: appearance.color, boxShadow: `0 0 15px ${appearance.color}` }} />
-                        </>
-                      )}
-                      {testEmotion === 'joy' && (
-                        <>
-                          <div className="w-6 h-4 border-t-4 rounded-t-full" style={{ borderColor: appearance.color }} />
-                          <div className="w-6 h-4 border-t-4 rounded-t-full" style={{ borderColor: appearance.color }} />
-                        </>
-                      )}
-                      {testEmotion === 'puzzled' && (
-                        <>
-                          <div className="w-5 h-2 rounded-full" style={{ background: appearance.color }} />
-                          <div className="w-6 h-6 rounded-full" style={{ background: appearance.color }} />
-                        </>
-                      )}
-                      {testEmotion === 'love' && (
-                        <>
-                          <span className="text-xl animate-pulse">💖</span>
-                          <span className="text-xl animate-pulse">💖</span>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Speaker grill */}
-                    <div className="flex gap-1.5 mt-2.5">
-                      <div className="w-3 h-1 rounded-full bg-slate-700" />
-                      <div className="w-5 h-1 rounded-full" style={{ background: appearance.color }} />
-                      <div className="w-3 h-1 rounded-full bg-slate-700" />
-                    </div>
-                  </div>
-
-                  {/* Headphones accessory */}
-                  {appearance.accessory === 'headphones' && (
-                    <div className="absolute inset-x-0 flex items-center justify-between -mx-3 z-30">
-                      <div className="w-6 h-12 rounded-xl border-2 bg-slate-900 shadow-lg" style={{ borderColor: appearance.color }} />
-                      <div className="w-6 h-12 rounded-xl border-2 bg-slate-900 shadow-lg" style={{ borderColor: appearance.color }} />
-                    </div>
-                  )}
-
-                  {/* Cyber Visor accessory */}
-                  {appearance.accessory === 'visor' && (
-                    <div className="absolute top-12 inset-x-2 h-8 rounded-lg border bg-cyan-400/30 backdrop-blur-sm z-30 flex items-center justify-center font-mono text-[9px] text-cyan-200" style={{ borderColor: appearance.color }}>
-                      &lt;SYS.HUD&gt;
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* MODEL 2: Minimalist Floating Energy Orb */}
-              {appearance.model === 'orb' && (
-                <div className="relative w-40 h-40 flex items-center justify-center animate-pulse">
-                  {/* Outer Orbit Rings */}
-                  <div className="absolute inset-0 rounded-full border border-dashed animate-spin-slow opacity-60" style={{ borderColor: appearance.color }} />
-                  <div className="absolute inset-2 rounded-full border border-dotted animate-spin-reverse opacity-40" style={{ borderColor: appearance.color }} />
-                  
-                  {/* Energy Core */}
-                  <div
-                    className="w-24 h-24 rounded-full flex items-center justify-center shadow-2xl relative"
-                    style={{ background: `radial-gradient(circle, ${appearance.color} 20%, #030712 90%)`, boxShadow: `0 0 50px ${appearance.color}` }}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-white blur-sm opacity-90 animate-ping" />
-                    <div className="absolute text-center font-mono text-[10px] font-bold text-white uppercase tracking-tighter">
-                      {testEmotion === 'love' ? '💖' : testEmotion === 'joy' ? '⚡' : 'AURA'}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* MODEL 3: Pixel Art Sprite */}
-              {appearance.model === 'pixel' && (
-                <div className="w-36 h-36 border-4 bg-slate-950 p-3 shadow-2xl flex flex-col items-center justify-between font-mono relative" style={{ borderColor: appearance.color }}>
-                  <div className="w-full flex justify-between px-2 pt-1 text-[10px]" style={{ color: appearance.color }}>
-                    <span>[8-BIT]</span>
-                    <span>100%</span>
-                  </div>
-                  <div className="w-28 h-16 bg-[#090d1a] border-2 border-white/20 flex items-center justify-around px-3" style={{ borderColor: appearance.color }}>
-                    <div className="w-4 h-4" style={{ background: appearance.color }} />
-                    <div className="w-4 h-4" style={{ background: appearance.color }} />
-                  </div>
-                  <div className="w-16 h-2" style={{ background: appearance.color }} />
-                </div>
-              )}
-
-              {/* MODEL 4: 2D VTuber Anime Mascot */}
-              {appearance.model === 'vtuber' && (
-                <div className="relative w-36 h-36 rounded-full border-2 bg-gradient-to-tr from-[#110f26] to-[#1e1338] flex flex-col items-center justify-center shadow-2xl p-4 overflow-hidden" style={{ borderColor: appearance.color }}>
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl">✨</div>
-                  <div className="w-16 h-16 rounded-full border border-white/30 flex items-center justify-around bg-black/40 px-2 mt-2">
-                    <div className="w-3 h-5 rounded-full" style={{ background: appearance.color }} />
-                    <div className="w-3 h-5 rounded-full" style={{ background: appearance.color }} />
-                  </div>
-                  <div className="w-8 h-2 rounded-full mt-2" style={{ background: appearance.color }} />
-                </div>
-              )}
-
-            </div>
-
-            {/* Emote Interactive Playground */}
-            <div className="w-full pt-4 border-t border-white/[0.08] flex items-center justify-between z-20">
-              <span className="text-[11px] font-mono text-slate-400">TEST EMOTION:</span>
-              <div className="flex items-center gap-1.5">
-                {[
-                  { key: 'idle', label: 'Idle', icon: Smile },
-                  { key: 'joy', label: 'Joy', icon: Sparkles },
-                  { key: 'puzzled', label: 'Puzzled', icon: HelpCircle },
-                  { key: 'love', label: 'Love', icon: Heart },
-                ].map((emo) => {
-                  const Icon = emo.icon;
-                  const isSelected = testEmotion === emo.key;
-                  return (
+              </div>
+            ) : profile.visualMode === 'sprite_frames' && frames.length > 0 ? (
+              <div className="relative w-full h-[320px] rounded-2xl overflow-hidden bg-black/40 flex flex-col items-center justify-center p-4">
+                <img
+                  src={frames[currentFrameIdx]?.url || frames[0].url}
+                  alt={profile.botName}
+                  className="max-h-60 max-w-full object-contain pixelated transition-all"
+                />
+                
+                {/* Frame Playback Toolbar */}
+                <div className="absolute bottom-3 left-3 right-3 p-2 rounded-xl bg-black/70 backdrop-blur-md border border-white/10 flex items-center justify-between text-[11px] font-mono text-white/90">
+                  <div className="flex items-center gap-2">
                     <button
-                      key={emo.key}
                       type="button"
-                      onClick={() => setTestEmotion(emo.key as any)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-cyan-500 text-slate-950 font-bold shadow-[0_0_12px_rgba(56,189,248,0.5)]'
-                          : 'bg-white/5 text-slate-400 hover:text-white'
-                      }`}
+                      onClick={() => setIsPlayingFrames(!isPlayingFrames)}
+                      className="p-1 rounded hover:bg-white/20 transition-all cursor-pointer"
                     >
-                      <Icon size={12} />
-                      <span>{emo.label}</span>
+                      {isPlayingFrames ? <Pause size={13} /> : <Play size={13} />}
                     </button>
-                  );
-                })}
+                    <span>
+                      Frame {currentFrameIdx + 1}/{frames.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] opacity-70">FPS:</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="16"
+                      value={frameFps}
+                      onChange={(e) => setFrameFps(Number(e.target.value))}
+                      className="w-16 accent-[#38bdf8]"
+                    />
+                    <span className="text-[10px] w-4">{frameFps}</span>
+                  </div>
+                </div>
+              </div>
+            ) : profile.visualMode === 'image' && profile.avatarImageUrl ? (
+              <div className="relative w-full h-[320px] rounded-2xl overflow-hidden bg-black/40 flex items-center justify-center">
+                <img
+                  src={profile.avatarImageUrl}
+                  alt={profile.botName}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="w-full h-[320px] flex items-center justify-center">
+                <LivingRobot
+                  currentEmotion={testEmotion === 'love' ? 'love' : testEmotion === 'joy' ? 'joy' : testEmotion === 'puzzled' ? 'thinking' : 'idle'}
+                  size={240}
+                />
+              </div>
+            )}
+
+            {/* Canvas Identity Footer */}
+            <div className="w-full mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-white/80">
+              <div>
+                <span className="font-display font-bold text-white text-sm">
+                  {profile.botName}
+                </span>
+                <span className="text-[10px] font-mono text-white/60 ml-2">
+                  Pairing: <strong className="text-[#38bdf8]">{profile.pairingCode}</strong>
+                </span>
+              </div>
+
+              {/* Emotion triggers for test */}
+              <div className="flex items-center gap-1">
+                {(['idle', 'joy', 'puzzled', 'love'] as const).map((emo) => (
+                  <button
+                    key={emo}
+                    type="button"
+                    onClick={() => setTestEmotion(emo)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-all cursor-pointer ${
+                      testEmotion === emo
+                        ? 'bg-[#38bdf8] text-black font-bold'
+                        : 'bg-white/10 text-white/70 hover:bg-white/20'
+                    }`}
+                  >
+                    {emo}
+                  </button>
+                ))}
               </div>
             </div>
-
           </div>
 
-          {/* Quick Pairing Token Pill */}
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-cyan-300">
-                #
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Desktop Pairing Token</div>
-                <div className="text-sm font-mono font-bold text-white tracking-widest">{pairingCode}</div>
-              </div>
-            </div>
+          {/* Quick GitHub Connection Badge (like Vercel) */}
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#120f0d] border border-[#dad7d0] dark:border-white/10 text-xs flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleRegenerateCode}
-                title="Generate new token"
-                className="p-2 rounded-lg border border-white/10 hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
-              >
-                <RefreshCw size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyCode}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 hover:bg-cyan-500/30 text-xs font-mono font-bold cursor-pointer"
-              >
-                {copiedCode ? <Check size={12} /> : <Copy size={12} />}
-                <span>{copiedCode ? 'COPIED' : 'COPY'}</span>
-              </button>
+              <GithubIcon size={16} className="text-[#080503] dark:text-white" />
+              <div>
+                <span className="font-semibold text-[#080503] dark:text-white">GitHub Fork Status</span>
+                <p className="text-[10px] font-mono text-[#5e534a] dark:text-[#a89c92]">
+                  {forkRepo}
+                </p>
+              </div>
             </div>
+            <a
+              href={`https://github.com/jasonhukom/Luminess-Assist/fork`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[#dad7d0] dark:border-white/15 text-[11px] font-semibold text-[#080503] dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            >
+              <GitFork size={12} />
+              <span>Fork Repo</span>
+            </a>
           </div>
         </div>
 
-        {/* Right Column: Customizer Controls based on Active Step */}
-        <div className="lg:col-span-7 space-y-6">
+        {/* Right Side: Step-by-Step Customization Panel (7 cols) */}
+        <div className="lg:col-span-7 bg-[#fafaf9] dark:bg-[#120f0d] border border-[#dad7d0] dark:border-white/10 rounded-3xl p-6 sm:p-8 shadow-sm">
           
-          {/* STEP 1: APPEARANCE */}
-          {activeStep === 'appearance' && (
-            <div className="rounded-3xl border border-white/10 bg-[#070912] p-6 sm:p-8 space-y-6 shadow-xl">
+          {/* Step Navigation Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 border-b border-[#dad7d0]/60 dark:border-white/10">
+            {[
+              { key: 'look', label: '1. Visual Look & Media', icon: Palette },
+              { key: 'identity', label: '2. Name & Persona', icon: Bot },
+              { key: 'chat', label: '3. Chat & Live Test', icon: MessageSquare },
+              { key: 'github', label: '4. GitHub Fork', icon: GitFork },
+            ].map((step) => {
+              const Icon = step.icon;
+              const isActive = activeStep === step.key;
+              return (
+                <button
+                  key={step.key}
+                  type="button"
+                  onClick={() => setActiveStep(step.key as any)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-[#080503] dark:bg-white text-white dark:text-black shadow-sm'
+                      : 'text-[#5e534a] dark:text-[#a89c92] hover:bg-black/5 dark:hover:bg-white/5'
+                  }`}
+                >
+                  <Icon size={14} />
+                  <span>{step.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* STEP 1: VISUAL LOOK & MEDIA */}
+          {activeStep === 'look' && (
+            <div className="space-y-6">
               <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Palette className="text-cyan-400" size={18} />
-                  <span>Choose Visual Avatar Model</span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Select your desktop companion's rendering engine and form factor.
-                </p>
-              </div>
-
-              {/* Base Model Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { id: 'robot', name: '3D Luminess Robot', desc: 'Living expressive robot with animated visor eyes & antenna.' },
-                  { id: 'orb', name: 'Minimalist Energy Orb', desc: 'Futuristic floating orb with pulsing orbital energy rings.' },
-                  { id: 'pixel', name: 'Pixel Art Cyber Sprite', desc: '16-bit retro arcade robot mascot for vintage desktop aesthetics.' },
-                  { id: 'vtuber', name: '2D VTuber Anime Hologram', desc: 'Stylized cyber anime hologram with digital reactive emotions.' },
-                ].map((item) => {
-                  const isSelected = appearance.model === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => updateAppearance({ model: item.id as any })}
-                      className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_20px_rgba(56,189,248,0.25)]'
-                          : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-sm font-bold ${isSelected ? 'text-cyan-300' : 'text-white'}`}>
-                          {item.name}
-                        </span>
-                        {isSelected && <CheckCircle2 size={16} className="text-cyan-400" />}
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Color Palette Selector */}
-              <div className="pt-4 border-t border-white/[0.08] space-y-3">
-                <label className="text-xs font-mono font-bold uppercase text-slate-300 tracking-wider block">
-                  Color Palette &amp; Glow Hue
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-3">
+                  Visual Companion Engine
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {COLOR_PRESETS.map((color) => {
-                    const isSelected = appearance.color === color.hex;
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { id: 'robot', label: 'Living Robot', icon: Bot, desc: 'Procedural 3D SVG' },
+                    { id: 'sprite_frames', label: 'Per-Frame Sprites', icon: Layers, desc: 'Sprite frame cycles' },
+                    { id: 'video', label: 'Video Loop', icon: Video, desc: 'MP4/WebM animation' },
+                    { id: 'image', label: 'Custom Image', icon: ImageIcon, desc: 'Static avatar URL' },
+                  ].map((mode) => {
+                    const Icon = mode.icon;
+                    const isSelected = profile.visualMode === mode.id;
                     return (
                       <button
-                        key={color.hex}
+                        key={mode.id}
                         type="button"
-                        onClick={() => updateAppearance({ color: color.hex, paletteName: color.name })}
-                        className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected ? 'border-white bg-white/10' : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
+                        onClick={() => updateVisualMode(mode.id as any)}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-[#38bdf8] bg-[#38bdf8]/10 text-[#080503] dark:text-white shadow-sm'
+                            : 'border-[#dad7d0] dark:border-white/10 hover:border-black/30 dark:hover:border-white/30 text-[#5e534a] dark:text-[#a89c92]'
                         }`}
                       >
-                        <div className="w-5 h-5 rounded-full border border-white/30 shrink-0" style={{ background: color.hex }} />
-                        <span className="text-xs font-medium text-slate-200 truncate">{color.name}</span>
+                        <Icon size={18} className={isSelected ? 'text-[#38bdf8] mb-1.5' : 'mb-1.5'} />
+                        <div className="text-xs font-bold text-[#080503] dark:text-white">{mode.label}</div>
+                        <div className="text-[10px] opacity-70">{mode.desc}</div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Accessories Selector */}
-              <div className="pt-4 border-t border-white/[0.08] space-y-3">
-                <label className="text-xs font-mono font-bold uppercase text-slate-300 tracking-wider block">
-                  Companion Accessories
+              {/* Per-Frame Sprite Manager */}
+              {profile.visualMode === 'sprite_frames' && (
+                <div className="p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#080503] dark:text-white">
+                        Frame-by-Frame Sprite Editor ({frames.length} frames)
+                      </h4>
+                      <p className="text-[11px] text-[#5e534a] dark:text-[#a89c92]">
+                        Add frames for idle loop, talking states, and reaction emotes.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Frame List */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {frames.map((frame, index) => (
+                      <div
+                        key={frame.id}
+                        className={`relative p-2 rounded-xl border bg-black/5 dark:bg-white/5 flex flex-col items-center justify-between ${
+                          currentFrameIdx === index ? 'border-[#38bdf8]' : 'border-transparent'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => removeFrame(frame.id)}
+                          className="absolute top-1 right-1 p-1 rounded-full bg-red-500/80 text-white hover:bg-red-600 transition-all cursor-pointer"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                        <img
+                          src={frame.url}
+                          alt={frame.name}
+                          className="w-16 h-16 object-contain pixelated mb-1 rounded"
+                        />
+                        <span className="text-[10px] font-mono font-medium truncate w-full text-center text-[#080503] dark:text-white">
+                          #{index + 1} {frame.name}
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-black/10 dark:bg-white/10 text-[#5e534a] dark:text-[#a89c92] capitalize">
+                          {frame.state}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add Frame Form */}
+                  <div className="pt-3 border-t border-[#dad7d0]/60 dark:border-white/10 space-y-2">
+                    <span className="text-[11px] font-semibold text-[#080503] dark:text-white">Add New Frame</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={newFrameName}
+                        onChange={(e) => setNewFrameName(e.target.value)}
+                        placeholder="Frame Name (e.g. Talk 2)"
+                        className="px-3 py-1.5 text-xs bg-white dark:bg-black/50 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                      />
+                      <input
+                        type="text"
+                        value={newFrameUrl}
+                        onChange={(e) => setNewFrameUrl(e.target.value)}
+                        placeholder="Image URL (PNG/WebP/GIF)"
+                        className="px-3 py-1.5 text-xs bg-white dark:bg-black/50 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={newFrameState}
+                          onChange={(e) => setNewFrameState(e.target.value as any)}
+                          className="flex-1 px-2 py-1.5 text-xs bg-white dark:bg-black/50 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                        >
+                          <option value="idle">Idle</option>
+                          <option value="talking">Talking</option>
+                          <option value="happy">Happy</option>
+                          <option value="thinking">Thinking</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={addFrame}
+                          disabled={!newFrameUrl.trim()}
+                          className="px-3 py-1.5 rounded-xl bg-[#38bdf8] text-black text-xs font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Video Loop Manager */}
+              {profile.visualMode === 'video' && (
+                <div className="p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10 space-y-3">
+                  <h4 className="text-xs font-bold text-[#080503] dark:text-white">
+                    Video Animation Loop URL (MP4 / WebM / GIF)
+                  </h4>
+                  <input
+                    type="text"
+                    value={profile.videoUrl || ''}
+                    onChange={(e) => onUpdateProfile({ ...profile, videoUrl: e.target.value })}
+                    placeholder="https://... (direct video loop URL)"
+                    className="w-full px-4 py-2 text-xs bg-white dark:bg-black/50 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                  />
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="text-[10px] text-[#5e534a] dark:text-[#a89c92] self-center">Presets:</span>
+                    {SAMPLE_VIDEOS.map((sv) => (
+                      <button
+                        key={sv.name}
+                        type="button"
+                        onClick={() => onUpdateProfile({ ...profile, videoUrl: sv.url })}
+                        className="px-2.5 py-1 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-[10px] font-mono text-[#080503] dark:text-white cursor-pointer"
+                      >
+                        {sv.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Image Avatar Manager */}
+              {profile.visualMode === 'image' && (
+                <div className="p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10 space-y-3">
+                  <h4 className="text-xs font-bold text-[#080503] dark:text-white">
+                    Custom Avatar Image URL
+                  </h4>
+                  <input
+                    type="text"
+                    value={profile.avatarImageUrl || ''}
+                    onChange={(e) => onUpdateProfile({ ...profile, avatarImageUrl: e.target.value })}
+                    placeholder="https://... (direct PNG / SVG / JPG URL)"
+                    className="w-full px-4 py-2 text-xs bg-white dark:bg-black/50 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                  />
+                </div>
+              )}
+
+              {/* Robot Colors & Accessories */}
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-3">
+                  Color Accent & Glow Palette
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+                  {COLOR_PRESETS.map((preset) => {
+                    const isSelected = appearance.color === preset.hex;
+                    return (
+                      <button
+                        key={preset.hex}
+                        type="button"
+                        onClick={() => updateAppearance({ color: preset.hex, paletteName: preset.name })}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-[#080503] dark:border-white bg-black/5 dark:bg-white/5'
+                            : 'border-[#dad7d0] dark:border-white/10 hover:border-black/30'
+                        }`}
+                      >
+                        <div
+                          className="w-5 h-5 rounded-full mx-auto mb-1.5 shadow-sm"
+                          style={{ backgroundColor: preset.hex, boxShadow: `0 0 10px ${preset.glow}` }}
+                        />
+                        <span className="text-[10px] font-mono truncate block text-[#080503] dark:text-white">
+                          {preset.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Accessory */}
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-3">
+                  Accessory Attachment
+                </label>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
                   {ACCESSORIES.map((acc) => {
-                    const isSelected = appearance.accessory === acc.id;
                     const Icon = acc.icon;
+                    const isSelected = appearance.accessory === acc.id;
                     return (
                       <button
                         key={acc.id}
                         type="button"
                         onClick={() => updateAppearance({ accessory: acc.id as any })}
-                        className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-[#080503] dark:border-white bg-black/5 dark:bg-white/5'
+                            : 'border-[#dad7d0] dark:border-white/10 hover:border-black/30'
                         }`}
                       >
-                        {Icon ? <Icon size={16} className={isSelected ? 'text-cyan-300' : 'text-slate-400'} /> : <div className="w-4 h-4 rounded-full border border-slate-600" />}
-                        <span className={`text-xs font-medium truncate ${isSelected ? 'text-cyan-200' : 'text-slate-300'}`}>{acc.label}</span>
+                        <div className="w-5 h-5 mx-auto mb-1 flex items-center justify-center text-[#080503] dark:text-white">
+                          {Icon ? <Icon size={16} /> : <span className="text-xs">&mdash;</span>}
+                        </div>
+                        <span className="text-[10px] font-mono truncate block text-[#080503] dark:text-white">
+                          {acc.label}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
               </div>
-
-              {/* Scale Slider */}
-              <div className="pt-4 border-t border-white/[0.08] space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-mono text-slate-300">COMPANION DISPLAY SCALE</span>
-                  <span className="font-mono text-cyan-300 font-bold">{appearance.scale.toFixed(1)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.8"
-                  max="1.4"
-                  step="0.05"
-                  value={appearance.scale}
-                  onChange={(e) => updateAppearance({ scale: parseFloat(e.target.value) })}
-                  className="w-full accent-cyan-400 cursor-pointer"
-                />
-              </div>
-
-              <div className="pt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('personality')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-bold cursor-pointer"
-                >
-                  <span>NEXT: PERSONALITY MATRIX</span>
-                  <span>→</span>
-                </button>
-              </div>
             </div>
           )}
 
-          {/* STEP 2: PERSONALITY (C.R.O.C. FRAMEWORK) */}
-          {activeStep === 'personality' && (
-            <div className="rounded-3xl border border-white/10 bg-[#070912] p-6 sm:p-8 space-y-6 shadow-xl">
+          {/* STEP 2: NAME & IDENTITY */}
+          {activeStep === 'identity' && (
+            <div className="space-y-5">
               <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Sliders className="text-cyan-400" size={18} />
-                  <span>C.R.O.C. Personality Matrix &amp; Voice</span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Tune behavior archetypes, speech style sliders, and preview audio speech synthesis.
-                </p>
-              </div>
-
-              {/* Bot and User Name inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-mono text-slate-300 uppercase block mb-1">Bot Name</label>
-                  <input
-                    type="text"
-                    value={personality.botName}
-                    onChange={(e) => updatePersonality({ botName: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white font-mono text-sm outline-none focus:border-cyan-400"
-                    placeholder="e.g. Luminess, AURA, Jarvis"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-mono text-slate-300 uppercase block mb-1">Call Me (Your Name)</label>
-                  <input
-                    type="text"
-                    value={personality.userName}
-                    onChange={(e) => updatePersonality({ userName: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-white font-mono text-sm outline-none focus:border-cyan-400"
-                    placeholder="e.g. Pilot, Jason, Master"
-                  />
-                </div>
-              </div>
-
-              {/* Archetype Selector */}
-              <div className="space-y-3 pt-2">
-                <label className="text-xs font-mono font-bold uppercase text-slate-300 tracking-wider block">
-                  Role Archetype
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-1.5">
+                  Bot Name
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  value={profile.botName}
+                  onChange={(e) => {
+                    onUpdateProfile({ ...profile, botName: e.target.value });
+                    updatePersonality({ botName: e.target.value });
+                  }}
+                  placeholder="e.g. Luminess Prime"
+                  className="w-full px-4 py-2.5 text-sm bg-white dark:bg-black/40 border border-[#dad7d0] dark:border-white/10 rounded-xl focus:outline-none focus:border-[#38bdf8] text-[#080503] dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-1.5">
+                  Tagline / Short Bio
+                </label>
+                <input
+                  type="text"
+                  value={profile.tagline || ''}
+                  onChange={(e) => onUpdateProfile({ ...profile, tagline: e.target.value })}
+                  placeholder="e.g. Frame-by-frame animated 16-bit study coach."
+                  className="w-full px-4 py-2.5 text-sm bg-white dark:bg-black/40 border border-[#dad7d0] dark:border-white/10 rounded-xl focus:outline-none focus:border-[#38bdf8] text-[#080503] dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-3">
+                  Personality Archetype
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {ARCHETYPES.map((arch) => {
                     const isSelected = personality.archetype === arch.id;
                     return (
@@ -681,295 +783,252 @@ export const BotStudioTab: React.FC<BotStudioTabProps> = ({ profile, onUpdatePro
                         key={arch.id}
                         type="button"
                         onClick={() => updatePersonality({ archetype: arch.id as any })}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-[#38bdf8] bg-[#38bdf8]/10 text-[#080503] dark:text-white shadow-sm'
+                            : 'border-[#dad7d0] dark:border-white/10 hover:border-black/30 text-[#5e534a] dark:text-[#a89c92]'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className={`text-xs font-bold ${isSelected ? 'text-cyan-300' : 'text-white'}`}>{arch.title}</span>
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">{arch.tag}</span>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-[#080503] dark:text-white">{arch.title}</span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-black/5 dark:bg-white/10">
+                            {arch.tag}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{arch.description}</p>
+                        <p className="text-[11px] opacity-80 leading-relaxed">{arch.description}</p>
                       </button>
                     );
                   })}
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Tone Sliders */}
-              <div className="pt-4 border-t border-white/[0.08] space-y-4">
-                <label className="text-xs font-mono font-bold uppercase text-slate-300 tracking-wider block">
-                  Tone &amp; Attitude Sliders
+          {/* STEP 3: CHAT & LIVE SANDBOX */}
+          {activeStep === 'chat' && (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-1.5">
+                  Greeting Message (First words spoken to user)
                 </label>
+                <input
+                  type="text"
+                  value={profile.greetingMessage || ''}
+                  onChange={(e) => onUpdateProfile({ ...profile, greetingMessage: e.target.value })}
+                  placeholder="e.g. Hello Pilot! Luminess is synchronized and standing by."
+                  className="w-full px-4 py-2.5 text-sm bg-white dark:bg-black/40 border border-[#dad7d0] dark:border-white/10 rounded-xl focus:outline-none focus:border-[#38bdf8] text-[#080503] dark:text-white"
+                />
+              </div>
 
-                {/* Sarcastic vs Polite */}
-                <div className="p-3.5 rounded-xl border border-white/[0.06] bg-black/20 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-300 font-mono">HUMOR: Sarcastic (10) ↔ Polite (0)</span>
-                    <span className="font-mono text-cyan-300 font-bold">{personality.humor}/10</span>
+              <div>
+                <label className="block text-xs font-mono uppercase tracking-wider text-[#5e534a] dark:text-[#a89c92] mb-1.5">
+                  Custom AI System Prompt & Guardrails
+                </label>
+                <textarea
+                  rows={3}
+                  value={personality.customPrompt || ''}
+                  onChange={(e) => updatePersonality({ customPrompt: e.target.value })}
+                  placeholder="Define bespoke instructions, coding rules, or conversational tone..."
+                  className="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/40 border border-[#dad7d0] dark:border-white/10 rounded-xl focus:outline-none focus:border-[#38bdf8] text-[#080503] dark:text-white leading-relaxed"
+                />
+              </div>
+
+              {/* Sliders */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-mono text-[10px] uppercase text-[#5e534a]">Formality</span>
+                    <span className="font-mono font-bold">{personality.formality}/10</span>
                   </div>
                   <input
                     type="range"
                     min="0"
                     max="10"
-                    step="1"
+                    value={personality.formality}
+                    onChange={(e) => updatePersonality({ formality: Number(e.target.value) })}
+                    className="w-full accent-[#38bdf8]"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-mono text-[10px] uppercase text-[#5e534a]">Humor</span>
+                    <span className="font-mono font-bold">{personality.humor}/10</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
                     value={personality.humor}
-                    onChange={(e) => updatePersonality({ humor: parseInt(e.target.value) })}
-                    className="w-full accent-cyan-400 cursor-pointer"
+                    onChange={(e) => updatePersonality({ humor: Number(e.target.value) })}
+                    className="w-full accent-[#38bdf8]"
                   />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>Gentle &amp; Polite</span>
-                    <span>Witty / Sarcastic</span>
-                  </div>
                 </div>
 
-                {/* Talkative vs Concise */}
-                <div className="p-3.5 rounded-xl border border-white/[0.06] bg-black/20 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-300 font-mono">VERBOSITY: Concise (0) ↔ Detailed (10)</span>
-                    <span className="font-mono text-cyan-300 font-bold">{personality.verbosity}/10</span>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-mono text-[10px] uppercase text-[#5e534a]">Verbosity</span>
+                    <span className="font-mono font-bold">{personality.verbosity}/10</span>
                   </div>
                   <input
                     type="range"
                     min="0"
                     max="10"
-                    step="1"
                     value={personality.verbosity}
-                    onChange={(e) => updatePersonality({ verbosity: parseInt(e.target.value) })}
-                    className="w-full accent-cyan-400 cursor-pointer"
+                    onChange={(e) => updatePersonality({ verbosity: Number(e.target.value) })}
+                    className="w-full accent-[#38bdf8]"
                   />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>1-2 Sentences</span>
-                    <span>Deep Explanations</span>
+                </div>
+              </div>
+
+              {/* Live Interactive Chat Sandbox */}
+              <div className="p-4 rounded-2xl bg-white dark:bg-black/40 border border-[#dad7d0] dark:border-white/10">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={14} className="text-[#38bdf8]" />
+                    <span className="text-xs font-bold text-[#080503] dark:text-white">
+                      Live Chat Sandbox Tester
+                    </span>
                   </div>
-                </div>
-              </div>
-
-              {/* Voice Selection & TTS Preview */}
-              <div className="pt-4 border-t border-white/[0.08] space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-mono font-bold uppercase text-slate-300 tracking-wider block">
-                    Text-To-Speech (TTS) Voice Engine
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handlePlayVoicePreview}
-                    disabled={isPlayingAudio}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 text-xs font-mono font-bold cursor-pointer transition-all"
-                  >
-                    {isPlayingAudio ? <Volume2 size={13} className="animate-spin" /> : <Play size={13} />}
-                    <span>{isPlayingAudio ? 'Speaking...' : 'Test Voice Audio'}</span>
-                  </button>
+                  <span className="text-[10px] font-mono text-emerald-500">
+                    &bull; Active
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {VOICES.map((v) => {
-                    const isSelected = voice.voiceId === v.id;
-                    return (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => updateVoice({ voiceId: v.id, voiceName: v.name, pitch: v.defaultPitch, speed: v.defaultSpeed })}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSelected ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className="text-xs font-bold text-white">{v.name}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">{v.desc}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-between">
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('appearance')}
-                  className="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:text-white font-mono text-xs cursor-pointer"
-                >
-                  ← BACK
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('permissions')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-bold cursor-pointer"
-                >
-                  <span>NEXT: PC PERMISSIONS</span>
-                  <span>→</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: PERMISSIONS */}
-          {activeStep === 'permissions' && (
-            <div className="rounded-3xl border border-white/10 bg-[#070912] p-6 sm:p-8 space-y-6 shadow-xl">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="text-cyan-400" size={18} />
-                  <span>Windows Skill &amp; Permission Loadout</span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Configure what your desktop mascot is allowed to do on your Windows PC.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {[
-                  { key: 'canOpenApps', title: 'Allow Application Launching', desc: 'Can open notepad, browser tabs, steam games, or calculator when asked.' },
-                  { key: 'canSortFiles', title: 'Allow File Management & Cleaning', desc: 'Can inspect Downloads and organize messy desktop files into subfolders.' },
-                  { key: 'canReadSystemStats', title: 'Allow Hardware Monitoring', desc: 'Can check CPU, RAM usage, and advise you when heavy tasks slow down PC.' },
-                  { key: 'canSetTimers', title: 'Allow Focus Timers & Pomodoro', desc: 'Can trigger visual countdown timers and alerts on your desktop.' },
-                  { key: 'canReadClipboard', title: 'Read Clipboard Content', desc: 'Can inspect copied code snippets or error text for instant analysis.' },
-                  { key: 'canWriteClipboard', title: 'Copy Text to Clipboard', desc: 'Can place generated code or solutions straight into your clipboard.' },
-                  { key: 'canExecuteCommands', title: 'PowerShell Automation (Requires Prompts)', desc: 'Can run terminal scripts on your PC. Always prompts for approval before executing.' },
-                ].map((perm) => {
-                  const isChecked = (permissions as any)[perm.key] ?? false;
-                  return (
-                    <label
-                      key={perm.key}
-                      className="flex items-start justify-between gap-4 p-3.5 rounded-xl border border-white/[0.08] bg-black/20 hover:bg-white/[0.03] cursor-pointer transition-all"
+                <div className="h-40 overflow-y-auto space-y-2 p-2 rounded-xl bg-black/5 dark:bg-black/60 mb-3 text-xs">
+                  {chatMessages.map((m, i) => (
+                    <div
+                      key={i}
+                      className={`p-2 rounded-xl max-w-[85%] ${
+                        m.sender === 'user'
+                          ? 'ml-auto bg-[#080503] text-white dark:bg-white dark:text-black'
+                          : 'bg-white dark:bg-white/10 text-[#080503] dark:text-white border border-[#dad7d0] dark:border-white/10'
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-white">{perm.title}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{perm.desc}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => updatePermissions({ [perm.key]: e.target.checked } as any)}
-                        className="mt-1 w-4 h-4 rounded accent-cyan-400 cursor-pointer"
-                      />
-                    </label>
-                  );
-                })}
-              </div>
+                      {m.text}
+                    </div>
+                  ))}
+                  {isBotReplying && (
+                    <div className="text-[10px] font-mono text-[#5e534a] dark:text-[#a89c92]">
+                      {profile.botName} is drafting reply...
+                    </div>
+                  )}
+                </div>
 
-              <div className="pt-4 flex justify-between">
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('personality')}
-                  className="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:text-white font-mono text-xs cursor-pointer"
-                >
-                  ← BACK
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('sync')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-bold cursor-pointer"
-                >
-                  <span>NEXT: SYNC &amp; DEPLOY</span>
-                  <span>→</span>
-                </button>
+                <form onSubmit={handleStudioChat} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder={`Test chat with ${profile.botName}...`}
+                    className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-black/60 border border-[#dad7d0] dark:border-white/10 rounded-xl text-[#080503] dark:text-white"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInput.trim() || isBotReplying}
+                    className="px-3 py-1.5 rounded-xl bg-[#080503] dark:bg-white text-white dark:text-black text-xs font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Send size={13} />
+                  </button>
+                </form>
               </div>
             </div>
           )}
 
-          {/* STEP 4: SYNC & DEPLOY */}
-          {activeStep === 'sync' && (
-            <div className="rounded-3xl border border-cyan-500/40 bg-[#070914] p-6 sm:p-8 space-y-6 shadow-2xl">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Laptop className="text-cyan-400" size={18} />
-                  <span>Sync Customized Companion to Desktop</span>
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Connect your web creation directly to the Windows application.
+          {/* STEP 4: GITHUB FORK INTEGRATION */}
+          {activeStep === 'github' && (
+            <div className="space-y-6">
+              <div className="p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10 space-y-3">
+                <div className="flex items-center gap-2">
+                  <GitFork size={18} className="text-[#38bdf8]" />
+                  <h4 className="text-sm font-bold text-[#080503] dark:text-white">
+                    GitHub Fork Architecture (like Vercel)
+                  </h4>
+                </div>
+                <p className="text-xs text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
+                  Every user bot connects fully to GitHub by forking{' '}
+                  <span className="font-mono text-[#38bdf8]">jasonhukom/Luminess-Assist</span>. When you customize
+                  bot frames, videos, or prompts, your configuration can be directly pushed or synced to your forked
+                  repository so your local desktop companion can run it automatically.
                 </p>
-              </div>
 
-              {/* Pairing Token Card */}
-              <div className="p-6 rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 to-blue-950/20 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-300 font-bold block mb-1">
-                      1-CLICK PAIRING TOKEN
-                    </span>
-                    <span className="text-3xl font-mono font-extrabold text-white tracking-widest">
-                      {pairingCode}
-                    </span>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Type this code in your Luminess desktop settings to instantly adopt this bot.
-                    </p>
+                <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 font-mono text-xs space-y-1">
+                  <div className="text-[#5e534a] dark:text-[#a89c92]">Base Upstream:</div>
+                  <div className="text-[#080503] dark:text-white font-bold">
+                    https://github.com/jasonhukom/Luminess-Assist
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCopyCode}
-                    className="flex items-center gap-2 px-5 py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-mono font-bold tracking-wide shadow-[0_0_20px_rgba(56,189,248,0.4)] cursor-pointer"
-                  >
-                    {copiedCode ? <Check size={16} /> : <Copy size={16} />}
-                    <span>{copiedCode ? 'COPIED TO CLIPBOARD!' : 'COPY PAIRING CODE'}</span>
-                  </button>
+                  <div className="text-[#5e534a] dark:text-[#a89c92] pt-1">Your Fork:</div>
+                  <div className="text-[#38bdf8] font-bold">
+                    {forkUrl}
+                  </div>
                 </div>
-              </div>
 
-              {/* Quick Deploy Options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-white/10 bg-black/20 space-y-2">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <ExternalLink size={14} className="text-purple-400" />
-                    <span>Deep Link Sync</span>
-                  </span>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    If Luminess is already installed on this PC, clicking below triggers the desktop protocol handler.
-                  </p>
+                <div className="flex flex-wrap items-center gap-3 pt-2">
                   <a
-                    href={`luminess://sync?code=${pairingCode}`}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/20 border border-purple-400/40 text-purple-300 hover:bg-purple-500/30 text-xs font-mono font-bold mt-2 cursor-pointer"
+                    href="https://github.com/jasonhukom/Luminess-Assist/fork"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#080503] dark:bg-white text-white dark:text-black text-xs font-semibold hover:opacity-90 transition-all cursor-pointer"
                   >
-                    <span>Launch `luminess://sync`</span>
+                    <GitFork size={14} />
+                    <span>Fork on GitHub (1-Click)</span>
+                    <ExternalLink size={12} className="opacity-60" />
                   </a>
-                </div>
 
-                <div className="p-4 rounded-xl border border-white/10 bg-black/20 space-y-2">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <Download size={14} className="text-cyan-400" />
-                    <span>Export JSON Profile</span>
-                  </span>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Save the custom appearance, persona prompt, and permission flags as a portable config file.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleDownloadConfig}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 hover:bg-cyan-500/30 text-xs font-mono font-bold mt-2 cursor-pointer"
-                  >
-                    <span>Download `luminess-bot.json`</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* PowerShell 1-liner */}
-              <div className="pt-2 border-t border-white/[0.08] space-y-2">
-                <span className="text-xs font-mono text-slate-300 uppercase block">
-                  First-Time Install PowerShell Command (Pre-configured)
-                </span>
-                <div className="p-3 rounded-xl bg-black border border-white/10 font-mono text-xs text-cyan-300 flex items-center justify-between overflow-x-auto">
-                  <code>
-                    irm https://github.com/jasonhukom/Luminess-Assist/releases/latest/download/install.ps1 | iex
-                  </code>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(
-                        'irm https://github.com/jasonhukom/Luminess-Assist/releases/latest/download/install.ps1 | iex'
-                      );
+                      const payload = JSON.stringify(profile, null, 2);
+                      const blob = new Blob([payload], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `luminess-bot-${profile.pairingCode}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
                     }}
-                    className="ml-3 p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white shrink-0 cursor-pointer"
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#dad7d0] dark:border-white/15 text-xs font-semibold text-[#080503] dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all cursor-pointer"
                   >
-                    <Copy size={13} />
+                    <Download size={13} />
+                    <span>Export Bot Config (.json)</span>
                   </button>
                 </div>
               </div>
 
+              {/* Pairing with Desktop App */}
+              <div className="p-4 rounded-2xl bg-white dark:bg-black/30 border border-[#dad7d0] dark:border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#080503] dark:text-white">Desktop Pairing Code</span>
+                  <span className="text-xs font-mono font-bold text-[#38bdf8]">{profile.pairingCode}</span>
+                </div>
+                <p className="text-[11px] text-[#5e534a] dark:text-[#a89c92]">
+                  Paste this code into the Luminess Assist desktop app to immediately switch to this bot's visual look,
+                  per-frame sprites, video loop, and personality.
+                </p>
+              </div>
             </div>
           )}
 
+          {/* Bottom Navigation */}
+          <div className="mt-8 pt-6 border-t border-[#dad7d0]/60 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs text-[#5e534a] dark:text-[#a89c92]">
+              MariaDB Database Status: <span className="text-emerald-500 font-mono font-semibold">Ready</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={handleSaveToDatabase}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#080503] dark:bg-white text-white dark:text-black text-xs font-bold tracking-wide hover:opacity-90 transition-all cursor-pointer shadow-md disabled:opacity-50"
+            >
+              <Database size={14} />
+              <span>{isSaving ? 'Saving...' : 'Save & Publish to MariaDB'}</span>
+            </button>
+          </div>
         </div>
-
       </div>
-
     </div>
   );
 };
+
+export default BotStudioTab;

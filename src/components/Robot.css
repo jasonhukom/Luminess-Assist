@@ -441,6 +441,16 @@
   --current-glow: var(--robot-glow-idle);
 }
 
+.emotion-idle .eye {
+  fill: #38bdf8;
+  filter:
+    drop-shadow(0 0 2.5px #e0f2fe)
+    drop-shadow(0 0 7px #38bdf8)
+    drop-shadow(0 0 16px rgba(56, 189, 248, 0.85));
+}
+  --current-glow: var(--robot-glow-idle);
+}
+
 .emotion-joy {
   --current-glow: var(--robot-glow-joy);
 }

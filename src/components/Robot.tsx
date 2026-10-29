@@ -82,8 +82,8 @@ interface FaceConfig {
 
 const EMOTION_FACES: Record<Emotion, FaceConfig> = {
   idle: {
-    left: 'M 65 94 C 65 86, 85 86, 85 94 C 85 102, 65 102, 65 94',
-    right: 'M 115 94 C 115 86, 135 86, 135 94 C 135 102, 115 102, 115 94',
+    left: 'M 65 94 C 65 86, 85 86, 85 94 C 85 102, 65 102, 65 94 Z',
+    right: 'M 115 94 C 115 86, 135 86, 135 94 C 135 102, 115 102, 115 94 Z',
   },
   joy: {
     left: 'M 60 98 Q 75 74 90 98 Q 75 84 60 98',
@@ -238,6 +238,7 @@ export function Robot({
   const [isPatting, setIsPatting] = useState(false);
   const [patBounceKey, setPatBounceKey] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
+  const [isHappy, setIsHappy] = useState<boolean>(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isImpactShaking, setIsImpactShaking] = useState(false);
   const [frustration, setFrustration] = useState<number>(0);
@@ -265,6 +266,8 @@ export function Robot({
   const dizzyTimerRef = useRef<number | null>(null);
   const patTimerRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
+  const happyTimerRef = useRef<number | null>(null);
+  const hoverMoveAccumRef = useRef<number>(0);
   const hoverLeaveTimerRef = useRef<number | null>(null);
   const recoveryTimerRef = useRef<number | null>(null);
   const impactShakeTimerRef = useRef<number | null>(null);
@@ -406,6 +409,17 @@ export function Robot({
       heartCleanupTimersRef.current = heartCleanupTimersRef.current.filter((t) => t !== timerId);
     }, 1450);
     heartCleanupTimersRef.current.push(timerId);
+  }, []);
+
+  const triggerHappy = useCallback((durationMs = 4500) => {
+    setIsHappy(true);
+    if (happyTimerRef.current) {
+      window.clearTimeout(happyTimerRef.current);
+    }
+    happyTimerRef.current = window.setTimeout(() => {
+      setIsHappy(false);
+      happyTimerRef.current = null;
+    }, durationMs);
   }, []);
 
   const triggerDizzy = useCallback((durationMs = 2600) => {
@@ -652,9 +666,10 @@ export function Robot({
         setIsPatting(false);
         isPattingRef.current = false;
         hoverRubAccumRef.current = 0;
+        triggerHappy(5000);
       }, 1400);
     },
-    [spawnHearts]
+    [spawnHearts, triggerHappy]
   );
 
   // Prevent refresh and right-click when broken
@@ -766,6 +781,7 @@ export function Robot({
     lastHoverPosRef.current = { x: e.clientX, y: e.clientY };
     hoverRubAccumRef.current = 0;
     hoverHeartAccumRef.current = 0;
+    hoverMoveAccumRef.current = 0;
     setIsHovered(true);
   };
 
@@ -773,6 +789,7 @@ export function Robot({
     lastHoverPosRef.current = null;
     hoverRubAccumRef.current = 0;
     hoverHeartAccumRef.current = 0;
+    hoverMoveAccumRef.current = 0;
     setGaze({ x: 0, y: 0 });
 
     if (hoverLeaveTimerRef.current) window.clearTimeout(hoverLeaveTimerRef.current);
@@ -937,6 +954,10 @@ export function Robot({
 
             if (dtMove < 350) {
               hoverPettingDurationRef.current += dtMove;
+              hoverMoveAccumRef.current += stepDist;
+              if (hoverMoveAccumRef.current >= 24 && !isPattingRef.current) {
+                triggerHappy(4500);
+              }
             }
 
             // Only trigger love after moving mouse around for a couple of seconds (>= 2000ms)
@@ -955,6 +976,7 @@ export function Robot({
                 hoverHeartAccumRef.current += stepDist;
                 if (hoverHeartAccumRef.current >= 110) {
                   hoverHeartAccumRef.current = 0;
+    hoverMoveAccumRef.current = 0;
                   spawnHearts(2, relX, relY);
                   const now = performance.now();
                   if (now - lastBounceTimeRef.current > 900) {
@@ -972,7 +994,9 @@ export function Robot({
                 isPattingRef.current = false;
                 hoverPettingDurationRef.current = 0;
                 hoverRubAccumRef.current = 0;
+        triggerHappy(5000);
                 hoverHeartAccumRef.current = 0;
+    hoverMoveAccumRef.current = 0;
               }, 1600);
             }
           }
@@ -1093,6 +1117,7 @@ export function Robot({
       clickTimerRef.current = window.setTimeout(() => {
         clickTimerRef.current = null;
         tapCountRef.current = 0;
+        triggerHappy(4500);
         onClick();
       }, 220);
       return;
@@ -1298,13 +1323,19 @@ export function Robot({
   } else if (frustrationStage >= 1) {
     visualEmotion = 'anger';
   } else if (isPatting) {
-    visualEmotion = 'love';
+    visualEmotion = 'love' as const;
+
+  } else if (isHappy) {
+    visualEmotion = 'joy';
+
+
   } else if (isWhiteBot) {
     visualEmotion = 'white-bot';
-  } else if (isHovered) {
-    visualEmotion = 'idle'; // Not love while hovered until a couple of seconds of mouse movement!
+
+
   } else if (activeIdleAction === 'happy') {
     visualEmotion = 'joy';
+
   } else if (activeIdleAction === 'look') {
     visualEmotion = 'curiosity';
   } else if (isLonelySad) {
@@ -1354,7 +1385,23 @@ export function Robot({
     statusPillText = '🌀 So dizzy...';
   } else if (isPatting) {
     statusPillText = '💖 Hehe~';
-  } else if (crackStage >= 2 && isImpactShaking) {
+  } else if (isHappy) {
+    statusPillText = '✨ Yay~';
+  } /*
+  } else if (isPatting) {
+    visualEmotion = 'love' as const;
+    statusPillText = '💖 Hehe~';
+  } else if (isHappy) {
+    statusPillText = '✨ Yay~';
+
+  } else if (isPatting) {
+    visualEmotion = 'love' as const;
+
+  } else if (isHappy) {
+    visualEmotion = 'joy';
+
+    statusPillText = '💖 Hehe~';
+  */ else if (crackStage >= 2 && isImpactShaking) {
     statusPillText = crackStage >= 3 ? '💔 I\'m breaking!!' : '💥 *crack*';
   } else if (frustrationStage === 4 && (isImpactShaking || isReturning || isHovered)) {
     statusPillText = '💢 STOP THROWING ME!';
@@ -1455,8 +1502,8 @@ export function Robot({
           </linearGradient>
 
           <filter id="neon-eye-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="blur1" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur2" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur1" />
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur2" />
             <feMerge>
               <feMergeNode in="blur2" />
               <feMergeNode in="blur1" />
@@ -1513,6 +1560,7 @@ export function Robot({
 
           {/* Screen Base */}
           <rect x="50" y="55" width="100" height="85" rx="20" className="robot-screen" />
+          <rect x="50" y="55" width="100" height="85" rx="20" fill="url(#screen-glare)" opacity="0.85" />
 
           {/* Dynamic Glowing Eyes, Brows, Blush & Mouth */}
           <g
@@ -1565,7 +1613,7 @@ export function Robot({
           </g>
 
           {/* Screen Glare Overlay */}
-          <rect x="50" y="55" width="100" height="85" rx="20" fill="url(#screen-glare)" />
+
 
           {/* Cracks that slowly spread across the shell as it keeps hitting walls */}
           {crackStage >= 1 && (

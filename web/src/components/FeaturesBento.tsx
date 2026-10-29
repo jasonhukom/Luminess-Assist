@@ -14,6 +14,7 @@ import {
   Layers,
   Code2,
   HardDrive,
+  Users,
 } from 'lucide-react';
 import type { TabKey } from './Navbar.tsx';
 
@@ -147,30 +148,30 @@ export const FeaturesBento: React.FC<FeaturesBentoProps> = ({ onNavigateTab }) =
             </button>
           </div>
 
-          {/* Card 04 */}
+          {/* Card 04: Community Bot Hub */}
           <div className="p-8 rounded-2xl border border-[#dad7d0] dark:border-white/10 bg-white dark:bg-[#120f0d] flex flex-col justify-between space-y-8 crosshair-corner shadow-sm hover:border-[#080503]/40 dark:hover:border-white/30 transition-all">
             <div>
               <div className="flex items-center justify-between mb-6">
                 <span className="font-mono text-xs font-bold text-[#5e534a] dark:text-[#a89c92]">
-                  04 // PERSONALITY
+                  04 // COMMUNITY
                 </span>
                 <span className="w-8 h-8 rounded-full border border-[#dad7d0] dark:border-white/10 flex items-center justify-center text-[#080503] dark:text-[#fafaf9]">
-                  <Sparkles size={15} />
+                  <Users size={15} />
                 </span>
               </div>
               <h3 className="text-xl font-display font-bold text-[#080503] dark:text-[#fafaf9] mb-2">
-                Living Mascot Physics
+                Community Bot Hub
               </h3>
               <p className="text-sm text-[#5e534a] dark:text-[#a89c92] leading-relaxed">
-                Frameless transparent window with 11 dynamic emotions, eye tracking, keyboard shortcuts, and smooth viewport collision physics.
+                Download community-crafted personalities, custom prompt instructions, and emotional palettes. Adopt into your companion in 1-click.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => onNavigateTab('studio')}
+              onClick={() => onNavigateTab('community')}
               className="text-xs font-mono font-semibold text-[#080503] dark:text-[#fafaf9] flex items-center gap-1.5 hover-underline cursor-pointer"
             >
-              <span>Open Bot Studio</span>
+              <span>Browse Community Bots</span>
               <ArrowRight size={12} />
             </button>
           </div>
@@ -315,10 +316,10 @@ export const FeaturesBento: React.FC<FeaturesBentoProps> = ({ onNavigateTab }) =
 
               <button
                 type="button"
-                onClick={() => onNavigateTab('studio')}
+                onClick={() => onNavigateTab('community')}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full bg-white text-[#080503] hover:bg-white/90 font-mono text-xs font-bold transition-all cursor-pointer"
               >
-                <span>OPEN BOT STUDIO</span>
+                <span>EXPLORE COMMUNITY BOTS</span>
                 <ArrowRight size={13} />
               </button>
             </div>

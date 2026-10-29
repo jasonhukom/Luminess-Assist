@@ -20,7 +20,7 @@ export const ReleasesTab: React.FC = () => {
     'Adaptive desktop companion shortcuts: Alt + Click (magnet move), Win + Shift + C (chat), Page Up/Down (dock flip)',
     'Persistent relationship memory engine with long-term cross-session fact storage',
     'Smooth vector locomotion with keyboard conflict resolution and viewport boundary bounce',
-    'Automated Web Studio pairing tokens and custom prompt synchronization',
+    'Automated Community Bot pairing tokens and custom prompt synchronization',
   ];
 
   return (

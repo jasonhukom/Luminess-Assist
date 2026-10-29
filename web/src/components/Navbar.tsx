@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Sun, Moon, ArrowUpRight, Menu, X, Sparkles, Terminal } from 'lucide-react';
+import { Download, Sun, Moon, ArrowUpRight, Menu, X, Sparkles, Terminal, User, LogIn, Database, Layers } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
+import { type PlatformUser } from '../lib/botPlatformStore.ts';
 
 const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -10,12 +11,14 @@ const GithubIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 
 export type TabKey =
   | 'overview'
+  | 'showcase'
+  | 'community'
   | 'studio'
+  | 'database'
   | 'install'
   | 'releases'
   | 'croc'
   | 'admin'
-  | 'database'
   | 'architecture'
   | 'dependencies';
 
@@ -24,6 +27,9 @@ interface NavbarProps {
   onTabChange: (tab: TabKey) => void;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  currentUser?: PlatformUser | null;
+  onOpenAuth?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -31,6 +37,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTabChange,
   theme = 'light',
   onToggleTheme,
+  currentUser,
+  onOpenAuth,
+  onOpenProfile,
 }) => {
   const { version, exeAsset } = useLatestRelease();
   const [scrolled, setScrolled] = useState(false);
@@ -46,12 +55,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navItems: { key: TabKey; label: string; badge?: string }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'showcase', label: 'Explore Bots', badge: 'Hub' },
     { key: 'studio', label: 'Bot Studio', badge: 'Creator' },
+    { key: 'database', label: 'MariaDB', badge: 'DB' },
     { key: 'install', label: 'Installation' },
     { key: 'releases', label: 'Downloads' },
-    { key: 'croc', label: 'C.R.O.C.' },
     { key: 'architecture', label: 'Multi-AI Core' },
-    { key: 'dependencies', label: 'Specs' },
   ];
 
   return (
@@ -91,9 +100,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Desktop Horizontal Navigation Links */}
-          <div className="hidden xl:flex items-center gap-7">
+          <div className="hidden xl:flex items-center gap-6">
             {navItems.map((item) => {
-              const isActive = activeTab === item.key;
+              const isActive = activeTab === item.key || (item.key === 'showcase' && activeTab === 'community');
               return (
                 <button
                   key={item.key}
@@ -111,7 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {item.badge}
                     </span>
                   )}
-                  {/* Optimus Animated Slide-in Underline */}
+                  {/* Slide-in Underline */}
                   <span
                     className={`absolute -bottom-1 left-0 h-[1.5px] bg-[#080503] dark:bg-[#fafaf9] transition-all duration-300 ${
                       isActive ? 'w-full' : 'w-0 group-hover:w-full'
@@ -122,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </div>
 
-          {/* Right Controls & CTAs */}
+          {/* Right Controls, User Account & CTAs */}
           <div className="flex items-center gap-3">
             
             {/* Theme Toggle (Light / Dark) */}
@@ -149,7 +158,34 @@ export const Navbar: React.FC<NavbarProps> = ({
               <ArrowUpRight size={12} className="opacity-60" />
             </a>
 
-            {/* Solid Pill CTA Button (Optimus signature) */}
+            {/* User Profile / Login Button */}
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={onOpenProfile}
+                className="flex items-center gap-2 h-9 pl-1 pr-3 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#38bdf8] transition-all cursor-pointer bg-white dark:bg-black/40"
+              >
+                <img
+                  src={currentUser.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.username}`}
+                  alt={currentUser.displayName}
+                  className="w-7 h-7 rounded-full object-cover"
+                />
+                <span className="text-xs font-semibold text-[#080503] dark:text-white max-w-[90px] truncate">
+                  {currentUser.displayName || currentUser.username}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                className="flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-[#dad7d0] dark:border-white/15 hover:border-[#080503] dark:hover:border-white text-xs font-semibold text-[#080503] dark:text-white transition-all cursor-pointer"
+              >
+                <LogIn size={13} />
+                <span>Sign In</span>
+              </button>
+            )}
+
+            {/* Solid Pill CTA Button */}
             <a
               href={exeAsset.url}
               className="flex items-center gap-2 h-9 px-4 rounded-full bg-[#080503] text-[#fafaf9] dark:bg-[#fafaf9] dark:text-[#080503] hover:opacity-90 transition-all font-mono text-xs font-semibold tracking-tight shadow-sm cursor-pointer"
@@ -175,7 +211,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {mobileMenuOpen && (
           <div className="xl:hidden border-t border-[#dad7d0]/80 dark:border-white/10 bg-[#fafaf9] dark:bg-[#080503] py-4 px-2 space-y-1">
             {navItems.map((item) => {
-              const isActive = activeTab === item.key;
+              const isActive = activeTab === item.key || (item.key === 'showcase' && activeTab === 'community');
               return (
                 <button
                   key={item.key}
@@ -199,16 +235,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               );
             })}
+            
             <div className="pt-3 border-t border-[#dad7d0]/40 dark:border-white/10 flex items-center justify-between px-3">
-              <a
-                href="https://github.com/jasonhukom/Luminess-Assist"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs font-mono text-[#5e534a] dark:text-[#a89c92]"
-              >
-                <GithubIcon size={14} />
-                <span>jasonhukom/Luminess-Assist</span>
-              </a>
+              {currentUser ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenProfile) onOpenProfile();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-2 text-xs font-semibold text-[#080503] dark:text-white"
+                >
+                  <User size={14} />
+                  <span>Account (@{currentUser.username})</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenAuth) onOpenAuth();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-[#080503] dark:text-white"
+                >
+                  <LogIn size={14} />
+                  <span>Sign In</span>
+                </button>
+              )}
               <span className="text-xs font-mono text-[#5e534a] dark:text-[#a89c92]">v{version}</span>
             </div>
           </div>

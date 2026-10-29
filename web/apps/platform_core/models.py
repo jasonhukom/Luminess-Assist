@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.utils import timezone
+from django.contrib.auth.hashers import make_password, check_password
 
 
 def generate_user_id():
@@ -23,6 +24,35 @@ def default_appearance():
         'accessory': 'headphones',
         'scale': 1.0,
     }
+
+
+def default_frames():
+    return [
+        {
+            'id': 'f1',
+            'name': 'Idle Frame 1',
+            'url': 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+            'state': 'idle',
+        },
+        {
+            'id': 'f2',
+            'name': 'Idle Frame 2',
+            'url': 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+            'state': 'idle',
+        },
+        {
+            'id': 'f3',
+            'name': 'Speaking Frame',
+            'url': 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=300&q=80',
+            'state': 'talking',
+        },
+        {
+            'id': 'f4',
+            'name': 'Emote Frame',
+            'url': 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
+            'state': 'happy',
+        },
+    ]
 
 
 def default_personality():
@@ -60,9 +90,15 @@ def default_permissions():
 
 class PlatformUser(models.Model):
     id = models.CharField(max_length=64, primary_key=True, default=generate_user_id)
-    username = models.CharField(max_length=150, unique=True)
+    username = models.CharField(max_length=150, unique=True, db_index=True)
+    display_name = models.CharField(max_length=150, blank=True, default='')
     email = models.EmailField(unique=True)
+    password_hash = models.CharField(max_length=255, blank=True, default='')
     role = models.CharField(max_length=20, default='user', choices=[('admin', 'Admin'), ('user', 'User')])
+    bio = models.TextField(blank=True, default='')
+    avatar_url = models.TextField(blank=True, default='')
+    github_username = models.CharField(max_length=100, blank=True, default='')
+    github_repo_url = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -71,19 +107,76 @@ class PlatformUser(models.Model):
         verbose_name_plural = 'Platform Users'
 
     def __str__(self):
-        return f"{self.username} ({self.role})"
+        return f"{self.display_name or self.username} (@{self.username})"
+
+    def set_password(self, raw_password):
+        self.password_hash = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        if not self.password_hash:
+            return True  # Allows demo access if unset
+        return check_password(raw_password, self.password_hash)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'displayName': self.display_name or self.username,
+            'email': self.email,
+            'role': self.role,
+            'bio': self.bio,
+            'avatarUrl': self.avatar_url or f"https://api.dicebear.com/7.x/bottts/svg?seed={self.username}",
+            'githubUsername': self.github_username,
+            'githubRepoUrl': self.github_repo_url,
+            'createdAt': self.created_at.strftime('%Y-%m-%d'),
+        }
 
 
 class BotProfile(models.Model):
     id = models.CharField(max_length=64, primary_key=True, default=generate_bot_id)
-    user = models.ForeignKey(PlatformUser, on_delete=models.CASCADE, null=True, blank=True, related_name='bot_profiles')
+    user = models.ForeignKey(PlatformUser, on_delete=models.SET_NULL, null=True, blank=True, related_name='bot_profiles')
     bot_name = models.CharField(max_length=100, default='Luminess')
+    tagline = models.CharField(max_length=255, default='Autonomous AI desktop companion')
     is_active = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=True, db_index=True)
     pairing_code = models.CharField(max_length=32, unique=True, db_index=True)
+
+    # Visual look & media configuration
+    VISUAL_MODES = [
+        ('robot', 'Living Robot'),
+        ('sprite_frames', 'Per-Frame Sprites'),
+        ('video', 'Video Loop'),
+        ('image', 'Custom Image'),
+        ('orb', 'Cyber Orb'),
+        ('vtuber', 'VTuber / Live2D'),
+    ]
+    visual_mode = models.CharField(max_length=30, default='robot', choices=VISUAL_MODES)
+    avatar_image_url = models.TextField(blank=True, default='')
+    video_url = models.TextField(blank=True, default='')
+    frames_config = models.JSONField(default=list, blank=True)
     appearance_config = models.JSONField(default=default_appearance)
+
+    # Chat & Personality
+    greeting_message = models.TextField(default='Hello Pilot! I am ready to assist.')
     personality_config = models.JSONField(default=default_personality)
     voice_config = models.JSONField(default=default_voice)
     permissions = models.JSONField(default=default_permissions)
+
+    # GitHub integration & Repository fork connection
+    github_repo = models.CharField(max_length=200, blank=True, default='')
+    github_repo_url = models.TextField(blank=True, default='')
+    forked_from = models.CharField(max_length=200, default='jasonhukom/Luminess-Assist')
+    github_branch = models.CharField(max_length=100, default='main')
+    github_sync_status = models.CharField(max_length=30, default='synced', choices=[
+        ('synced', 'Synced'),
+        ('pending', 'Pending Sync'),
+        ('disconnected', 'Disconnected'),
+    ])
+
+    # Community metrics
+    likes_count = models.IntegerField(default=0)
+    views_count = models.IntegerField(default=0)
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -91,22 +184,47 @@ class BotProfile(models.Model):
         db_table = 'bot_profiles'
         verbose_name = 'Bot Profile'
         verbose_name_plural = 'Bot Profiles'
+        ordering = ['-likes_count', '-created_at']
 
     def __str__(self):
-        return f"{self.bot_name} [{self.pairing_code}]"
+        return f"{self.bot_name} [{self.pairing_code}] (@{self.user.username if self.user else 'anon'})"
 
     def to_dict(self):
+        creator = self.user.to_dict() if self.user else {
+            'id': 'usr_anon',
+            'username': 'creator',
+            'displayName': 'Community Creator',
+            'avatarUrl': f"https://api.dicebear.com/7.x/bottts/svg?seed={self.bot_name}",
+            'githubUsername': '',
+            'githubRepoUrl': '',
+        }
         return {
             'id': self.id,
-            'userId': self.user_id or 'usr_01jk984',
+            'userId': self.user_id or '',
+            'creator': creator,
             'botName': self.bot_name,
+            'tagline': self.tagline,
             'isActive': self.is_active,
+            'isPublic': self.is_public,
             'pairingCode': self.pairing_code,
+            'visualMode': self.visual_mode,
+            'avatarImageUrl': self.avatar_image_url,
+            'videoUrl': self.video_url,
+            'framesConfig': self.frames_config or [],
             'appearance': self.appearance_config,
+            'greetingMessage': self.greeting_message,
             'personality': self.personality_config,
             'voice': self.voice_config,
             'permissions': self.permissions,
+            'githubRepo': self.github_repo,
+            'githubRepoUrl': self.github_repo_url,
+            'forkedFrom': self.forked_from,
+            'githubBranch': self.github_branch,
+            'githubSyncStatus': self.github_sync_status,
+            'likesCount': self.likes_count,
+            'viewsCount': self.views_count,
             'createdAt': self.created_at.strftime('%Y-%m-%d'),
+            'updatedAt': self.updated_at.strftime('%Y-%m-%d'),
         }
 
 
