@@ -2,6 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { invoke } from '@tauri-apps/api/core';
 import type { Emotion } from '../components/Robot.tsx';
 import { getPersonalityPromptContext } from './personality.ts';
+import { runOfflineAgent } from './offlineAi.ts';
 import {
   normalizeAIError,
   type NormalizedAIError,
@@ -88,7 +89,7 @@ async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   };
 }
 
-let apiKey = localStorage.getItem(STORAGE_KEY) || '';
+let apiKey = (typeof window !== 'undefined' && typeof localStorage !== 'undefined') ? (localStorage.getItem(STORAGE_KEY) || '') : '';
 let googleSession: GoogleUserSession | null = loadSavedGoogleSession();
 
 function loadSavedGoogleSession(): GoogleUserSession | null {
@@ -143,20 +144,23 @@ export function hasApiKey(): boolean {
   return !!apiKey && apiKey.trim().length > 0;
 }
 
-export type AIProvider = 'gemini' | 'claude' | 'codex';
+export type AIProvider = 'gemini' | 'claude' | 'codex' | 'offline';
 
-const PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini'>, string> = {
+const PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini' | 'offline'>, string> = {
   claude: 'LUMINESS_CLAUDE_API_KEY',
   codex: 'LUMINESS_CODEX_API_KEY',
 };
 const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINESS_SELECTED_PROVIDER';
 
 export function getProviderApiKey(provider: AIProvider): string {
+  if (provider === 'offline') return 'offline-local';
   if (provider === 'gemini') return getApiKey();
+  if (typeof localStorage === 'undefined') return '';
   return localStorage.getItem(PROVIDER_KEY_STORAGE[provider]) || '';
 }
 
 export function setProviderApiKey(provider: AIProvider, key: string): void {
+  if (provider === 'offline') return;
   const cleaned = key.trim();
   if (provider === 'gemini') {
     setApiKey(cleaned);
@@ -168,8 +172,9 @@ export function setProviderApiKey(provider: AIProvider, key: string): void {
 }
 
 export function getSelectedProvider(): AIProvider {
+  if (typeof localStorage === 'undefined') return 'gemini';
   const saved = localStorage.getItem(SELECTED_PROVIDER_STORAGE_KEY);
-  return saved === 'gemini' || saved === 'claude' || saved === 'codex' ? saved : 'gemini';
+  return saved === 'gemini' || saved === 'claude' || saved === 'codex' || saved === 'offline' ? saved : 'gemini';
 }
 
 export function setSelectedProvider(provider: AIProvider): void {
@@ -177,6 +182,7 @@ export function setSelectedProvider(provider: AIProvider): void {
 }
 
 export function hasAnyProviderKey(): boolean {
+  if (getSelectedProvider() === 'offline') return true;
   return Boolean(getProviderApiKey('gemini') || getProviderApiKey('claude') || getProviderApiKey('codex'));
 }
 
@@ -208,6 +214,9 @@ export async function verifyProviderConnection(
   provider: AIProvider,
   keyOverride?: string
 ): Promise<{ success: boolean; error?: NormalizedAIError }> {
+  if (provider === 'offline') {
+    return { success: true };
+  }
   const key = (keyOverride !== undefined ? keyOverride : getProviderApiKey(provider)).trim();
 
   if (provider === 'gemini') {
@@ -510,7 +519,7 @@ function describeToolCall(name: string, args: Record<string, any>): string {
   }
 }
 
-async function executeToolOnPc(
+export async function executeToolOnPc(
   name: string,
   args: Record<string, any>,
   onTimerComplete?: (label: string) => void
@@ -901,6 +910,17 @@ export async function runAgent(
   onTimerComplete?: (label: string) => void
 ): Promise<Message> {
   const selectedProvider = getSelectedProvider();
+
+  if (selectedProvider === 'offline') {
+    return await runOfflineAgent(
+      history,
+      onToolStart,
+      onEmotion,
+      onRequestPermission,
+      onTimerComplete
+    );
+  }
+
   const selectedProviderKey = getProviderApiKey(selectedProvider);
 
   if (selectedProvider !== 'gemini' && !selectedProviderKey) {

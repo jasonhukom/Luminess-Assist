@@ -12,9 +12,19 @@ import {
   Check,
   Ban,
   Terminal,
+  History,
+  PlusCircle,
+  Trash2,
+  Lock,
+  Info,
+  Zap,
 } from 'lucide-react';
-import type { Message, ToolPermissionRequest, PermissionDecision } from '../lib/gemini.ts';
+import type { Message, ToolPermissionRequest, PermissionDecision, AIProvider } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
+import {
+  LOCAL_CHAT_PRIVACY_NOTICE,
+  type ChatSession,
+} from '../lib/chatHistory.ts';
 
 interface ChatPanelProps {
   messages: Message[];
@@ -37,6 +47,14 @@ interface ChatPanelProps {
   chatVert: 'up' | 'down';
   onToggleChatVert: () => void;
   brokenCountdown?: number;
+  currentProvider?: AIProvider;
+  // Local chat history props
+  activeSessionId?: string;
+  allSessions?: ChatSession[];
+  onSelectSession?: (sessionId: string) => void;
+  onNewChat?: () => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onClearAllHistory?: () => void;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -60,9 +78,18 @@ export function ChatPanel({
   chatSide,
   chatVert,
   brokenCountdown = 0,
+  currentProvider,
+  activeSessionId,
+  allSessions = [],
+  onSelectSession,
+  onNewChat,
+  onDeleteSession,
+  onClearAllHistory,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [isResizing, setIsResizing] = useState(false);
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const resizeRef = useRef<{
@@ -165,8 +192,49 @@ export function ChatPanel({
         <div className="chat-title" title="Shortcut: Ctrl+Alt+C to open • Arrow keys to move chat • Ctrl+Arrow to move bot">
           <Bot size={18} className="text-glow" />
           <span>Luminess Assist</span>
+          {currentProvider === 'offline' && (
+            <span className="offline-chip" title="Running in Local Offline Mode">
+              <Zap size={10} />
+              <span>OFFLINE</span>
+            </span>
+          )}
         </div>
         <div className="chat-actions">
+          {/* New Chat Button */}
+          {onNewChat && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                setShowHistoryDrawer(false);
+                onNewChat();
+              }}
+              title="New Chat Session"
+            >
+              <PlusCircle size={15} />
+            </button>
+          )}
+
+          {/* Local History Drawer Toggle */}
+          <button
+            type="button"
+            className={`icon-btn ${showHistoryDrawer ? 'active' : ''}`}
+            onClick={() => setShowHistoryDrawer((v) => !v)}
+            title="Local Chat History (Stored only on this PC)"
+          >
+            <History size={15} />
+          </button>
+
+          {/* 100% Local Privacy Guarantee & License Modal Trigger */}
+          <button
+            type="button"
+            className="icon-btn privacy-shield-btn"
+            onClick={() => setShowPrivacyModal(true)}
+            title="100% Local Privacy Guarantee • Never Saved to Account"
+          >
+            <ShieldCheck size={15} />
+          </button>
+
           <button
             type="button"
             className={`perm-mode-btn ${autoApprove ? 'auto' : 'ask'}`}
@@ -204,6 +272,16 @@ export function ChatPanel({
             <p className="empty-sub">
               Ask me to read/write files, search folders, run PowerShell commands, or open apps. I&apos;ll ask your permission before making changes!
             </p>
+            <button
+              type="button"
+              className="local-privacy-pill"
+              onClick={() => setShowPrivacyModal(true)}
+              title="Click to view Local Privacy & License Guarantee"
+            >
+              <Lock size={12} className="privacy-pill-icon" />
+              <span>100% Local Chat • Never saved to accounts</span>
+              <Info size={12} className="privacy-info-icon" />
+            </button>
           </div>
         )}
 
@@ -313,6 +391,164 @@ export function ChatPanel({
           <Send size={16} />
         </button>
       </form>
+
+      <div className="chat-privacy-subtext" title="All chats remain strictly in local storage on this computer">
+        <Lock size={10} />
+        <span>100% Local Chat • Not saved to accounts or cloud</span>
+      </div>
+
+      {/* Local History Drawer */}
+      {showHistoryDrawer && (
+        <div className="history-drawer">
+          <div className="history-drawer-header">
+            <div className="history-drawer-title">
+              <History size={14} />
+              <span>Local Chat History</span>
+            </div>
+            <div className="history-drawer-actions">
+              {onNewChat && (
+                <button
+                  type="button"
+                  className="history-action-btn"
+                  onClick={() => {
+                    setShowHistoryDrawer(false);
+                    onNewChat();
+                  }}
+                  title="Start a new local chat session"
+                >
+                  <PlusCircle size={12} />
+                  <span>New</span>
+                </button>
+              )}
+              {onClearAllHistory && (
+                <button
+                  type="button"
+                  className="history-action-btn danger"
+                  onClick={() => {
+                    if (window.confirm('Clear all local chat history? This cannot be undone.')) {
+                      onClearAllHistory();
+                      setShowHistoryDrawer(false);
+                    }
+                  }}
+                  title="Wipe all local chat logs from this machine"
+                >
+                  <Trash2 size={12} />
+                  <span>Clear All</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowHistoryDrawer(false)}
+                title="Close History"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div className="history-sessions-list">
+            {allSessions.length === 0 ? (
+              <div className="empty-state" style={{ height: 'auto', padding: '24px 8px' }}>
+                <p className="empty-sub">No previous conversation logs.</p>
+              </div>
+            ) : (
+              allSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className={`history-session-item ${session.id === activeSessionId ? 'active' : ''}`}
+                  onClick={() => {
+                    onSelectSession?.(session.id);
+                    setShowHistoryDrawer(false);
+                  }}
+                >
+                  <div className="history-session-info">
+                    <span className="history-session-title">{session.title}</span>
+                    <span className="history-session-meta">
+                      {session.messages.length} message{session.messages.length === 1 ? '' : 's'} •{' '}
+                      {new Date(session.updatedAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  {onDeleteSession && (
+                    <button
+                      type="button"
+                      className="history-item-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(session.id);
+                      }}
+                      title="Delete this chat session"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="history-drawer-footer">
+            <Lock size={11} />
+            <span>Stored 100% locally on this device. Disconnected from accounts.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Local Privacy & License Guarantee Modal */}
+      {showPrivacyModal && (
+        <div className="privacy-modal-overlay" onClick={() => setShowPrivacyModal(false)}>
+          <div className="privacy-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="privacy-modal-header">
+              <div className="privacy-modal-title">
+                <ShieldCheck size={18} />
+                <span>{LOCAL_CHAT_PRIVACY_NOTICE.title}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowPrivacyModal(false)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="privacy-modal-body">
+              <div className="privacy-notice-lead">
+                <strong>{LOCAL_CHAT_PRIVACY_NOTICE.badge}:</strong> {LOCAL_CHAT_PRIVACY_NOTICE.summary}
+              </div>
+
+              <div className="privacy-principles-list">
+                {LOCAL_CHAT_PRIVACY_NOTICE.principles.map((pr, idx) => (
+                  <div key={idx} className="privacy-principle-item">
+                    <ShieldCheck size={14} className="privacy-principle-icon" />
+                    <div>
+                      <h4>{pr.title}</h4>
+                      <p>{pr.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="privacy-license-tag">
+                {LOCAL_CHAT_PRIVACY_NOTICE.license}
+              </div>
+            </div>
+
+            <div className="privacy-modal-footer">
+              <button
+                type="button"
+                className="privacy-close-btn"
+                onClick={() => setShowPrivacyModal(false)}
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

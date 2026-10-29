@@ -37,6 +37,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { recordChatInteraction } from './lib/personality.ts';
 import { listen } from '@tauri-apps/api/event';
 import {
+  loadActiveChatMessages,
+  saveActiveChatMessages,
+  loadAllChatSessions,
+  createNewSession,
+  deleteChatSession,
+  clearAllLocalChatHistory,
+  type ChatSession,
+} from './lib/chatHistory.ts';
+import {
   Sparkles,
   Loader2,
   LogOut,
@@ -49,6 +58,7 @@ import {
   ExternalLink,
   AlertTriangle,
   TerminalSquare,
+  Zap,
 } from 'lucide-react';
 
 const PROVIDER_INFO: Record<
@@ -86,6 +96,14 @@ const PROVIDER_INFO: Record<
     placeholder: 'Paste OpenAI API Key (sk-...)',
     colorClass: 'codex',
   },
+  offline: {
+    name: 'Offline AI',
+    mark: '⚡',
+    keyUrl: '',
+    btnLabel: '100% Local (No Internet Required)',
+    placeholder: 'Offline Mode Active (No API key needed)',
+    colorClass: 'offline',
+  },
 };
 
 const CHAT_BOT_GAP = 28;
@@ -98,6 +116,7 @@ function App() {
     gemini: getProviderApiKey('gemini'),
     claude: getProviderApiKey('claude'),
     codex: getProviderApiKey('codex'),
+    offline: getProviderApiKey('offline'),
   }));
   const [showKey, setShowKey] = useState<boolean>(false);
   const [showApiModal, setShowApiModal] = useState<boolean>(() =>
@@ -119,7 +138,13 @@ function App() {
   const [emotion, setEmotion] = useState<Emotion>('idle');
   const [visualEmotion, setVisualEmotion] = useState<VisualEmotion>('idle');
   const [brokenSeconds, setBrokenSeconds] = useState<number>(0);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    return loadActiveChatMessages().sessionId;
+  });
+  const [messages, setMessages] = useState<Message[]>(() => {
+    return loadActiveChatMessages().messages;
+  });
+  const [allSessions, setAllSessions] = useState<ChatSession[]>(() => loadAllChatSessions());
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [isDraggingBot, setIsDraggingBot] = useState<boolean>(false);
@@ -989,6 +1014,7 @@ function App() {
       gemini: getProviderApiKey('gemini'),
       claude: getProviderApiKey('claude'),
       codex: getProviderApiKey('codex'),
+      offline: getProviderApiKey('offline'),
     });
     setSelectedProviderState(getSelectedProvider());
     setChatOpen(false);
@@ -1009,7 +1035,7 @@ function App() {
     setNormalizedError(null);
     setEmotion('curiosity');
 
-    (['gemini', 'claude', 'codex'] as AIProvider[]).forEach((p) => {
+    (['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).forEach((p) => {
       setProviderApiKey(p, providerKeys[p] || '');
     });
     setSelectedProvider(prov);
@@ -1052,7 +1078,7 @@ function App() {
         void handleGoogleLogin();
         break;
       case 'choose_another_provider': {
-        const order: AIProvider[] = ['gemini', 'claude', 'codex'];
+        const order: AIProvider[] = ['gemini', 'claude', 'codex', 'offline'];
         const next = order[(order.indexOf(selectedProvider) + 1) % order.length];
         setSelectedProviderState(next);
         setNormalizedError(null);
@@ -1192,6 +1218,44 @@ function App() {
     }
   };
 
+  // Sync active chat session messages to local storage whenever they change
+  useEffect(() => {
+    if (activeSessionId) {
+      saveActiveChatMessages(activeSessionId, messages);
+      setAllSessions(loadAllChatSessions());
+    }
+  }, [activeSessionId, messages]);
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    const sessions = loadAllChatSessions();
+    const target = sessions.find((s) => s.id === sessionId);
+    if (target) {
+      setActiveSessionId(target.id);
+      setMessages(target.messages);
+    }
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    const { sessionId, messages: newMsgs } = createNewSession();
+    setActiveSessionId(sessionId);
+    setMessages(newMsgs);
+    setAllSessions(loadAllChatSessions());
+  }, []);
+
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    const result = deleteChatSession(sessionId);
+    setActiveSessionId(result.activeSessionId);
+    setMessages(result.messages);
+    setAllSessions(loadAllChatSessions());
+  }, []);
+
+  const handleClearAllHistory = useCallback(() => {
+    const result = clearAllLocalChatHistory();
+    setActiveSessionId(result.sessionId);
+    setMessages(result.messages);
+    setAllSessions(loadAllChatSessions());
+  }, []);
+
   if (!bootComplete) {
     return <LuminessBootScreen onComplete={handleBootComplete} />;
   }
@@ -1239,7 +1303,7 @@ function App() {
 
             {/* Provider Selection Tabs */}
             <div className="provider-tabs">
-              {(['gemini', 'claude', 'codex'] as AIProvider[]).map((p) => {
+              {(['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).map((p) => {
                 const info = PROVIDER_INFO[p];
                 const isActive = selectedProvider === p;
                 return (
@@ -1407,59 +1471,82 @@ function App() {
                 </>
               )}
 
-              {/* Button for opening the provider's API key dashboard */}
-              <button
-                type="button"
-                className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
-                onClick={() =>
-                  void invoke('open_item', { target: PROVIDER_INFO[selectedProvider].keyUrl }).catch(() => {
-                    window.open(PROVIDER_INFO[selectedProvider].keyUrl, '_blank', 'noopener,noreferrer');
-                  })
-                }
-              >
-                <KeyRound size={14} />
-                <span>{PROVIDER_INFO[selectedProvider].btnLabel}</span>
-                <ExternalLink size={13} />
-              </button>
+              {selectedProvider === 'offline' ? (
+                <div className="offline-mode-card">
+                  <div className="offline-mode-badge">
+                    <Zap size={14} />
+                    <span>Zero Internet • Zero API Key • 100% Local</span>
+                  </div>
+                  <p className="offline-mode-desc">
+                    Luminess Assist will run completely locally on your Windows PC. It responds with simple, snappy answers, tells time and date, calculates math, launches apps, runs timers, and executes PC commands without transmitting any data over the internet.
+                  </p>
+                  <button
+                    type="button"
+                    className="api-submit-btn offline"
+                    onClick={() => void handleVerifyAndConnect()}
+                    disabled={isVerifying}
+                  >
+                    <Zap size={16} />
+                    <span>Activate Offline Assistant</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Button for opening the provider's API key dashboard */}
+                  <button
+                    type="button"
+                    className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
+                    onClick={() =>
+                      void invoke('open_item', { target: PROVIDER_INFO[selectedProvider].keyUrl }).catch(() => {
+                        window.open(PROVIDER_INFO[selectedProvider].keyUrl, '_blank', 'noopener,noreferrer');
+                      })
+                    }
+                  >
+                    <KeyRound size={14} />
+                    <span>{PROVIDER_INFO[selectedProvider].btnLabel}</span>
+                    <ExternalLink size={13} />
+                  </button>
 
-              <div className="api-input-group">
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  placeholder={PROVIDER_INFO[selectedProvider].placeholder}
-                  value={providerKeys[selectedProvider] || ''}
-                  onChange={(e) => handleProviderKeyChange(selectedProvider, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void handleVerifyAndConnect();
-                  }}
-                />
-                <button
-                  type="button"
-                  className="toggle-key-btn"
-                  onClick={() => setShowKey((s) => !s)}
-                  title={showKey ? 'Hide API Key' : 'Show API Key'}
-                >
-                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
+                  <div className="api-input-group">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      placeholder={PROVIDER_INFO[selectedProvider].placeholder}
+                      value={providerKeys[selectedProvider] || ''}
+                      onChange={(e) => handleProviderKeyChange(selectedProvider, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleVerifyAndConnect();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="toggle-key-btn"
+                      onClick={() => setShowKey((s) => !s)}
+                      title={showKey ? 'Hide API Key' : 'Show API Key'}
+                    >
+                      {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
 
-              <button
-                type="button"
-                className="api-submit-btn"
-                onClick={() => void handleVerifyAndConnect()}
-                disabled={isVerifying}
-              >
-                {isVerifying ? (
-                  <>
-                    <Loader2 size={16} className="spin" />
-                    <span>Verifying Connection...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Verify & Activate</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
+                  <button
+                    type="button"
+                    className="api-submit-btn"
+                    onClick={() => void handleVerifyAndConnect()}
+                    disabled={isVerifying}
+                  >
+                    {isVerifying ? (
+                      <>
+                        <Loader2 size={16} className="spin" />
+                        <span>Verifying Connection...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Verify & Activate</span>
+                        <ArrowRight size={16} />
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1487,7 +1574,14 @@ function App() {
                 onToggleChatSide={handleToggleChatSide}
                 chatVert={chatVert}
                 onToggleChatVert={handleToggleChatVert}
+                currentProvider={selectedProvider}
                 brokenCountdown={brokenSeconds}
+                activeSessionId={activeSessionId}
+                allSessions={allSessions}
+                onSelectSession={handleSelectSession}
+                onNewChat={handleNewChat}
+                onDeleteSession={handleDeleteSession}
+                onClearAllHistory={handleClearAllHistory}
               />
             </div>
           )}
