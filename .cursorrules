@@ -1,0 +1,9 @@
+# Continuous Commit & Push Protocol
+
+Every AI assistant working in this repository MUST git add, commit, and push for EVERY change made:
+1. Verify the change is syntactically correct and builds.
+2. Stage files: `git add <files>`
+3. Commit with Conventional Commits: `git commit -m "<type>: <description>"`
+4. Push immediately: `git push origin main`
+5. Ensure working tree is clean before finishing any response.
+Never postpone committing or pushing changes.
