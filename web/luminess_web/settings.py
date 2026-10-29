@@ -159,6 +159,7 @@ if (BASE_DIR / 'dist').exists():
 
 # WhiteNoise storage: allows serving compressed files and falling back cleanly if manifest isn't compiled
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+WHITENOISE_ROOT = BASE_DIR / 'dist'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

@@ -1,0 +1,2 @@
+# Ensure shell scripts always checkout and commit with LF line endings
+*.sh text eol=lf

@@ -30,8 +30,12 @@ def health_check(request):
 def frontend_index(request):
     """
     Renders the Luminess Assist showcase single page web application.
-    Tries templates/index.html first, then dist/index.html.
+    Serves the compiled dist/index.html when available, falling back to templates/index.html.
     """
+    dist_index = settings.BASE_DIR / 'dist' / 'index.html'
+    if dist_index.exists():
+        return HttpResponse(dist_index.read_text(encoding='utf-8'), content_type='text/html')
+
     context = {
         'page_title': 'Luminess Assist — Living AI Desktop Companion',
         'version': '1.1.2',
@@ -39,10 +43,6 @@ def frontend_index(request):
     try:
         return render(request, 'index.html', context)
     except Exception:
-        # Fallback to direct reading of dist/index.html if template engine hasn't found it
-        dist_index = settings.BASE_DIR / 'dist' / 'index.html'
-        if dist_index.exists():
-            return HttpResponse(dist_index.read_text(encoding='utf-8'), content_type='text/html')
         return HttpResponse("""
             <!doctype html>
             <html>
@@ -59,42 +59,59 @@ def frontend_index(request):
 def api_state(request):
     """Returns the full unified platform state or syncs client state."""
     if request.method == 'GET':
-        profile = BotProfile.objects.filter(is_active=True).first()
-        if not profile:
-            profile = BotProfile.objects.first()
+        try:
+            profile = BotProfile.objects.filter(is_active=True).first()
+            if not profile:
+                profile = BotProfile.objects.first()
 
-        flags = {flag.key: flag.is_enabled for flag in FeatureFlag.objects.all()}
-        # Defaults if flags table is empty
-        default_flags = {
-            'voiceModeEnabled': True,
-            'webSearchEnabled': True,
-            'powershellAutomationEnabled': True,
-            'screenOcrEnabled': False,
-            'longTermMemorySyncEnabled': True,
-            'cloudCodeAssistFallback': False,
-        }
-        for k, v in default_flags.items():
-            flags.setdefault(k, v)
+            flags = {flag.key: flag.is_enabled for flag in FeatureFlag.objects.all()}
+            # Defaults if flags table is empty
+            default_flags = {
+                'voiceModeEnabled': True,
+                'webSearchEnabled': True,
+                'powershellAutomationEnabled': True,
+                'screenOcrEnabled': False,
+                'longTermMemorySyncEnabled': True,
+                'cloudCodeAssistFallback': False,
+            }
+            for k, v in default_flags.items():
+                flags.setdefault(k, v)
 
-        releases = [r.to_dict() for r in AppRelease.objects.all()]
-        configs = [c.to_dict() for c in GlobalConfig.objects.all()]
-        users = [{
-            'id': u.id,
-            'username': u.username,
-            'email': u.email,
-            'role': u.role,
-            'createdAt': u.created_at.strftime('%Y-%m-%d'),
-        } for u in PlatformUser.objects.all()]
-        memories = [m.to_dict() for m in BotMemory.objects.all()]
+            releases = [r.to_dict() for r in AppRelease.objects.all()]
+            configs = [c.to_dict() for c in GlobalConfig.objects.all()]
+            users = [{
+                'id': u.id,
+                'username': u.username,
+                'email': u.email,
+                'role': u.role,
+                'createdAt': u.created_at.strftime('%Y-%m-%d'),
+            } for u in PlatformUser.objects.all()]
+            memories = [m.to_dict() for m in BotMemory.objects.all()]
 
-        return JsonResponse({
-            'currentProfile': profile.to_dict() if profile else None,
-            'featureFlags': flags,
-            'releases': releases,
-            'globalConfig': configs,
-            'users': users,
-            'memories': memories,
-        })
+            return JsonResponse({
+                'currentProfile': profile.to_dict() if profile else None,
+                'featureFlags': flags,
+                'releases': releases,
+                'globalConfig': configs,
+                'users': users,
+                'memories': memories,
+            })
+        except Exception:
+            return JsonResponse({
+                'currentProfile': None,
+                'featureFlags': {
+                    'voiceModeEnabled': True,
+                    'webSearchEnabled': True,
+                    'powershellAutomationEnabled': True,
+                    'screenOcrEnabled': False,
+                    'longTermMemorySyncEnabled': True,
+                    'cloudCodeAssistFallback': False,
+                },
+                'releases': [],
+                'globalConfig': [],
+                'users': [],
+                'memories': [],
+            })
 
     elif request.method in ('POST', 'PUT'):
         try:
