@@ -288,7 +288,12 @@ export function App() {
         {/* Dedicated Documentation */}
         {activeTab === 'docs' && (
           <div className="pt-24">
-            <DocumentationTab onNavigateTab={setActiveTab} />
+            <DocumentationTab
+              onNavigateTab={(tab) => {
+                setActiveTab(tab);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
           </div>
         )}
 
