@@ -448,8 +448,6 @@
     drop-shadow(0 0 7px #38bdf8)
     drop-shadow(0 0 16px rgba(56, 189, 248, 0.85));
 }
-  --current-glow: var(--robot-glow-idle);
-}
 
 .emotion-joy {
   --current-glow: var(--robot-glow-joy);
