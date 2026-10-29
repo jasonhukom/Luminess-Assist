@@ -133,7 +133,7 @@
   }
 }
 
-/* Centered Initial AI API Key Modal */
+/* Centered Initial AI API Key Modal (draggable) */
 .api-modal-backdrop {
   --panel-glow: var(--robot-glow-idle);
   pointer-events: none;
@@ -176,6 +176,7 @@
 }
 
 .api-modal-robot-preview {
+  cursor: default;
   padding: 10px;
   margin-top: -8px;
   margin-bottom: -6px;
@@ -404,7 +405,7 @@
   border-radius: 10px;
 }
 
-.aura-error-card {
+.lum-error-card {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -417,22 +418,22 @@
   text-align: left;
 }
 
-.aura-error-card.kind-unsupported_credentials {
+.lum-error-card.kind-unsupported_credentials {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.4);
 }
 
-.aura-error-card.kind-account_ineligible {
+.lum-error-card.kind-account_ineligible {
   background: rgba(217, 70, 239, 0.12);
   border-color: rgba(217, 70, 239, 0.4);
 }
 
-.aura-error-card.kind-missing_project_or_permissions {
+.lum-error-card.kind-missing_project_or_permissions {
   background: rgba(59, 130, 246, 0.12);
   border-color: rgba(59, 130, 246, 0.4);
 }
 
-.aura-error-header {
+.lum-error-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -441,19 +442,19 @@
   color: #fca5a5;
 }
 
-.aura-error-card.kind-unsupported_credentials .aura-error-header {
+.lum-error-card.kind-unsupported_credentials .lum-error-header {
   color: #fcd34d;
 }
 
-.aura-error-card.kind-account_ineligible .aura-error-header {
+.lum-error-card.kind-account_ineligible .lum-error-header {
   color: #f0abfc;
 }
 
-.aura-error-card.kind-missing_project_or_permissions .aura-error-header {
+.lum-error-card.kind-missing_project_or_permissions .lum-error-header {
   color: #93c5fd;
 }
 
-.aura-error-ref {
+.lum-error-ref {
   margin-left: auto;
   font-size: 10px;
   font-family: monospace;
@@ -463,21 +464,21 @@
   color: var(--color-text-muted);
 }
 
-.aura-error-desc {
+.lum-error-desc {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
   color: #e2e8f0;
 }
 
-.aura-error-actions {
+.lum-error-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 4px;
 }
 
-.aura-error-action-btn {
+.lum-error-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -492,11 +493,11 @@
   transition: all 0.2s ease;
 }
 
-.aura-error-action-btn:hover {
+.lum-error-action-btn:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
-.aura-error-dismiss-btn {
+.lum-error-dismiss-btn {
   padding: 6px 10px;
   font-size: 11px;
   background: transparent;
@@ -505,7 +506,7 @@
   cursor: pointer;
 }
 
-.aura-error-dismiss-btn:hover {
+.lum-error-dismiss-btn:hover {
   color: #ffffff;
 }
 
@@ -698,4 +699,43 @@
   transform: translateY(-1px);
   filter: brightness(1.1);
   box-shadow: 0 8px 28px rgba(59, 130, 246, 0.65);
+}
+
+
+/* Login card can be dragged around the screen */
+.api-modal-card {
+  cursor: grab;
+  position: relative;
+}
+
+.api-modal-card:active {
+  cursor: grabbing;
+}
+
+.api-modal-card input {
+  cursor: text;
+}
+
+.api-modal-drag-handle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 16px;
+  cursor: grab;
+}
+
+.api-modal-drag-handle span {
+  display: block;
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--panel-glow) 45%, rgba(255, 255, 255, 0.25));
+  opacity: 0.7;
+  transition: opacity 0.2s ease, width 0.2s ease;
+}
+
+.api-modal-card:hover .api-modal-drag-handle span {
+  opacity: 1;
+  width: 52px;
 }

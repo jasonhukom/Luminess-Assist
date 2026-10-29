@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
-import { AuraBootScreen } from './components/AuraBootScreen.tsx';
+import { LuminessBootScreen } from './components/LuminessBootScreen.tsx';
 import type { Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import {
@@ -137,6 +138,7 @@ function App() {
   const robotWrapRef = useRef<HTMLDivElement>(null);
 
   const companionReadyRef = useRef<boolean>(false);
+  const modalPlacedRef = useRef<boolean>(false);
   const manualSideOverrideRef = useRef<boolean>(false);
   const manualVertOverrideRef = useRef<boolean>(false);
   const prevModeRef = useRef<{
@@ -282,7 +284,15 @@ function App() {
 
         const prev = prevModeRef.current;
 
+        // Login card is user-movable: once it has been placed, never snap it back to center
+        if (showApiModal && modalPlacedRef.current) {
+          prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
+          setTimeout(syncInteractiveRegions, 40);
+          return;
+        }
+
         if (showApiModal || (prev.showApiModal && !showApiModal)) {
+          modalPlacedRef.current = showApiModal;
           prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
           companionReadyRef.current = false;
           const centerX = bounds.monitor_x + Math.round((bounds.monitor_width - targetW) / 2);
@@ -1051,6 +1061,18 @@ function App() {
 
   const handleBootComplete = useCallback(() => setBootComplete(true), []);
 
+  // Let the user drag the login/setup card (and its window) anywhere on screen.
+  // Interactive controls and the robot preview keep their own pointer behavior.
+  const handleModalDragStart = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, textarea, select, a, label, .api-modal-robot-preview, .lum-error-card')) {
+      return;
+    }
+    e.preventDefault();
+    void invoke('start_drag').catch(() => {});
+  };
+
   const handleRobotClick = () => {
     if (showApiModal) return;
     setChatOpen((prev) => !prev);
@@ -1159,7 +1181,7 @@ function App() {
   };
 
   if (!bootComplete) {
-    return <AuraBootScreen onComplete={handleBootComplete} />;
+    return <LuminessBootScreen onComplete={handleBootComplete} />;
   }
 
   return (
@@ -1174,7 +1196,10 @@ function App() {
     >
       {showApiModal ? (
         <div className={`api-modal-backdrop emotion-border-${visualEmotion}`}>
-          <div ref={modalCardRef} className="api-modal-card">
+          <div ref={modalCardRef} className="api-modal-card" onMouseDown={handleModalDragStart}>
+            <div className="api-modal-drag-handle" title="Drag to move">
+              <span />
+            </div>
             <div className="api-modal-robot-preview">
               <Robot
                 emotion={emotion}
@@ -1262,17 +1287,17 @@ function App() {
             )}
 
             {normalizedError && (
-              <div className={`aura-error-card kind-${normalizedError.kind}`} role="alert">
-                <div className="aura-error-header">
+              <div className={`lum-error-card kind-${normalizedError.kind}`} role="alert">
+                <div className="lum-error-header">
                   <AlertTriangle size={15} />
-                  <strong className="aura-error-title">{normalizedError.title}</strong>
-                  <span className="aura-error-ref">{normalizedError.diagnosticRef}</span>
+                  <strong className="lum-error-title">{normalizedError.title}</strong>
+                  <span className="lum-error-ref">{normalizedError.diagnosticRef}</span>
                 </div>
-                <p className="aura-error-desc">{normalizedError.message}</p>
-                <div className="aura-error-actions">
+                <p className="lum-error-desc">{normalizedError.message}</p>
+                <div className="lum-error-actions">
                   <button
                     type="button"
-                    className="aura-error-action-btn"
+                    className="lum-error-action-btn"
                     onClick={() => handleErrorAction(normalizedError)}
                   >
                     <span>{normalizedError.actionLabel}</span>
@@ -1281,7 +1306,7 @@ function App() {
                   {normalizedError.kind !== 'unknown' && (
                     <button
                       type="button"
-                      className="aura-error-dismiss-btn"
+                      className="lum-error-dismiss-btn"
                       onClick={() => setNormalizedError(null)}
                     >
                       Dismiss
