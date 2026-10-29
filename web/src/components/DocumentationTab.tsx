@@ -28,7 +28,7 @@ const documentationSections = [
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'ai-setup', label: 'AI provider setup', icon: Sparkles },
   { id: 'controls', label: 'Controls & shortcuts', icon: Keyboard },
-  { id: 'file-actions', label: 'File actions & deletion', icon: Trash2 },
+  { id: 'delete', label: 'Delete', icon: Trash2 },
   { id: 'privacy', label: 'Privacy & permissions', icon: ShieldCheck },
   { id: 'troubleshooting', label: 'Troubleshooting', icon: CircleHelp },
 ];
@@ -281,9 +281,9 @@ export const DocumentationTab: React.FC<DocumentationTabProps> = ({ onNavigateTa
               </div>
             </section>
 
-            <section id="file-actions" className="scroll-mt-28 border-t border-[#dad7d0]/80 dark:border-white/10 pt-10">
+            <section id="delete" className="scroll-mt-28 border-t border-[#dad7d0]/80 dark:border-white/10 pt-10">
               <span className={sectionLabelClass}>06 / Desktop actions</span>
-              <h2 className={headingClass}>File actions & deletion</h2>
+              <h2 className={headingClass}>Deleting files safely</h2>
               <p className={bodyClass}>
                 Depending on the request and supported desktop tools, Luminess may help inspect, create, edit, copy, move, or delete files. These actions can affect real files on your Windows system, so review the target and the requested operation before approving it.
               </p>
