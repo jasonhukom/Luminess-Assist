@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Sun, Moon, ArrowUpRight, Menu, X, Sparkles, Terminal, User, LogIn, Database, Layers } from 'lucide-react';
+import { Download, Sun, Moon, ArrowUpRight, Menu, X, Sparkles, Terminal, User, LogIn, Database, Layers, BookOpen } from 'lucide-react';
 import { useLatestRelease } from '../lib/useLatestRelease.ts';
 import { type PlatformUser } from '../lib/botPlatformStore.ts';
 
@@ -16,7 +16,7 @@ export type TabKey =
   | 'studio'
   | 'database'
   | 'install'
-  | 'releases'
+  | 'docs'
   | 'croc'
   | 'admin'
   | 'architecture'
@@ -59,7 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { key: 'studio', label: 'Bot Studio', badge: 'Creator' },
     { key: 'database', label: 'MariaDB', badge: 'DB' },
     { key: 'install', label: 'Installation' },
-    { key: 'releases', label: 'Downloads' },
+    { key: 'docs', label: 'Documentation' },
     { key: 'architecture', label: 'Multi-AI Core' },
   ];
 
