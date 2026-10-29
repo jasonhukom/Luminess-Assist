@@ -352,7 +352,7 @@ export function App() {
               <ul className="space-y-2.5 text-xs text-[#5e534a] dark:text-[#a89c92]">
                 <li><button type="button" onClick={() => setActiveTab('community')} className="hover:underline cursor-pointer">Explore Community Bots</button></li>
                 <li><button type="button" onClick={() => setActiveTab('install')} className="hover:underline cursor-pointer">One-Click Install</button></li>
-                <li><button type="button" onClick={() => setActiveTab('database')} className="hover:underline cursor-pointer">MariaDB Schema & Docker</button></li>
+                
                 <li><button type="button" onClick={() => setActiveTab('docs')} className="hover:underline cursor-pointer">Documentation</button></li>
               </ul>
             </div>
