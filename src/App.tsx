@@ -97,11 +97,11 @@ const PROVIDER_INFO: Record<
     colorClass: 'codex',
   },
   offline: {
-    name: 'Offline AI',
+    name: 'Offline (OpenCode)',
     mark: '⚡',
     keyUrl: '',
-    btnLabel: '100% Local (No Internet Required)',
-    placeholder: 'Offline Mode Active (No API key needed)',
+    btnLabel: '100% Local OpenCode Agent',
+    placeholder: 'Offline Mode (Powered by OpenCode)',
     colorClass: 'offline',
   },
 };
@@ -1478,7 +1478,7 @@ function App() {
                     <span>Zero Internet • Zero API Key • 100% Local</span>
                   </div>
                   <p className="offline-mode-desc">
-                    Luminess Assist will run completely locally on your Windows PC. It responds with simple, snappy answers, tells time and date, calculates math, launches apps, runs timers, and executes PC commands without transmitting any data over the internet.
+                    Luminess Assist will run completely locally on your Windows PC powered by the OpenCode Agent and local tools. It takes your prompt, executes code, inspects files, runs timers, and automates PC tasks without transmitting any data over the internet.
                   </p>
                   <button
                     type="button"
@@ -1487,7 +1487,7 @@ function App() {
                     disabled={isVerifying}
                   >
                     <Zap size={16} />
-                    <span>Activate Offline Assistant</span>
+                    <span>Activate Offline Assistant (OpenCode)</span>
                   </button>
                 </div>
               ) : (

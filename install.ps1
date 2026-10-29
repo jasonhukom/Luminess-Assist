@@ -145,6 +145,23 @@ if ($InstalledExe) {
     Write-Host "`n>>> [NOTE] Setup completed. If shortcut was not automatically created on Desktop, start Luminess Assist from your Start Menu." -ForegroundColor Yellow
 }
 
+# ==============================================================================
+# Optional / Recommended: OpenCode Offline Agent Setup
+# ==============================================================================
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
+        Write-Host "`n>>> Setting up OpenCode CLI for local offline assistant & agent mode..." -ForegroundColor Cyan
+        try {
+            npm install -g --allow-scripts=opencode-ai opencode-ai | Out-Null
+            Write-Host ">>> [SUCCESS] OpenCode CLI installed for local offline mode." -ForegroundColor Green
+        } catch {
+            Write-Host ">>> [NOTE] OpenCode global install skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "`n>>> [VERIFIED] OpenCode CLI detected on system for offline agent mode." -ForegroundColor Green
+    }
+}
+
 Write-Host "`n==============================================================================" -ForegroundColor DarkCyan
 Write-Host " Luminess Assist is now active! Click the mascot anytime to chat or explore.  " -ForegroundColor Green
 Write-Host "==============================================================================`n" -ForegroundColor DarkCyan

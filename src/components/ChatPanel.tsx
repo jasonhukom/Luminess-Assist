@@ -193,9 +193,9 @@ export function ChatPanel({
           <Bot size={18} className="text-glow" />
           <span>Luminess Assist</span>
           {currentProvider === 'offline' && (
-            <span className="offline-chip" title="Running in Local Offline Mode">
+            <span className="offline-chip" title="Running in Local Offline Mode with OpenCode Agent">
               <Zap size={10} />
-              <span>OFFLINE</span>
+              <span>OFFLINE (OPENCODE)</span>
             </span>
           )}
         </div>

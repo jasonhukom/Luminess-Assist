@@ -1,6 +1,7 @@
 import type { Emotion } from '../components/Robot.tsx';
 import type { Message, ToolPermissionRequest } from './gemini.ts';
 import { executeToolOnPc } from './gemini.ts';
+import { executeOpenCodePrompt } from './opencode.ts';
 
 /**
  * Safely evaluates simple mathematical expressions like "25 * 4", "100 / 5", "12 + 38".
@@ -303,11 +304,37 @@ export async function runOfflineAgent(
     };
   }
 
-  // 10. Default / Fallback Response
+  // 10. OpenCode Offline Assistant & Agent Execution
+  // For open-ended queries, coding instructions, or agent prompts, forward the prompt to OpenCode
+  if (userText.length > 0) {
+    onEmotion('curiosity');
+    onToolStart('OpenCode Agent: Running prompt locally...');
+
+    try {
+      const openCodeRes = await executeOpenCodePrompt(userText, onToolStart);
+      if (openCodeRes && openCodeRes.output && openCodeRes.output.trim().length > 0) {
+        if (openCodeRes.toolActions && openCodeRes.toolActions.length > 0) {
+          executedActions.push(...openCodeRes.toolActions);
+        }
+        onEmotion('joy');
+        return {
+          role: 'assistant',
+          content: openCodeRes.output,
+          emotion: 'joy',
+          toolActions: executedActions.length > 0 ? executedActions : undefined,
+        };
+      }
+    } catch (err: any) {
+      executedActions.push(`OpenCode error: ${err?.message || "failed"}`);
+    }
+  }
+
+  // 11. Default / Fallback Response
   onEmotion('curiosity');
   return {
     role: 'assistant',
-    content: `Got it! I'm currently running in **Offline Mode** ⚡ on your local PC. Try asking me for the **time**, **system specs**, to **open an app** (like Notepad or Calc), or to **calculate math**!`,
+    content: `Got it! I took your prompt and evaluated it with **OpenCode** in **Offline Mode** on your local PC.\n\nYou can ask me for coding assistance, shell tasks, **system specs**, to **open an app**, or to **calculate math**!`,
     emotion: 'curiosity',
+    toolActions: executedActions.length > 0 ? executedActions : undefined,
   };
 }

@@ -139,8 +139,8 @@ describe('Offline AI Engine', () => {
     expect(res.content).toContain('Offline Local AI Active');
   });
 
-  it('returns friendly companion fallback for general chatter', async () => {
-    const history: Message[] = [{ role: 'user', content: 'supercalifragilisticexpialidocious' }];
+  it('routes general chatter and coding prompts to OpenCode offline agent', async () => {
+    const history: Message[] = [{ role: 'user', content: 'write a python script to ping a server' }];
     const res = await runOfflineAgent(
       history,
       mockToolStart,
@@ -149,7 +149,8 @@ describe('Offline AI Engine', () => {
       mockTimerComplete
     );
 
-    expect(res.content).toContain('Offline Mode');
-    expect(res.emotion).toBe('curiosity');
+    expect(res.content).toContain('OpenCode');
+    expect(res.emotion).toBe('joy');
+    expect(mockToolStart).toHaveBeenCalledWith('OpenCode Agent: Running prompt locally...');
   });
 });
