@@ -3,6 +3,7 @@ import { Navbar, TabKey } from './components/Navbar.tsx';
 import { HeroSection } from './components/HeroSection.tsx';
 import { FeaturesBento } from './components/FeaturesBento.tsx';
 import { InstallationTab } from './components/InstallationTab.tsx';
+import { DocumentationTab } from './components/DocumentationTab.tsx';
 import { DependenciesTab } from './components/DependenciesTab.tsx';
 import { ArchitectureTab } from './components/ArchitectureTab.tsx';
 import { ReleasesTab } from './components/ReleasesTab.tsx';
@@ -274,10 +275,20 @@ export function App() {
           />
         )}
 
-        {/* Dedicated Installation Guide */}
+        {/* Installation and Downloads share one dedicated destination */}
         {activeTab === 'install' && (
           <div className="pt-24">
             <InstallationTab />
+            <div id="downloads" className="scroll-mt-24">
+              <ReleasesTab />
+            </div>
+          </div>
+        )}
+
+        {/* Dedicated Documentation */}
+        {activeTab === 'docs' && (
+          <div className="pt-24">
+            <DocumentationTab onNavigateTab={setActiveTab} />
           </div>
         )}
 
@@ -285,13 +296,6 @@ export function App() {
         {activeTab === 'architecture' && (
           <div className="pt-24">
             <ArchitectureTab />
-          </div>
-        )}
-
-        {/* Dedicated Downloads & Releases Vault */}
-        {activeTab === 'releases' && (
-          <div className="pt-24">
-            <ReleasesTab />
           </div>
         )}
 
@@ -349,7 +353,7 @@ export function App() {
                 <li><button type="button" onClick={() => setActiveTab('community')} className="hover:underline cursor-pointer">Explore Community Bots</button></li>
                 <li><button type="button" onClick={() => setActiveTab('install')} className="hover:underline cursor-pointer">One-Click Install</button></li>
                 <li><button type="button" onClick={() => setActiveTab('database')} className="hover:underline cursor-pointer">MariaDB Schema & Docker</button></li>
-                <li><button type="button" onClick={() => setActiveTab('releases')} className="hover:underline cursor-pointer">Download Desktop MSI</button></li>
+                <li><button type="button" onClick={() => setActiveTab('docs')} className="hover:underline cursor-pointer">Documentation</button></li>
               </ul>
             </div>
 
