@@ -1,3 +1,5 @@
+pub mod services;
+use services::*;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -1767,7 +1769,19 @@ pub fn run() {
             start_google_oauth_login,
             check_antigravity_cli,
             set_dock_vert_preference,
-            terminate_app
+            terminate_app,
+            load_machine_credentials,
+            save_machine_credentials,
+            get_app_config,
+            save_app_config,
+            get_storage_status,
+            db_load_state,
+            db_save_state,
+            db_clear_data,
+            check_local_ai_hardware,
+            probe_local_ai_servers,
+            local_ai_chat_completion,
+            perform_web_search
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
