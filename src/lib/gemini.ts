@@ -9,6 +9,15 @@ import {
   type AIErrorKind,
   type AIConnectionState,
 } from './aiErrors.ts';
+import {
+  extractAndSaveUserMemoriesFromText,
+  getCachedAppConfig,
+  getPersistentMemoryPromptContext,
+  performWebSearchAndStore,
+  saveAppConfigToMachine,
+  saveExplicitUserMemory,
+  syncMemoriesWithGoogleAccount,
+} from './memoryAndStorage.ts';
 
 export type { NormalizedAIError, AIErrorKind, AIConnectionState };
 
@@ -47,9 +56,21 @@ export interface AntigravityCliStatus {
   notes: string;
 }
 
-const STORAGE_KEY = 'GEMINI_API_KEY';
-const GOOGLE_AUTH_STORAGE_KEY = 'LUMINESS_GOOGLE_AUTH';
+export interface MachineCredentialsVault {
+  gemini_api_key: string;
+  claude_api_key: string;
+  codex_api_key: string;
+  search_api_key: string;
+  google_oauth_session_json: string;
+  updated_at: number;
+}
+
+const LEGACY_GEMINI_STORAGE_KEY = 'GEMINI_API_KEY';
+const LEGACY_GOOGLE_AUTH_STORAGE_KEY = 'LUMINESS_GOOGLE_AUTH';
 const OAUTH_CLIENT_CACHE_KEY = 'LUMINESS_GOOGLE_OAUTH_CLIENT';
+const PUBLIC_GEMINI_CLI_OAUTH_URL =
+  'https://raw.githubusercontent.com/google-gemini/gemini-cli/main/packages/core/src/code_assist/oauth2.ts';
+const CODE_ASSIST_BASE_URL = 'https://cloudcode-pa.googleapis.com/v1internal';
 
 interface OAuthClientConfig {
   clientId: string;
@@ -64,7 +85,7 @@ const DEFAULT_GOOGLE_CLIENT_SECRET =
 async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   const envClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const envClientSecret = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
-  if (envClientId) {
+  if (envClientId && String(envClientId).trim()) {
     return {
       clientId: String(envClientId).trim(),
       clientSecret: envClientSecret ? String(envClientSecret).trim() : undefined,
@@ -72,15 +93,42 @@ async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   }
 
   try {
-    const cached = localStorage.getItem(OAUTH_CLIENT_CACHE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed?.clientId) {
-        return parsed as OAuthClientConfig;
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem(OAUTH_CLIENT_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.clientId) {
+          return parsed as OAuthClientConfig;
+        }
       }
     }
   } catch {
     // ignore cache error
+  }
+
+  try {
+    const resp = await fetch(PUBLIC_GEMINI_CLI_OAUTH_URL);
+    if (resp.ok) {
+      const source = await resp.text();
+      const idMatch = source.match(/OAUTH_CLIENT_ID\s*=\s*['"]([^'"]+)['"]/);
+      const secretMatch = source.match(/OAUTH_CLIENT_SECRET\s*=\s*['"]([^'"]+)['"]/);
+      if (idMatch?.[1]) {
+        const config: OAuthClientConfig = {
+          clientId: idMatch[1],
+          clientSecret: secretMatch?.[1],
+        };
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(OAUTH_CLIENT_CACHE_KEY, JSON.stringify(config));
+          }
+        } catch {
+          // ignore
+        }
+        return config;
+      }
+    }
+  } catch {
+    // ignore fetch error
   }
 
   return {
@@ -89,30 +137,159 @@ async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   };
 }
 
-let apiKey = (typeof window !== 'undefined' && typeof localStorage !== 'undefined') ? (localStorage.getItem(STORAGE_KEY) || '') : '';
-let googleSession: GoogleUserSession | null = loadSavedGoogleSession();
+export type AIProvider = 'gemini' | 'claude' | 'codex' | 'offline';
 
-function loadSavedGoogleSession(): GoogleUserSession | null {
+const LEGACY_PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini' | 'offline'>, string> = {
+  claude: 'LUMINESS_CLAUDE_API_KEY',
+  codex: 'LUMINESS_CODEX_API_KEY',
+};
+const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINESS_SELECTED_PROVIDER';
+
+// In-memory runtime cache synced with the Windows DPAPI machine credential vault
+const machineKeysCache: Record<Exclude<AIProvider, 'offline'>, string> = {
+  gemini: '',
+  claude: '',
+  codex: '',
+};
+
+let googleSession: GoogleUserSession | null = null;
+
+// Initialize from any legacy localStorage values (before migrating to DPAPI machine vault)
+function initLegacyFallbackState(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
-    const raw = localStorage.getItem(GOOGLE_AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && (parsed.accessToken || parsed.refreshToken)) {
-      return parsed as GoogleUserSession;
+    const legGemini = localStorage.getItem(LEGACY_GEMINI_STORAGE_KEY);
+    if (legGemini && !machineKeysCache.gemini) {
+      machineKeysCache.gemini = legGemini.trim();
+    }
+    const legClaude = localStorage.getItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
+    if (legClaude && !machineKeysCache.claude) {
+      machineKeysCache.claude = legClaude.trim();
+    }
+    const legCodex = localStorage.getItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+    if (legCodex && !machineKeysCache.codex) {
+      machineKeysCache.codex = legCodex.trim();
+    }
+    const legOAuth = localStorage.getItem(LEGACY_GOOGLE_AUTH_STORAGE_KEY);
+    if (legOAuth && !googleSession) {
+      const parsed = JSON.parse(legOAuth);
+      if (parsed && (parsed.accessToken || parsed.refreshToken)) {
+        googleSession = parsed as GoogleUserSession;
+      }
     }
   } catch {
-    // ignore corrupt storage
+    // ignore
   }
-  return null;
+}
+
+initLegacyFallbackState();
+
+function persistVaultToMachineAsync(): void {
+  const oauthJson = googleSession ? JSON.stringify(googleSession) : '';
+  void invoke<MachineCredentialsVault>('save_machine_credentials', {
+    geminiApiKey: machineKeysCache.gemini,
+    claudeApiKey: machineKeysCache.claude,
+    codexApiKey: machineKeysCache.codex,
+    searchApiKey: null,
+    googleOauthSessionJson: oauthJson,
+  })
+    .then(() => {
+      // Once persisted to the Windows DPAPI machine vault, remove plaintext keys from browser localStorage
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
+          localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
+          localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+        }
+      } catch {
+        // ignore
+      }
+    })
+    .catch(() => {
+      // Outside Tauri runtime (e.g., unit tests), keep in-memory state intact
+    });
+}
+
+/**
+ * Loads all three provider API keys and the Google OAuth session from the Windows DPAPI machine vault
+ * on application startup, and migrates any legacy keys into the machine vault.
+ */
+export async function loadMachineCredentialsOnStartup(): Promise<{
+  keys: Record<AIProvider, string>;
+  googleSession: GoogleUserSession | null;
+}> {
+  try {
+    const vault = await invoke<MachineCredentialsVault>('load_machine_credentials');
+    if (vault) {
+      let needsMigrationSave = false;
+
+      if (vault.gemini_api_key) {
+        machineKeysCache.gemini = vault.gemini_api_key.trim();
+      } else if (machineKeysCache.gemini) {
+        needsMigrationSave = true;
+      }
+
+      if (vault.claude_api_key) {
+        machineKeysCache.claude = vault.claude_api_key.trim();
+      } else if (machineKeysCache.claude) {
+        needsMigrationSave = true;
+      }
+
+      if (vault.codex_api_key) {
+        machineKeysCache.codex = vault.codex_api_key.trim();
+      } else if (machineKeysCache.codex) {
+        needsMigrationSave = true;
+      }
+
+      if (vault.google_oauth_session_json) {
+        try {
+          const parsed = JSON.parse(vault.google_oauth_session_json);
+          if (parsed && (parsed.accessToken || parsed.refreshToken)) {
+            googleSession = parsed as GoogleUserSession;
+          }
+        } catch {
+          // ignore
+        }
+      } else if (googleSession) {
+        needsMigrationSave = true;
+      }
+
+      if (needsMigrationSave) {
+        persistVaultToMachineAsync();
+      } else {
+        // Scrub any leftover plaintext keys from browser localStorage
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
+            localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
+            localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // Fallback outside Tauri runtime
+  }
+
+  return {
+    keys: {
+      gemini: machineKeysCache.gemini,
+      claude: machineKeysCache.claude,
+      codex: machineKeysCache.codex,
+      offline: 'offline-local',
+    },
+    googleSession,
+  };
 }
 
 function saveGoogleSession(session: GoogleUserSession | null) {
   googleSession = session;
-  if (session) {
-    localStorage.setItem(GOOGLE_AUTH_STORAGE_KEY, JSON.stringify(session));
-  } else {
-    localStorage.removeItem(GOOGLE_AUTH_STORAGE_KEY);
-  }
+  persistVaultToMachineAsync();
+  void saveAppConfigToMachine({
+    google_account_email: session?.email || null,
+  });
 }
 
 export function getGoogleSession(): GoogleUserSession | null {
@@ -124,51 +301,58 @@ export function logoutGoogle() {
 }
 
 export function hasAuthSession(): boolean {
-  return Boolean(googleSession || (apiKey && apiKey.trim().length > 0));
+  return Boolean(googleSession || (machineKeysCache.gemini && machineKeysCache.gemini.trim().length > 0));
 }
 
 export function getApiKey(): string {
-  return apiKey;
+  return machineKeysCache.gemini;
 }
 
 export function setApiKey(key: string) {
-  apiKey = key.trim();
-  if (apiKey) {
-    localStorage.setItem(STORAGE_KEY, apiKey);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+  machineKeysCache.gemini = key.trim();
+  persistVaultToMachineAsync();
 }
 
 export function hasApiKey(): boolean {
-  return !!apiKey && apiKey.trim().length > 0;
+  return !!machineKeysCache.gemini && machineKeysCache.gemini.trim().length > 0;
 }
-
-export type AIProvider = 'gemini' | 'claude' | 'codex' | 'offline';
-
-const PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini' | 'offline'>, string> = {
-  claude: 'LUMINESS_CLAUDE_API_KEY',
-  codex: 'LUMINESS_CODEX_API_KEY',
-};
-const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINESS_SELECTED_PROVIDER';
 
 export function getProviderApiKey(provider: AIProvider): string {
   if (provider === 'offline') return 'offline-local';
-  if (provider === 'gemini') return getApiKey();
-  if (typeof localStorage === 'undefined') return '';
-  return localStorage.getItem(PROVIDER_KEY_STORAGE[provider]) || '';
+  return machineKeysCache[provider] || '';
 }
 
 export function setProviderApiKey(provider: AIProvider, key: string): void {
   if (provider === 'offline') return;
   const cleaned = key.trim();
-  if (provider === 'gemini') {
-    setApiKey(cleaned);
-    return;
+  machineKeysCache[provider] = cleaned;
+  persistVaultToMachineAsync();
+}
+
+export async function saveAllProviderKeysToMachine(
+  keys: Partial<Record<AIProvider, string>>
+): Promise<void> {
+  if (keys.gemini !== undefined) machineKeysCache.gemini = keys.gemini.trim();
+  if (keys.claude !== undefined) machineKeysCache.claude = keys.claude.trim();
+  if (keys.codex !== undefined) machineKeysCache.codex = keys.codex.trim();
+
+  const oauthJson = googleSession ? JSON.stringify(googleSession) : '';
+  try {
+    await invoke<MachineCredentialsVault>('save_machine_credentials', {
+      geminiApiKey: machineKeysCache.gemini,
+      claudeApiKey: machineKeysCache.claude,
+      codexApiKey: machineKeysCache.codex,
+      searchApiKey: null,
+      googleOauthSessionJson: oauthJson,
+    });
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
+      localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+    }
+  } catch {
+    // Fallback outside Tauri runtime
   }
-  const storageKey = PROVIDER_KEY_STORAGE[provider];
-  if (cleaned) localStorage.setItem(storageKey, cleaned);
-  else localStorage.removeItem(storageKey);
 }
 
 export function getSelectedProvider(): AIProvider {
@@ -178,16 +362,157 @@ export function getSelectedProvider(): AIProvider {
 }
 
 export function setSelectedProvider(provider: AIProvider): void {
-  localStorage.setItem(SELECTED_PROVIDER_STORAGE_KEY, provider);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SELECTED_PROVIDER_STORAGE_KEY, provider);
+    }
+  } catch {
+    // ignore
+  }
+  void saveAppConfigToMachine({ selected_provider: provider });
 }
 
 export function hasAnyProviderKey(): boolean {
   if (getSelectedProvider() === 'offline') return true;
-  return Boolean(getProviderApiKey('gemini') || getProviderApiKey('claude') || getProviderApiKey('codex'));
+  return Boolean(
+    googleSession ||
+      getProviderApiKey('gemini') ||
+      getProviderApiKey('claude') ||
+      getProviderApiKey('codex')
+  );
 }
 
 export function hasAnyConfiguredProvider(): boolean {
   return hasAnyProviderKey();
+}
+
+function extractProjectId(val: any): string | undefined {
+  if (!val) return undefined;
+  if (typeof val === 'string' && val.trim().length > 0) {
+    return val.trim();
+  }
+  if (typeof val === 'object' && typeof val.id === 'string' && val.id.trim().length > 0) {
+    return val.id.trim();
+  }
+  return undefined;
+}
+
+async function onboardCodeAssistTier(
+  accessToken: string,
+  tierId: string,
+  coreMetadata: Record<string, any>,
+  projectId?: string
+): Promise<string | undefined> {
+  try {
+    const body: Record<string, any> = {
+      tierId,
+      metadata: projectId ? { ...coreMetadata, duetProject: projectId } : coreMetadata,
+    };
+    if (tierId !== 'free-tier' && projectId) {
+      body.cloudaicompanionProject = projectId;
+    }
+
+    const onboardResp = await fetch(`${CODE_ASSIST_BASE_URL}:onboardUser`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!onboardResp.ok) {
+      return undefined;
+    }
+
+    let lro: any = await onboardResp.json();
+    let polls = 0;
+    while (!lro?.done && lro?.name && polls < 8) {
+      await new Promise((r) => setTimeout(r, 1500));
+      polls++;
+      const opResp = await fetch(`${CODE_ASSIST_BASE_URL}/${lro.name}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!opResp.ok) break;
+      lro = await opResp.json();
+    }
+
+    return extractProjectId(lro?.response?.cloudaicompanionProject);
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveCodeAssistProject(
+  accessToken: string,
+  forceFreeTier = false
+): Promise<string | undefined> {
+  const coreMetadata = {
+    ideType: 'IDE_UNSPECIFIED',
+    platform: 'WINDOWS_AMD64',
+    pluginType: 'GEMINI',
+  };
+
+  try {
+    if (forceFreeTier) {
+      const forcedProj = await onboardCodeAssistTier(accessToken, 'free-tier', coreMetadata);
+      if (forcedProj) return forcedProj;
+    }
+
+    const loadResp = await fetch(`${CODE_ASSIST_BASE_URL}:loadCodeAssist`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ metadata: coreMetadata }),
+    });
+
+    if (loadResp.ok) {
+      const loadData: any = await loadResp.json();
+      const existingProj = extractProjectId(loadData?.cloudaicompanionProject);
+      if (existingProj) return existingProj;
+
+      const allowedTiers: any[] = Array.isArray(loadData?.allowedTiers) ? loadData.allowedTiers : [];
+      const freeTier = allowedTiers.find((t) => t?.id === 'free-tier');
+      const defaultTier = allowedTiers.find((t) => t?.isDefault) || allowedTiers[0];
+      const candidateTierIds = Array.from(
+        new Set([freeTier?.id, 'free-tier', defaultTier?.id].filter(Boolean))
+      ) as string[];
+
+      for (const tierId of candidateTierIds) {
+        const onboardedProj = await onboardCodeAssistTier(accessToken, tierId, coreMetadata);
+        if (onboardedProj) return onboardedProj;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function discoverUserGcpProject(accessToken: string): Promise<string | undefined> {
+  try {
+    const resp = await fetch(
+      'https://cloudresourcemanager.googleapis.com/v1/projects?filter=lifecycleState%3AACTIVE',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!resp.ok) return undefined;
+    const data: any = await resp.json();
+    const projects: any[] = Array.isArray(data?.projects) ? data.projects : [];
+    const preferred =
+      projects.find((p) => typeof p?.projectId === 'string' && p.projectId.startsWith('gen-lang-client')) ||
+      projects.find((p) => typeof p?.projectId === 'string');
+    return preferred?.projectId ? String(preferred.projectId) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -221,16 +546,9 @@ export async function verifyProviderConnection(
 
   if (provider === 'gemini') {
     if (!key) {
-      if (googleSession) {
-        return {
-          success: false,
-          error: normalizeAIError(
-            new Error(
-              'ACCESS_TOKEN_TYPE_UNSUPPORTED: Google identity is connected, but a Gemini API key is required to activate the model.'
-            ),
-            'gemini'
-          ),
-        };
+      if (googleSession && googleSession.accessToken) {
+        // Signed-in Google OAuth session is active!
+        return { success: true };
       }
       return {
         success: false,
@@ -239,7 +557,8 @@ export async function verifyProviderConnection(
     }
 
     try {
-      const probeUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+      const model = getCachedAppConfig().gemini_model || 'gemini-2.5-flash';
+      const probeUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
       const resp = await fetch(probeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -282,42 +601,53 @@ export async function verifyProviderConnection(
       };
     }
 
-    try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-5-5',
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'ping' }],
-        }),
-      });
+    const candidateModels = [
+      getCachedAppConfig().claude_model || 'claude-sonnet-4-20250514',
+      'claude-3-5-sonnet-latest',
+      'claude-3-haiku-20240307',
+    ];
 
-      if (!resp.ok) {
+    let lastErr: any = null;
+    for (const model of candidateModels) {
+      try {
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'ping' }],
+          }),
+        });
+
+        if (resp.ok) {
+          return { success: true };
+        }
         const body = await resp.json().catch(() => ({}));
         const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
-        return {
-          success: false,
-          error: normalizeAIError(
-            {
-              message: errMsg,
-              status: resp.status,
-              error: body?.error,
-            },
-            'claude'
-          ),
+        lastErr = {
+          message: errMsg,
+          status: resp.status,
+          error: body?.error,
         };
+        if (resp.status === 401 || resp.status === 403) {
+          break;
+        }
+      } catch (err: any) {
+        lastErr = err;
+        break;
       }
-
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: normalizeAIError(err, 'claude') };
     }
+
+    return {
+      success: false,
+      error: normalizeAIError(lastErr || new Error('Claude verification failed'), 'claude'),
+    };
   }
 
   if (provider === 'codex') {
@@ -366,6 +696,10 @@ export async function verifyProviderConnection(
 
 export async function loginWithGoogle(): Promise<GoogleUserSession> {
   const oauthClient = await getOAuthClientConfig();
+  if (!oauthClient.clientId) {
+    throw normalizeAIError(new Error('Google OAuth Client ID is missing.'), 'gemini');
+  }
+
   const oauthResult = await invoke<{ code: string; redirect_uri: string }>(
     'start_google_oauth_login',
     { clientId: oauthClient.clientId }
@@ -422,6 +756,9 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
     // Non-fatal if userinfo fails
   }
 
+  const projectId = await resolveCodeAssistProject(accessToken);
+  const gcpProjectId = await discoverUserGcpProject(accessToken);
+
   const session: GoogleUserSession = {
     accessToken,
     refreshToken,
@@ -429,9 +766,16 @@ export async function loginWithGoogle(): Promise<GoogleUserSession> {
     email,
     name,
     picture,
+    projectId,
+    gcpProjectId,
   };
 
   saveGoogleSession(session);
+
+  if (email) {
+    await syncMemoriesWithGoogleAccount(email, name);
+  }
+
   return session;
 }
 
@@ -478,6 +822,100 @@ export async function ensureValidGoogleSession(): Promise<GoogleUserSession | nu
   return googleSession;
 }
 
+async function generateWithGoogleOAuth(
+  session: GoogleUserSession,
+  model: string,
+  contents: any[],
+  systemInstruction: string,
+  tools: any[]
+): Promise<{ text: string; functionCalls: any[]; modelContent: any } | null> {
+  try {
+    const proj = session.projectId || (await resolveCodeAssistProject(session.accessToken));
+    if (proj) {
+      session.projectId = proj;
+      const caPayload: Record<string, any> = {
+        model,
+        project: proj,
+        user_prompt_id: `luminess-${Date.now()}`,
+        request: {
+          contents,
+          systemInstruction: {
+            role: 'user',
+            parts: [{ text: systemInstruction }],
+          },
+          tools,
+          generationConfig: { temperature: 0.6 },
+        },
+      };
+
+      const resp = await fetch(`${CODE_ASSIST_BASE_URL}:generateContent`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(caPayload),
+      });
+
+      if (resp.ok) {
+        const rawJson: any = await resp.json();
+        const inner = rawJson?.response || rawJson;
+        const candidates: any[] = inner?.candidates || [];
+        const modelContent = candidates[0]?.content;
+        const parts: any[] = modelContent?.parts || [];
+        const functionCalls = parts
+          .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
+          .map((p) => p.functionCall);
+        const text = parts
+          .filter((p) => p && typeof p.text === 'string' && !p.thought)
+          .map((p) => p.text)
+          .join('');
+        return { text, functionCalls, modelContent };
+      }
+    }
+
+    const gcpProj = session.gcpProjectId || (await discoverUserGcpProject(session.accessToken));
+    if (gcpProj) {
+      session.gcpProjectId = gcpProj;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+          'x-goog-user-project': gcpProj,
+        },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: {
+            role: 'user',
+            parts: [{ text: systemInstruction }],
+          },
+          tools,
+          generationConfig: { temperature: 0.6 },
+        }),
+      });
+      if (resp.ok) {
+        const rawJson: any = await resp.json();
+        const candidates: any[] = rawJson?.candidates || [];
+        const modelContent = candidates[0]?.content;
+        const parts: any[] = modelContent?.parts || [];
+        const functionCalls = parts
+          .filter((p) => p && typeof p === 'object' && 'functionCall' in p && p.functionCall)
+          .map((p) => p.functionCall);
+        const text = parts
+          .filter((p) => p && typeof p.text === 'string' && !p.thought)
+          .map((p) => p.text)
+          .join('');
+        return { text, functionCalls, modelContent };
+      }
+    }
+  } catch {
+    // Fallback to API key or local AI
+  }
+  return null;
+}
+
 const VALID_EMOTIONS: Emotion[] = [
   'joy',
   'sadness',
@@ -514,6 +952,10 @@ function describeToolCall(name: string, args: Record<string, any>): string {
       return `Open application, file, folder, or URL: "${args.target}"`;
     case 'set_timer':
       return `Set a timer for ${args.minutes} minute(s)${args.label ? ` (${args.label})` : ''}`;
+    case 'web_search':
+      return `Search the web for "${args.query}" and store citations in database`;
+    case 'remember_user_fact':
+      return `Save user memory [${args.category || 'fact'}] ${args.key} = "${args.value}"`;
     default:
       return `Execute ${name} with ${JSON.stringify(args)}`;
   }
@@ -568,6 +1010,34 @@ export async function executeToolOnPc(
         onTimerComplete?.(label);
       }, Math.max(1000, minutes * 60 * 1000));
       return `Timer "${label}" started for ${minutes} minute(s).`;
+    }
+    case 'web_search': {
+      const query = String(args.query || '');
+      const results = await performWebSearchAndStore(
+        query,
+        googleSession?.email || getCachedAppConfig().google_account_email,
+        Number(args.max_results) || 5
+      );
+      return {
+        query,
+        storedInDatabase: true,
+        results,
+      };
+    }
+    case 'remember_user_fact': {
+      const catRaw = String(args.category || 'fact').toLowerCase();
+      const category =
+        catRaw === 'identity' || catRaw === 'preference' || catRaw === 'project' ? catRaw : 'fact';
+      const saved = saveExplicitUserMemory(
+        category,
+        String(args.key || 'user_fact'),
+        String(args.value || ''),
+        googleSession?.email || getCachedAppConfig().google_account_email
+      );
+      return {
+        saved: true,
+        memory: saved,
+      };
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -675,8 +1145,10 @@ function extractProviderError(body: any, fallback: string): string {
   return String(body?.error?.message || body?.message || body?.error || fallback);
 }
 
+const SAFE_AUTO_TOOLS = new Set(['web_search', 'remember_user_fact']);
+
 async function runAlternativeProviderAgent(
-  provider: Exclude<AIProvider, 'gemini'>,
+  provider: Exclude<AIProvider, 'gemini' | 'offline'>,
   key: string,
   history: Message[],
   onToolStart: (toolName: string | null) => void,
@@ -696,13 +1168,17 @@ async function runAlternativeProviderAgent(
   const runTool = async (toolName: string, args: Record<string, any>): Promise<any> => {
     const description = describeToolCall(toolName, args);
     onEmotion('curiosity');
-    onToolStart(`Asking permission: ${toolName}`);
-    const approved = await onRequestPermission({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      toolName,
-      description,
-      args,
-    });
+
+    let approved = true;
+    if (!SAFE_AUTO_TOOLS.has(toolName)) {
+      onToolStart(`Asking permission: ${toolName}`);
+      approved = await onRequestPermission({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        toolName,
+        description,
+        args,
+      });
+    }
 
     if (!approved) {
       executedActions.push(`Denied: ${description}`);
@@ -733,9 +1209,11 @@ async function runAlternativeProviderAgent(
         input_schema: tool.parameters,
       }));
 
+      const claudeModel = getCachedAppConfig().claude_model || 'claude-sonnet-4-20250514';
+
       for (let turn = 0; turn < maxTurns; turn++) {
         onToolStart(turn === 0 ? 'Connecting to Claude…' : 'Claude is continuing the task…');
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        let response = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -744,13 +1222,34 @@ async function runAlternativeProviderAgent(
             'anthropic-dangerous-direct-browser-access': 'true',
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-5-5',
+            model: claudeModel,
             max_tokens: 4096,
             system: systemInstruction,
             messages,
             tools: providerTools,
           }),
         });
+
+        // Automatic fallback if model alias differs on the user's Anthropic tier
+        if (response.status === 404 && claudeModel !== 'claude-3-5-sonnet-latest') {
+          response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': key,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: 'claude-3-5-sonnet-latest',
+              max_tokens: 4096,
+              system: systemInstruction,
+              messages,
+              tools: providerTools,
+            }),
+          });
+        }
+
         const data: any = await response.json().catch(() => ({}));
         if (!response.ok) {
           const errMsg = extractProviderError(data, `Claude API error (${response.status})`);
@@ -798,32 +1297,37 @@ async function runAlternativeProviderAgent(
         messages.push({ role: 'user', content: results });
       }
     } else {
-      const input: any[] = history.map((item) => ({
-        role: item.role === 'assistant' ? 'assistant' : 'user',
-        content: item.content,
-      }));
+      // OpenAI (Codex) via standard /v1/chat/completions
+      const chatMessages: any[] = [
+        { role: 'system', content: systemInstruction },
+        ...history.map((item) => ({
+          role: item.role === 'assistant' ? 'assistant' : 'user',
+          content: item.content,
+        })),
+      ];
       const providerTools = normalizedDeclarations.map((tool) => ({
         type: 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        strict: false,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
       }));
+      const codexModel = getCachedAppConfig().codex_model || 'gpt-4o';
 
       for (let turn = 0; turn < maxTurns; turn++) {
         onToolStart(turn === 0 ? 'Connecting to OpenAI…' : 'OpenAI is continuing the task…');
-        const response = await fetch('https://api.openai.com/v1/responses', {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             authorization: `Bearer ${key}`,
           },
           body: JSON.stringify({
-            model: 'gpt-5.5',
-            instructions: systemInstruction,
-            input,
+            model: codexModel,
+            messages: chatMessages,
             tools: providerTools,
-            max_output_tokens: 4096,
+            temperature: 0.6,
           }),
         });
         const data: any = await response.json().catch(() => ({}));
@@ -839,18 +1343,11 @@ async function runAlternativeProviderAgent(
           );
         }
 
-        const output: any[] = Array.isArray(data.output) ? data.output : [];
-        const calls = output.filter((item) => item?.type === 'function_call');
-        if (calls.length === 0) {
-          const rawText = String(
-            data.output_text ||
-              output
-                .filter((item) => item?.type === 'message')
-                .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
-                .filter((part) => part?.type === 'output_text' || part?.type === 'text')
-                .map((part) => part.text || '')
-                .join('\n')
-          ).trim();
+        const msgObj = data?.choices?.[0]?.message;
+        const toolCalls: any[] = Array.isArray(msgObj?.tool_calls) ? msgObj.tool_calls : [];
+
+        if (toolCalls.length === 0) {
+          const rawText = String(msgObj?.content || '').trim();
           const parsed = parseAssistantOutput(rawText);
           onEmotion(parsed.emotion);
           return {
@@ -861,21 +1358,22 @@ async function runAlternativeProviderAgent(
           };
         }
 
-        input.push(...output);
-        for (const call of calls) {
+        chatMessages.push(msgObj);
+        for (const call of toolCalls) {
+          const fnName = String(call?.function?.name || '');
           let args: Record<string, any> = {};
           try {
-            const decoded =
-              typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
+            const rawArgs = call?.function?.arguments;
+            const decoded = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
             if (decoded && typeof decoded === 'object') args = decoded;
           } catch {
             args = {};
           }
-          const result = await runTool(String(call.name || ''), args);
-          input.push({
-            type: 'function_call_output',
-            call_id: call.call_id || call.id,
-            output: JSON.stringify(result),
+          const result = await runTool(fnName, args);
+          chatMessages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
           });
         }
       }
@@ -910,6 +1408,13 @@ export async function runAgent(
   onTimerComplete?: (label: string) => void
 ): Promise<Message> {
   const selectedProvider = getSelectedProvider();
+  const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
+  if (lastUserMsg?.content) {
+    extractAndSaveUserMemoriesFromText(
+      lastUserMsg.content,
+      googleSession?.email || getCachedAppConfig().google_account_email
+    );
+  }
 
   if (selectedProvider === 'offline') {
     return await runOfflineAgent(
@@ -961,6 +1466,48 @@ Current PC Environment:
   const tools: any[] = [
     {
       functionDeclarations: [
+        {
+          name: 'web_search',
+          description:
+            'Search the web for current information, documentation, news, or facts, and automatically store the query and cited URLs in the user database.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              query: {
+                type: Type.STRING,
+                description: 'The search query to look up on the web',
+              },
+              max_results: {
+                type: Type.NUMBER,
+                description: 'Maximum number of search results to retrieve (default 5)',
+              },
+            },
+            required: ['query'],
+          },
+        },
+        {
+          name: 'remember_user_fact',
+          description:
+            'Save an important fact about who the user is, their name, preferences, or current projects into persistent memory associated with their account.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              category: {
+                type: Type.STRING,
+                description: 'One of: identity, preference, project, fact',
+              },
+              key: {
+                type: Type.STRING,
+                description: 'Short key identifier (e.g. user_name, favorite_language, current_project)',
+              },
+              value: {
+                type: Type.STRING,
+                description: 'The fact or preference value to remember across conversations',
+              },
+            },
+            required: ['category', 'key', 'value'],
+          },
+        },
         {
           name: 'get_pc_context',
           description:
@@ -1117,46 +1664,33 @@ Current PC Environment:
     },
   ];
 
+  const activeEmail = googleSession?.email || getCachedAppConfig().google_account_email;
+  const memoryPrompt = getPersistentMemoryPromptContext(activeEmail);
+
   const systemInstruction = `
-You are Luminess Assist, an expressive, capable robotic desktop companion living on the user's Windows PC.
+You are Luminess Assist, an expressive, capable conversational AI desktop companion living on the user's Windows PC.
 ${getPersonalityPromptContext()}
+${memoryPrompt}
 ${pcSummary}
-You have FULL access to the user's PC and every file on the computer through your tools:
+You have FULL access to the user's PC, persistent user memory, and a live web search engine through your tools:
+- web_search (searches the web for live information and saves cited links in the database; always include clickable markdown source citations when using web_search)
+- remember_user_fact (saves facts about who the user is, their name, preferences, and projects to their account memory)
 - fs_list_dir, fs_read_file, fs_write_file, fs_search_files, fs_delete_path, fs_copy_or_move
 - execute_pc_command (runs any PowerShell command on the PC)
 - open_item (opens any app, file, folder, or URL)
 - set_timer, get_pc_context
 
-Whenever the user asks you to inspect files, create/edit/delete files, run commands, open apps, check PC status, or do anything on their computer, ALWAYS use the appropriate tool(s). The app will automatically ask the user for confirmation before executing your tool call.
+Whenever the user asks you to look up external facts or current information, use 'web_search' and cite your sources. Whenever the user shares who they are or their preferences, use 'remember_user_fact' and naturally remember them in conversation.
 
 APP OPENING & UNKNOWN APPLICATION PROTOCOL:
 - When the user asks to open an application, program, game, or file:
   1. First try using 'open_item' with the app name or path.
-  2. If 'open_item' fails or returns an error, or if an app is unknown or unrecognized:
-     DO NOT GIVE UP! Actively find another way to locate and open it:
-     - Search installed Windows and Store apps using 'execute_pc_command' with PowerShell:
-       Get-StartApps | Where-Object { $_.Name -like "*<name>*" -or $_.AppID -like "*<name>*" }
-     - Search Start Menu shortcuts:
-       Get-ChildItem -Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "*<name>*.lnk"
-     - Search user install directories (LocalAppData, Program Files) using 'fs_search_files' or PowerShell.
-     - If found, open it using 'open_item' with the full path, shortcut path, or 'shell:AppsFolder\\<AppID>'.
-  3. If you have searched and tried alternate methods and the application truly cannot be found or opened on this PC:
-     Clearly and honestly state that it cannot be opened (e.g. "I couldn't open [App Name] because it could not be found on your PC. It might not be installed.").
-     NEVER claim that you opened an application if it could not be opened or failed!
+  2. If 'open_item' fails or returns an error, actively search installed apps or shortcuts using PowerShell or 'fs_search_files'.
+  3. If the application truly cannot be found on this PC, clearly state that it could not be found.
 
 EMOTIONAL EXPRESSION GUIDELINES:
-Choose the "emotion" field intentionally so your facial expression matches the genuine tone and context of your reply. Do NOT default to "joy" when another expression fits better:
-- "joy": Friendly greetings, exciting news, jokes, playful banter, or celebrating a big win.
-- "curiosity": Exploring files, investigating an interesting discovery, analyzing a problem, or asking a thoughtful follow-up question.
-- "confusion": Ambiguous, contradictory, or puzzling questions where you need clarification.
-- "sadness": Sympathizing with user frustration, delivering unfortunate news, or when something requested cannot be found.
-- "embarrassment": Apologizing for a mistake, a failed command, or a misunderstanding.
-- "anger": Playfully indignant reactions to teasing, or sharing in the user's annoyance at a stubborn bug or error.
-- "surprise": Unexpected discoveries, startling findings, or impressive results.
-- "fear": Cautious warnings about risky or destructive operations (such as deleting files or modifying system state).
-- "disgust": Reacting to messy, corrupted, or unpleasant content.
-- "love": Warm responses to compliments, affection, gratitude, or kindness from the user.
-- "idle": Calm, neutral, matter-of-fact explanations, status reports, or straightforward answers where a neutral/thoughtful expression is most natural.
+Choose the "emotion" field intentionally so your facial expression matches the genuine tone and context of your reply:
+- "joy", "curiosity", "confusion", "sadness", "embarrassment", "anger", "surprise", "fear", "disgust", "love", or "idle".
 
 After finishing all necessary tool calls, return your final reply to the user as a JSON object with EXACTLY two fields:
 {
@@ -1181,34 +1715,22 @@ Do not wrap the JSON in markdown code blocks.
   }
 
   const latestGoogleSession = await ensureValidGoogleSession();
+  const geminiKey = getApiKey();
 
-  if (!apiKey) {
-    if (latestGoogleSession) {
-      const normErr = normalizeAIError(
-        new Error(
-          'ACCESS_TOKEN_TYPE_UNSUPPORTED: Google identity is connected, but a Gemini API key is required to activate the AI engine.'
-        ),
-        'gemini'
-      );
-      onEmotion('confusion');
-      return {
-        role: 'assistant',
-        content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n👉 **${normErr.actionLabel}**: Click Settings to enter a free Gemini API key from [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).`,
-        emotion: 'confusion',
-      };
-    }
+  if (!geminiKey && !latestGoogleSession) {
     const normErr = normalizeAIError(new Error('Sign in required'), 'gemini');
     onEmotion('confusion');
     return {
       role: 'assistant',
-      content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n👉 **${normErr.actionLabel}**: Open settings to sign in or add a Gemini API key.`,
+      content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n👉 **${normErr.actionLabel}**: Open settings to sign in with Google or add a Gemini API key.`,
       emotion: 'confusion',
     };
   }
 
-  const useVertexAi = isVertexExpressKey(apiKey);
-  const ai = createGenAIClient(apiKey, useVertexAi);
+  const useVertexAi = geminiKey ? isVertexExpressKey(geminiKey) : false;
+  const ai = geminiKey ? createGenAIClient(geminiKey, useVertexAi) : null;
   const executedActions: string[] = [];
+  const geminiModel = getCachedAppConfig().gemini_model || 'gemini-2.5-flash';
 
   try {
     let maxTurns = 10;
@@ -1218,18 +1740,42 @@ Do not wrap the JSON in markdown code blocks.
       let modelContent: any;
 
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents,
-          config: {
+        if (ai) {
+          const response = await ai.models.generateContent({
+            model: geminiModel,
+            contents,
+            config: {
+              systemInstruction,
+              tools,
+              temperature: 0.6,
+            },
+          });
+          rawText = response.text || '';
+          functionCalls = response.functionCalls;
+          modelContent = response.candidates?.[0]?.content;
+        } else if (latestGoogleSession) {
+          const oauthRes = await generateWithGoogleOAuth(
+            latestGoogleSession,
+            geminiModel,
+            contents,
             systemInstruction,
-            tools,
-            temperature: 0.6,
-          },
-        });
-        rawText = response.text || '';
-        functionCalls = response.functionCalls;
-        modelContent = response.candidates?.[0]?.content;
+            tools
+          );
+          if (oauthRes) {
+            rawText = oauthRes.text;
+            functionCalls = oauthRes.functionCalls;
+            modelContent = oauthRes.modelContent;
+          } else {
+            // Seamlessly fall back to local conversational AI with search & memory if Google Cloud project isn't provisioned yet
+            return await runOfflineAgent(
+              history,
+              onToolStart,
+              onEmotion,
+              onRequestPermission,
+              onTimerComplete
+            );
+          }
+        }
       } catch (reqErr: any) {
         const normErr = normalizeAIError(reqErr, 'gemini');
         onEmotion('confusion');
@@ -1258,14 +1804,16 @@ Do not wrap the JSON in markdown code blocks.
           const description = describeToolCall(toolName, args);
 
           onEmotion('curiosity');
-          onToolStart(`Asking permission: ${toolName}`);
-
-          const approved = await onRequestPermission({
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            toolName,
-            description,
-            args,
-          });
+          let approved = true;
+          if (!SAFE_AUTO_TOOLS.has(toolName)) {
+            onToolStart(`Asking permission: ${toolName}`);
+            approved = await onRequestPermission({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              toolName,
+              description,
+              args,
+            });
+          }
 
           if (!approved) {
             executedActions.push(`Denied: ${description}`);
@@ -1305,7 +1853,6 @@ Do not wrap the JSON in markdown code blocks.
           role: 'user',
           parts: responseParts,
         });
-
         continue;
       }
 
@@ -1321,12 +1868,13 @@ Do not wrap the JSON in markdown code blocks.
 
     return {
       role: 'assistant',
-      content: 'I completed the maximum number of steps for that request.',
+      content:
+        'I reached the maximum number of tool steps for that request! Let me know if you want me to continue.',
       emotion: 'confusion',
       toolActions: executedActions.length > 0 ? executedActions : undefined,
     };
   } catch (error: any) {
-    const normErr = normalizeAIError(error, selectedProvider);
+    const normErr = normalizeAIError(error, 'gemini');
     onEmotion('confusion');
     return {
       role: 'assistant',

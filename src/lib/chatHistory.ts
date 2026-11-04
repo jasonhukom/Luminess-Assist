@@ -1,10 +1,12 @@
 import type { Message } from './gemini.ts';
+import { getCachedAppConfig, saveDatabaseToMachine } from './memoryAndStorage.ts';
 
 export interface ChatSession {
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
+  accountEmail?: string;
   messages: Message[];
 }
 
@@ -12,31 +14,31 @@ const STORAGE_KEY_SESSIONS = 'LUMINESS_LOCAL_CHAT_SESSIONS_V1';
 const STORAGE_KEY_ACTIVE_ID = 'LUMINESS_LOCAL_ACTIVE_SESSION_ID_V1';
 
 export const LOCAL_CHAT_PRIVACY_NOTICE = {
-  badge: '100% Local & Private',
-  title: 'Local Chat Privacy & Data Guarantee',
-  license: 'MIT Open Source License • Zero Telemetry',
+  badge: 'Persistent & Private',
+  title: 'Chat Memory, Account Sync & Storage Guarantee',
+  license: 'MIT Open Source License • User-Controlled Database',
   summary:
-    "Your conversations and desktop tool actions are stored strictly on this device. They are NEVER connected to your Google account, uploaded to cloud databases, or shared with third parties.",
+    'Your conversations, learned user profile memories, and web search history are saved in your local database with configurable storage quotas and associated with your authenticated Google account.',
   principles: [
     {
-      title: 'Local Storage Only',
+      title: 'Separate Machine Keys vs. Account Memory',
       description:
-        'All chat history is saved exclusively in your local device storage. Nothing is stored in the cloud.',
+        'Provider API keys are encrypted in your Windows OS Credential Vault on this machine, separate from your Google account conversational memory.',
     },
     {
-      title: 'Decoupled from User Accounts',
+      title: 'Google Account Memory Synchronization',
       description:
-        'Connecting a Google account or API key is strictly used to authenticate AI model inference. Your conversations are never saved to your account or personal profile.',
+        'When signed in with Google, Luminess remembers who you are, your preferences, and your conversation history under your account profile.',
     },
     {
-      title: 'Zero Telemetry & Zero Cloud Relays',
+      title: 'Configurable Database Quotas',
       description:
-        'Luminess Assist does not operate tracking servers or database proxies. Prompts travel directly between your PC and the official model endpoint via encrypted HTTPS.',
+        'Choose Lightweight (1 GB), Recommended (5 GB), Extended (10 GB), Large (25 GB), or Unlimited storage with automatic disk space protection.',
     },
     {
-      title: 'Full Local Erasure',
+      title: 'Full Export & Erasure Controls',
       description:
-        'You have complete ownership of your data. You can clear individual sessions or wipe all local history instantly at any time.',
+        'You have complete ownership of your data. Search, export to JSON, delete individual memories, or wipe all history anytime.',
     },
   ],
 };
@@ -114,9 +116,20 @@ export function loadAllChatSessions(): ChatSession[] {
 export function saveAllChatSessions(sessions: ChatSession[]): void {
   try {
     setStorageItem(STORAGE_KEY_SESSIONS, JSON.stringify(sessions));
+    void saveDatabaseToMachine({ sessions });
   } catch (err) {
     console.warn('[Luminess] Failed to save local chat sessions:', err);
   }
+}
+
+export function searchChatSessions(query: string, sessions?: ChatSession[]): ChatSession[] {
+  const all = sessions || loadAllChatSessions();
+  const q = query.trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((session) => {
+    if (session.title.toLowerCase().includes(q)) return true;
+    return session.messages.some((m) => m.content.toLowerCase().includes(q));
+  });
 }
 
 export function getActiveSessionId(): string | null {
@@ -150,19 +163,19 @@ export function loadActiveChatMessages(): { sessionId: string; messages: Message
     }
   }
 
-  // If there is an existing session, return the most recent one
   if (sessions.length > 0) {
     const mostRecent = sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     setActiveSessionId(mostRecent.id);
     return { sessionId: mostRecent.id, messages: mostRecent.messages };
   }
 
-  // Otherwise start a fresh initial session
+  const email = getCachedAppConfig().google_account_email || undefined;
   const newSession: ChatSession = {
     id: generateId(),
     title: 'New Conversation',
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    accountEmail: email,
     messages: [],
   };
   saveAllChatSessions([newSession]);
@@ -179,11 +192,13 @@ export function saveActiveChatMessages(
 
   const now = Date.now();
   const title = summarizeTitle(messages);
+  const email = getCachedAppConfig().google_account_email || undefined;
 
   if (existingIdx >= 0) {
     sessions[existingIdx] = {
       ...sessions[existingIdx],
       messages,
+      accountEmail: email || sessions[existingIdx].accountEmail,
       title: sessions[existingIdx].title === 'New Conversation' ? title : sessions[existingIdx].title,
       updatedAt: now,
     };
@@ -193,6 +208,7 @@ export function saveActiveChatMessages(
       title,
       createdAt: now,
       updatedAt: now,
+      accountEmail: email,
       messages,
     });
   }
@@ -203,15 +219,16 @@ export function saveActiveChatMessages(
 
 export function createNewSession(): { sessionId: string; messages: Message[] } {
   const sessions = loadAllChatSessions();
+  const email = getCachedAppConfig().google_account_email || undefined;
   const newSession: ChatSession = {
     id: generateId(),
     title: 'New Conversation',
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    accountEmail: email,
     messages: [],
   };
 
-  // Keep sessions list clean: remove empty "New Conversation" sessions before adding another
   const cleaned = sessions.filter((s) => s.messages.length > 0);
   cleaned.unshift(newSession);
 
