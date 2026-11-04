@@ -18,6 +18,7 @@ import {
   Lock,
   Info,
   Zap,
+  Settings,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision, AIProvider } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
@@ -55,6 +56,11 @@ interface ChatPanelProps {
   onNewChat?: () => void;
   onDeleteSession?: (sessionId: string) => void;
   onClearAllHistory?: () => void;
+  // Floating boxes controls
+  isHistoryBoxOpen?: boolean;
+  onToggleHistoryBox?: () => void;
+  isSettingsBoxOpen?: boolean;
+  onToggleSettingsBox?: () => void;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -85,6 +91,10 @@ export function ChatPanel({
   onNewChat,
   onDeleteSession,
   onClearAllHistory,
+  isHistoryBoxOpen = false,
+  onToggleHistoryBox,
+  isSettingsBoxOpen = false,
+  onToggleSettingsBox,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [isResizing, setIsResizing] = useState(false);
@@ -193,9 +203,9 @@ export function ChatPanel({
           <Bot size={18} className="text-glow" />
           <span>Luminess Assist</span>
           {currentProvider === 'offline' && (
-            <span className="offline-chip" title="Running in Local Offline Mode with OpenCode Agent">
+            <span className="offline-chip" title="Running in Local AI Mode (Ollama / llama.cpp / OpenCode / Built-in)">
               <Zap size={10} />
-              <span>OFFLINE (OPENCODE)</span>
+              <span>LOCAL AI</span>
             </span>
           )}
         </div>
@@ -215,22 +225,40 @@ export function ChatPanel({
             </button>
           )}
 
-          {/* Local History Drawer Toggle */}
+          {/* Floating History & Memory Box Toggle */}
           <button
             type="button"
-            className={`icon-btn ${showHistoryDrawer ? 'active' : ''}`}
-            onClick={() => setShowHistoryDrawer((v) => !v)}
-            title="Local Chat History (Stored only on this PC)"
+            className={`icon-btn ${(onToggleHistoryBox ? isHistoryBoxOpen : showHistoryDrawer) ? 'active' : ''}`}
+            onClick={() => {
+              if (onToggleHistoryBox) {
+                onToggleHistoryBox();
+              } else {
+                setShowHistoryDrawer((v) => !v);
+              }
+            }}
+            title="Floating History & Memory Box (Draggable • Auto-Avoids Chatbox)"
           >
             <History size={15} />
           </button>
+
+          {/* Floating Storage & Settings (config.json) Box Toggle */}
+          {onToggleSettingsBox && (
+            <button
+              type="button"
+              className={`icon-btn ${isSettingsBoxOpen ? 'active' : ''}`}
+              onClick={onToggleSettingsBox}
+              title="Floating Storage & Settings Box (config.json • API Keys • Local AI)"
+            >
+              <Settings size={15} />
+            </button>
+          )}
 
           {/* 100% Local Privacy Guarantee & License Modal Trigger */}
           <button
             type="button"
             className="icon-btn privacy-shield-btn"
             onClick={() => setShowPrivacyModal(true)}
-            title="100% Local Privacy Guarantee • Never Saved to Account"
+            title="Local Vault & Privacy Guarantee"
           >
             <ShieldCheck size={15} />
           </button>
@@ -270,16 +298,16 @@ export function ChatPanel({
             <Bot size={44} className="empty-bot-icon" />
             <p className="empty-title">Hi! I have full access to help with your PC.</p>
             <p className="empty-sub">
-              Ask me to read/write files, search folders, run PowerShell commands, or open apps. I&apos;ll ask your permission before making changes!
+              Ask me anything! I remember who you are, search the web with citations, and help with files or PowerShell commands.
             </p>
             <button
               type="button"
               className="local-privacy-pill"
               onClick={() => setShowPrivacyModal(true)}
-              title="Click to view Local Privacy & License Guarantee"
+              title="Click to view Privacy & Memory Architecture"
             >
               <Lock size={12} className="privacy-pill-icon" />
-              <span>100% Local Chat • Never saved to accounts</span>
+              <span>Machine Vault + Account Memory Sync</span>
               <Info size={12} className="privacy-info-icon" />
             </button>
           </div>
@@ -392,13 +420,13 @@ export function ChatPanel({
         </button>
       </form>
 
-      <div className="chat-privacy-subtext" title="All chats remain strictly in local storage on this computer">
+      <div className="chat-privacy-subtext" title="API Keys are encrypted in Windows DPAPI Vault; Memories sync to your account">
         <Lock size={10} />
-        <span>100% Local Chat • Not saved to accounts or cloud</span>
+        <span>DPAPI Encrypted Keys • Persistent Account Memory & Search DB</span>
       </div>
 
-      {/* Local History Drawer */}
-      {showHistoryDrawer && (
+      {/* Fallback Local History Drawer if floating box prop not provided */}
+      {showHistoryDrawer && !onToggleHistoryBox && (
         <div className="history-drawer">
           <div className="history-drawer-header">
             <div className="history-drawer-title">
@@ -492,7 +520,7 @@ export function ChatPanel({
 
           <div className="history-drawer-footer">
             <Lock size={11} />
-            <span>Stored 100% locally on this device. Disconnected from accounts.</span>
+            <span>Stored locally on this device and synced with your active profile.</span>
           </div>
         </div>
       )}

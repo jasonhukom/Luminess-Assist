@@ -5,6 +5,8 @@ import { Robot } from './components/Robot.tsx';
 import { LuminessBootScreen } from './components/LuminessBootScreen.tsx';
 import type { Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
+import { FloatingHistoryBox } from './components/FloatingHistoryBox.tsx';
+import { FloatingSettingsBox } from './components/FloatingSettingsBox.tsx';
 import {
   runAgent,
   getGoogleSession,
@@ -19,6 +21,8 @@ import {
   setApiKey,
   verifyProviderConnection,
   checkAntigravityCliStatus,
+  loadMachineCredentialsOnStartup,
+  saveAllProviderKeysToMachine,
   type AntigravityCliStatus,
 } from './lib/gemini.ts';
 import {
@@ -43,8 +47,42 @@ import {
   createNewSession,
   deleteChatSession,
   clearAllLocalChatHistory,
+  associateSessionsWithGoogleAccount,
   type ChatSession,
 } from './lib/chatHistory.ts';
+import {
+  STORAGE_TIER_OPTIONS,
+  STORAGE_RECOMMENDATION_EXPLANATION,
+  getCachedAppConfig,
+  loadAppConfigFromMachine,
+  saveAppConfigToMachine,
+  loadDatabaseFromMachine,
+  getMachineStorageStatus,
+  getUserMemories,
+  addExplicitUserMemory,
+  deleteUserMemory,
+  clearAllUserMemories,
+  syncMemoriesWithGoogleAccount,
+  getSearchHistory,
+  clearSearchHistory,
+  type AppConfigJson,
+  type StorageStatus,
+  type StorageTierId,
+  type UserMemoryItem,
+  type SearchHistoryEntry,
+  type FloatingBoxPosition,
+} from './lib/memoryAndStorage.ts';
+import {
+  inspectLocalAiHardware,
+  discoverLocalAiServers,
+  type LocalAiHardwareReport,
+  type LocalAiServerStatus,
+} from './lib/opencode.ts';
+import {
+  resolveFloatingBoxCollision,
+  spawnNonOverlappingBox,
+  type BoxRect,
+} from './lib/floatingWindows.ts';
 import {
   Sparkles,
   Loader2,
@@ -59,6 +97,7 @@ import {
   AlertTriangle,
   TerminalSquare,
   Zap,
+  HardDrive,
 } from 'lucide-react';
 
 const PROVIDER_INFO: Record<
@@ -97,11 +136,11 @@ const PROVIDER_INFO: Record<
     colorClass: 'codex',
   },
   offline: {
-    name: 'Offline (OpenCode)',
+    name: 'Local AI',
     mark: '⚡',
     keyUrl: '',
-    btnLabel: '100% Local OpenCode Agent',
-    placeholder: 'Offline Mode (Powered by OpenCode)',
+    btnLabel: '100% Local AI (Ollama / llama.cpp / OpenCode)',
+    placeholder: 'Local AI Mode (Ollama / llama.cpp / OpenCode / Built-in)',
     colorClass: 'offline',
   },
 };
@@ -127,10 +166,39 @@ function App() {
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [normalizedError, setNormalizedError] = useState<NormalizedAIError | null>(null);
   const [connectionState, setConnectionState] = useState<AIConnectionState>(() => {
-    if (!hasAnyProviderKey()) return 'not_configured';
+    if (!hasAnyProviderKey() && !getGoogleSession()) return 'not_configured';
     return 'ready_to_sign_in';
   });
   const [antigravityStatus, setAntigravityStatus] = useState<AntigravityCliStatus | null>(null);
+
+  // Persistent Config, Storage Quota, User Memories & Search Database State
+  const [appConfig, setAppConfig] = useState<AppConfigJson>(() => getCachedAppConfig());
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
+  const [memories, setMemories] = useState<UserMemoryItem[]>(() => getUserMemories());
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>(() => getSearchHistory());
+  const [hardwareReport, setHardwareReport] = useState<LocalAiHardwareReport | null>(null);
+  const [localServers, setLocalServers] = useState<LocalAiServerStatus[]>([]);
+  const [isScanningLocalAi, setIsScanningLocalAi] = useState<boolean>(false);
+
+  // Two New Independent Floating UI Boxes (History Box & Storage/Settings Box)
+  const [historyBoxOpen, setHistoryBoxOpen] = useState<boolean>(false);
+  const [settingsBoxOpen, setSettingsBoxOpen] = useState<boolean>(false);
+  const [historyBoxPos, setHistoryBoxPos] = useState<FloatingBoxPosition>(() => {
+    const cfg = getCachedAppConfig();
+    return cfg.historyBox || { x: 48, y: 80, width: 350, height: 470, visible: false };
+  });
+  const [settingsBoxPos, setSettingsBoxPos] = useState<FloatingBoxPosition>(() => {
+    const cfg = getCachedAppConfig();
+    return cfg.settingsBox || { x: 420, y: 80, width: 380, height: 500, visible: false };
+  });
+
+  // Anchor coordinates for the Robot + Chatbox when full-screen floating workspace is active
+  const [companionAnchor, setCompanionAnchor] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }>({ left: 160, top: 140, width: 732, height: 644 });
 
   const [chatOpen, setChatOpen] = useState<boolean>(false);
   const [chatSide, setChatSide] = useState<'left' | 'right'>('left');
@@ -163,11 +231,14 @@ function App() {
   const modalCardRef = useRef<HTMLDivElement>(null);
   const chatWrapRef = useRef<HTMLDivElement>(null);
   const robotWrapRef = useRef<HTMLDivElement>(null);
+  const historyBoxWrapRef = useRef<HTMLDivElement>(null);
+  const settingsBoxWrapRef = useRef<HTMLDivElement>(null);
 
   const companionReadyRef = useRef<boolean>(false);
   const modalPlacedRef = useRef<boolean>(false);
   const manualSideOverrideRef = useRef<boolean>(false);
   const manualVertOverrideRef = useRef<boolean>(false);
+  const prevFloatingWorkspaceRef = useRef<boolean>(false);
   const prevModeRef = useRef<{
     showApiModal: boolean;
     chatOpen: boolean;
@@ -185,6 +256,239 @@ function App() {
   useEffect(() => {
     autoApproveRef.current = autoApprove;
   }, [autoApprove]);
+
+  const refreshMemoryAndStorageData = useCallback(async (email?: string | null) => {
+    setMemories(getUserMemories(email !== undefined ? email : googleUser?.email));
+    setSearchHistory(getSearchHistory());
+    setAllSessions(loadAllChatSessions());
+    const status = await getMachineStorageStatus();
+    setStorageStatus(status);
+  }, [googleUser?.email]);
+
+  const refreshLocalAiStatus = useCallback(async () => {
+    setIsScanningLocalAi(true);
+    try {
+      const [hw, srvs] = await Promise.all([
+        inspectLocalAiHardware(),
+        discoverLocalAiServers(),
+      ]);
+      setHardwareReport(hw);
+      setLocalServers(srvs);
+    } finally {
+      setIsScanningLocalAi(false);
+    }
+  }, []);
+
+  // Load DPAPI Machine Vault, config.json, database.json, and Local AI status on startup
+  useEffect(() => {
+    const initMachineData = async () => {
+      const [creds, cfg] = await Promise.all([
+        loadMachineCredentialsOnStartup(),
+        loadAppConfigFromMachine(),
+        loadDatabaseFromMachine(),
+      ]);
+
+      setProviderKeys(creds.keys);
+      setSelectedProviderState(creds.activeProvider);
+      setAppConfig(cfg);
+      if (cfg.historyBox) {
+        setHistoryBoxPos(cfg.historyBox);
+      }
+      if (cfg.settingsBox) {
+        setSettingsBoxPos(cfg.settingsBox);
+      }
+
+      if (creds.googleSession) {
+        setGoogleUser(creds.googleSession);
+        if (creds.googleSession.email) {
+          syncMemoriesWithGoogleAccount(creds.googleSession.email);
+          associateSessionsWithGoogleAccount(creds.googleSession.email);
+        }
+      }
+
+      const activeChat = loadActiveChatMessages();
+      setActiveSessionId(activeChat.sessionId);
+      setMessages(activeChat.messages);
+      setAllSessions(loadAllChatSessions());
+      setMemories(getUserMemories(creds.googleSession?.email));
+      setSearchHistory(getSearchHistory());
+
+      if (
+        localStorage.getItem('LUMINNESS_SETUP_COMPLETED') &&
+        (creds.googleSession || hasAnyProviderKey())
+      ) {
+        setShowApiModal(false);
+      }
+
+      const status = await getMachineStorageStatus();
+      setStorageStatus(status);
+      void refreshLocalAiStatus();
+    };
+
+    void initMachineData();
+  }, [refreshLocalAiStatus]);
+
+  // Compute current Chatbox bounding box on screen for collision avoidance
+  const getCurrentChatBoxScreenRect = useCallback((): BoxRect | null => {
+    if (!chatOpen || !chatWrapRef.current) return null;
+    const r = chatWrapRef.current.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    return {
+      x: r.left,
+      y: r.top,
+      width: r.width,
+      height: r.height,
+    };
+  }, [chatOpen]);
+
+  // Whenever Chatbox opens/moves/resizes, ensure History Box and Settings Box automatically move away if touching
+  useEffect(() => {
+    if (!historyBoxOpen && !settingsBoxOpen) return;
+    const timer = window.setTimeout(() => {
+      const chatRect = getCurrentChatBoxScreenRect();
+      if (!chatRect) return;
+      const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+
+      setHistoryBoxPos((prevHist) => {
+        if (!historyBoxOpen) return prevHist;
+        const resolved = resolveFloatingBoxCollision(
+          prevHist,
+          chatRect,
+          settingsBoxOpen ? [settingsBoxPos] : [],
+          screenBounds,
+          18
+        );
+        if (resolved.x !== prevHist.x || resolved.y !== prevHist.y) {
+          return { ...prevHist, x: resolved.x, y: resolved.y };
+        }
+        return prevHist;
+      });
+
+      setSettingsBoxPos((prevSet) => {
+        if (!settingsBoxOpen) return prevSet;
+        const resolved = resolveFloatingBoxCollision(
+          prevSet,
+          chatRect,
+          historyBoxOpen ? [historyBoxPos] : [],
+          screenBounds,
+          18
+        );
+        if (resolved.x !== prevSet.x || resolved.y !== prevSet.y) {
+          return { ...prevSet, x: resolved.x, y: resolved.y };
+        }
+        return prevSet;
+      });
+    }, 30);
+    return () => window.clearTimeout(timer);
+  }, [
+    chatOpen,
+    chatSide,
+    chatVert,
+    panelSize,
+    companionAnchor,
+    historyBoxOpen,
+    settingsBoxOpen,
+    getCurrentChatBoxScreenRect,
+  ]);
+
+  const handleMoveHistoryBox = useCallback(
+    (nextPos: FloatingBoxPosition) => {
+      const chatRect = getCurrentChatBoxScreenRect();
+      const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+      const resolved = resolveFloatingBoxCollision(
+        nextPos,
+        chatRect,
+        settingsBoxOpen ? [settingsBoxPos] : [],
+        screenBounds,
+        18
+      );
+      const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
+      setHistoryBoxPos(updated);
+      setAppConfig((prev) => {
+        const nextCfg = { ...prev, historyBox: updated };
+        void saveAppConfigToMachine(nextCfg);
+        return nextCfg;
+      });
+    },
+    [getCurrentChatBoxScreenRect, settingsBoxOpen, settingsBoxPos]
+  );
+
+  const handleMoveSettingsBox = useCallback(
+    (nextPos: FloatingBoxPosition) => {
+      const chatRect = getCurrentChatBoxScreenRect();
+      const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+      const resolved = resolveFloatingBoxCollision(
+        nextPos,
+        chatRect,
+        historyBoxOpen ? [historyBoxPos] : [],
+        screenBounds,
+        18
+      );
+      const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
+      setSettingsBoxPos(updated);
+      setAppConfig((prev) => {
+        const nextCfg = { ...prev, settingsBox: updated };
+        void saveAppConfigToMachine(nextCfg);
+        return nextCfg;
+      });
+    },
+    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos]
+  );
+
+  const handleToggleHistoryBox = useCallback(() => {
+    setHistoryBoxOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        void refreshMemoryAndStorageData();
+        setTimeout(() => {
+          const chatRect = getCurrentChatBoxScreenRect();
+          const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+          setHistoryBoxPos((cur) => {
+            const spawned = spawnNonOverlappingBox(
+              { width: cur.width, height: cur.height },
+              { x: cur.x, y: cur.y },
+              chatRect,
+              settingsBoxOpen ? [settingsBoxPos] : [],
+              screenBounds
+            );
+            return { ...cur, x: spawned.x, y: spawned.y, visible: true };
+          });
+        }, 50);
+      }
+      return next;
+    });
+  }, [getCurrentChatBoxScreenRect, refreshMemoryAndStorageData, settingsBoxOpen, settingsBoxPos]);
+
+  const handleToggleSettingsBox = useCallback(() => {
+    setSettingsBoxOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        void refreshMemoryAndStorageData();
+        void refreshLocalAiStatus();
+        setTimeout(() => {
+          const chatRect = getCurrentChatBoxScreenRect();
+          const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+          setSettingsBoxPos((cur) => {
+            const spawned = spawnNonOverlappingBox(
+              { width: cur.width, height: cur.height },
+              { x: cur.x, y: cur.y },
+              chatRect,
+              historyBoxOpen ? [historyBoxPos] : [],
+              screenBounds
+            );
+            return { ...cur, x: spawned.x, y: spawned.y, visible: true };
+          });
+        }, 50);
+      }
+      return next;
+    });
+  }, [
+    getCurrentChatBoxScreenRect,
+    refreshMemoryAndStorageData,
+    refreshLocalAiStatus,
+    historyBoxOpen,
+    historyBoxPos,
+  ]);
 
   const handleScreenSideChange = useCallback(
     (botScreenSide: 'left' | 'right', botScreenVert: 'up' | 'down') => {
@@ -245,6 +549,14 @@ function App() {
         const r = chatWrapRef.current.getBoundingClientRect();
         rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
       }
+      if (historyBoxOpen && historyBoxWrapRef.current) {
+        const r = historyBoxWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
+      if (settingsBoxOpen && settingsBoxWrapRef.current) {
+        const r = settingsBoxWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
       if (robotWrapRef.current) {
         const r = robotWrapRef.current.getBoundingClientRect();
         const insetX = r.width * 0.12;
@@ -274,7 +586,7 @@ function App() {
       companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
       botCenter,
     }).catch(() => {});
-  }, [bootComplete, showApiModal, chatOpen, isDraggingBot, brokenSeconds]);
+  }, [bootComplete, showApiModal, chatOpen, historyBoxOpen, settingsBoxOpen, isDraggingBot, brokenSeconds]);
 
   useEffect(() => {
     syncInteractiveRegions();
@@ -284,7 +596,9 @@ function App() {
       window.clearInterval(timer);
       window.removeEventListener('resize', syncInteractiveRegions);
     };
-  }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert]);
+  }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert, historyBoxPos, settingsBoxPos]);
+
+  const floatingWorkspaceActive = !showApiModal && (historyBoxOpen || settingsBoxOpen);
 
   useEffect(() => {
     const updateWindowGeometry = async () => {
@@ -311,13 +625,58 @@ function App() {
             : robotSize + 144;
 
         const targetCssH = showApiModal
-          ? 700
+          ? 760
           : chatOpen
             ? Math.max(panelSize.height, robotSize) + 144
             : robotSize + 144;
 
         const targetW = Math.round(targetCssW * dpr);
         const targetH = Math.round(targetCssH * dpr);
+
+        // When either Floating History Box or Floating Settings Box is open, expand transparent click-through overlay
+        // to the full monitor while anchoring the Robot + Chatbox at their exact screen coordinates
+        if (floatingWorkspaceActive) {
+          if (!prevFloatingWorkspaceRef.current) {
+            const relLeft = Math.round((bounds.x - bounds.monitor_x) / dpr);
+            const relTop = Math.round((bounds.y - bounds.monitor_y) / dpr);
+            setCompanionAnchor({
+              left: relLeft,
+              top: relTop,
+              width: targetCssW,
+              height: targetCssH,
+            });
+            prevFloatingWorkspaceRef.current = true;
+            await invoke('set_window_rect', {
+              x: bounds.monitor_x,
+              y: bounds.monitor_y,
+              width: bounds.monitor_width,
+              height: bounds.monitor_height,
+            });
+          } else {
+            setCompanionAnchor((prev) => ({
+              ...prev,
+              width: targetCssW,
+              height: targetCssH,
+            }));
+          }
+          companionReadyRef.current = true;
+          setTimeout(syncInteractiveRegions, 50);
+          return;
+        }
+
+        if (prevFloatingWorkspaceRef.current && !floatingWorkspaceActive && !showApiModal) {
+          prevFloatingWorkspaceRef.current = false;
+          const restoreX = bounds.monitor_x + Math.round(companionAnchor.left * dpr);
+          const restoreY = bounds.monitor_y + Math.round(companionAnchor.top * dpr);
+          await invoke('set_window_rect', {
+            x: restoreX,
+            y: restoreY,
+            width: targetW,
+            height: targetH,
+          });
+          setTimeout(syncInteractiveRegions, 50);
+          return;
+        }
 
         const prev = prevModeRef.current;
 
@@ -530,7 +889,19 @@ function App() {
     };
 
     void updateWindowGeometry();
-  }, [bootComplete, showApiModal, chatOpen, chatSide, chatVert, panelSize, robotSize, syncInteractiveRegions]);
+  }, [
+    bootComplete,
+    showApiModal,
+    chatOpen,
+    chatSide,
+    chatVert,
+    panelSize,
+    robotSize,
+    floatingWorkspaceActive,
+    companionAnchor.left,
+    companionAnchor.top,
+    syncInteractiveRegions,
+  ]);
 
   useEffect(() => {
     let unlistenChat: (() => void) | undefined;
@@ -637,6 +1008,8 @@ function App() {
 
       if (e.key === 'Escape' && !showApiModal) {
         setChatOpen(false);
+        setHistoryBoxOpen(false);
+        setSettingsBoxOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -745,7 +1118,6 @@ function App() {
           const chatScreenRight = botFloatPos.x + Math.round((curRobotSize + CHAT_BOT_GAP + curPanel.width) * dpr);
           const rightWall = bounds.monitor_x + bounds.monitor_width;
           if (chatScreenRight >= rightWall) {
-            // Chat hit right wall -> chat goes to the left of the bot!
             nextSide = 'left';
             manualSideOverrideRef.current = true;
             setChatSide('left');
@@ -754,7 +1126,6 @@ function App() {
           const chatScreenLeft = botFloatPos.x - Math.round((CHAT_BOT_GAP + curPanel.width) * dpr);
           const leftWall = bounds.monitor_x;
           if (chatScreenLeft <= leftWall) {
-            // Chat hit left wall -> chat goes to the right of the bot!
             nextSide = 'right';
             manualSideOverrideRef.current = true;
             setChatSide('right');
@@ -766,7 +1137,6 @@ function App() {
           const chatScreenTop = botFloatPos.y + Math.round(curRobotSize * dpr) - Math.round(curPanel.height * dpr);
           const topWall = bounds.monitor_y;
           if (chatScreenTop <= topWall) {
-            // Chat hit up wall -> chat goes down!
             nextVert = 'down';
             manualVertOverrideRef.current = true;
             setChatVert('down');
@@ -775,7 +1145,6 @@ function App() {
           const chatScreenBottom = botFloatPos.y + Math.round(curPanel.height * dpr);
           const bottomWall = bounds.monitor_y + bounds.monitor_height - Math.round(24 * dpr);
           if (chatScreenBottom >= bottomWall) {
-            // Chat hit down wall -> chat goes up!
             nextVert = 'up';
             manualVertOverrideRef.current = true;
             setChatVert('up');
@@ -783,7 +1152,6 @@ function App() {
         }
       }
 
-      // Calculate new window position from the clamped bot position and effective side/vert
       let newWinBotCssLeft = 72;
       let newWinBotCssTop = 72;
       if (isChat) {
@@ -875,7 +1243,6 @@ function App() {
       const isInput =
         activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
 
-      // Case 1: Ctrl + Arrow -> The bot moves smoothly in real-time!
       if (e.ctrlKey) {
         if (isInput && (activeEl as HTMLInputElement).value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
           return;
@@ -898,7 +1265,6 @@ function App() {
         return;
       }
 
-      // Case 2: Plain Arrow (no Ctrl) -> Moves the chat around the bot!
       if (!chatOpen) return;
       if (isInput && (activeEl as HTMLInputElement).value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         return;
@@ -969,6 +1335,11 @@ function App() {
       void ensureValidGoogleSession().then((refreshed) => {
         if (refreshed) {
           setGoogleUser({ ...refreshed });
+          if (refreshed.email) {
+            syncMemoriesWithGoogleAccount(refreshed.email);
+            associateSessionsWithGoogleAccount(refreshed.email);
+            setMemories(getUserMemories(refreshed.email));
+          }
         }
       });
     }
@@ -984,12 +1355,13 @@ function App() {
       const session = await loginWithGoogle();
       setGoogleUser(session);
       setEmotion('joy');
-      const geminiKey = (providerKeys.gemini || '').trim();
-      if (!geminiKey) {
-        setConnectionState('setup_required');
-      } else {
-        await handleVerifyAndConnect('gemini', geminiKey);
+      if (session.email) {
+        syncMemoriesWithGoogleAccount(session.email);
+        associateSessionsWithGoogleAccount(session.email);
+        setMemories(getUserMemories(session.email));
       }
+      const geminiKey = (providerKeys.gemini || '').trim();
+      await handleVerifyAndConnect('gemini', geminiKey);
     } catch (err: any) {
       const norm = normalizeAIError(err, 'gemini');
       setNormalizedError(norm);
@@ -1018,6 +1390,8 @@ function App() {
     });
     setSelectedProviderState(getSelectedProvider());
     setChatOpen(false);
+    setHistoryBoxOpen(false);
+    setSettingsBoxOpen(false);
     setShowApiModal(true);
     setEmotion('curiosity');
   };
@@ -1027,6 +1401,41 @@ function App() {
     setNormalizedError(null);
   };
 
+  const handleSelectStorageTier = async (tierId: StorageTierId) => {
+    const opt = STORAGE_TIER_OPTIONS.find((o) => o.id === tierId);
+    const updated: AppConfigJson = {
+      ...appConfig,
+      storageTier: tierId,
+      storageLimitBytes: opt ? opt.limitBytes : 5 * 1024 * 1024 * 1024,
+      installationCompleted: true,
+    };
+    const saved = await saveAppConfigToMachine(updated);
+    setAppConfig(saved);
+    const st = await getMachineStorageStatus();
+    setStorageStatus(st);
+  };
+
+  const handleUpdateConfig = async (nextCfg: AppConfigJson) => {
+    const saved = await saveAppConfigToMachine(nextCfg);
+    setAppConfig(saved);
+    const st = await getMachineStorageStatus();
+    setStorageStatus(st);
+  };
+
+  const handleSaveProviderKeysFromVaultBox = async (
+    keys: { gemini: string; claude: string; codex: string },
+    activeProvider: AIProvider
+  ) => {
+    await saveAllProviderKeysToMachine(keys, activeProvider);
+    setProviderKeys({
+      gemini: keys.gemini,
+      claude: keys.claude,
+      codex: keys.codex,
+      offline: 'opencode-local',
+    });
+    setSelectedProviderState(activeProvider);
+  };
+
   const handleVerifyAndConnect = async (providerToVerify?: AIProvider, keyToVerify?: string) => {
     const prov = providerToVerify || selectedProvider;
     const currentKey = (keyToVerify !== undefined ? keyToVerify : providerKeys[prov] || '').trim();
@@ -1034,6 +1443,15 @@ function App() {
     setIsVerifying(true);
     setNormalizedError(null);
     setEmotion('curiosity');
+
+    await saveAllProviderKeysToMachine(
+      {
+        gemini: prov === 'gemini' ? currentKey : providerKeys.gemini || '',
+        claude: prov === 'claude' ? currentKey : providerKeys.claude || '',
+        codex: prov === 'codex' ? currentKey : providerKeys.codex || '',
+      },
+      prov
+    );
 
     (['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).forEach((p) => {
       setProviderApiKey(p, providerKeys[p] || '');
@@ -1050,6 +1468,9 @@ function App() {
       setConnectionState('connected_and_verified');
       setNormalizedError(null);
       localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
+      const nextCfg = { ...appConfig, installationCompleted: true };
+      void saveAppConfigToMachine(nextCfg);
+      setAppConfig(nextCfg);
       setShowApiModal(false);
       setEmotion('joy');
       setChatOpen(false);
@@ -1099,8 +1520,6 @@ function App() {
 
   const handleBootComplete = useCallback(() => setBootComplete(true), []);
 
-  // Let the user drag the login/setup card (and its window) anywhere on screen.
-  // Interactive controls and the robot preview keep their own pointer behavior.
   const handleModalDragStart = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -1144,8 +1563,6 @@ function App() {
   };
 
   const handleAutonomousRemark = useCallback((remark: string) => {
-    // Keep autonomous remarks inside the current conversation only when it is already open.
-    // Otherwise Robot shows the line in its existing status pill without opening new UI.
     if (!chatOpen || isProcessing) return;
     setMessages((previous) => {
       const last = previous[previous.length - 1];
@@ -1172,7 +1589,6 @@ function App() {
       return;
     }
 
-    // Store only interaction signals, never the user's raw message text.
     recordChatInteraction(text);
     setMessages(newHistory);
     setIsProcessing(true);
@@ -1201,6 +1617,7 @@ function App() {
       if (responseMsg.emotion) {
         setEmotion(responseMsg.emotion);
       }
+      void refreshMemoryAndStorageData();
     } catch (e: any) {
       setMessages([
         ...newHistory,
@@ -1218,13 +1635,13 @@ function App() {
     }
   };
 
-  // Sync active chat session messages to local storage whenever they change
+  // Sync active chat session messages to local storage and machine database whenever they change
   useEffect(() => {
     if (activeSessionId) {
-      saveActiveChatMessages(activeSessionId, messages);
+      saveActiveChatMessages(activeSessionId, messages, googleUser?.email);
       setAllSessions(loadAllChatSessions());
     }
-  }, [activeSessionId, messages]);
+  }, [activeSessionId, messages, googleUser?.email]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     const sessions = loadAllChatSessions();
@@ -1256,6 +1673,38 @@ function App() {
     setAllSessions(loadAllChatSessions());
   }, []);
 
+  const handleAddMemory = useCallback(
+    (category: UserMemoryItem['category'], key: string, value: string) => {
+      addExplicitUserMemory(category, key, value, googleUser?.email);
+      setMemories(getUserMemories(googleUser?.email));
+    },
+    [googleUser?.email]
+  );
+
+  const handleDeleteMemory = useCallback(
+    (memoryId: string) => {
+      deleteUserMemory(memoryId);
+      setMemories(getUserMemories(googleUser?.email));
+    },
+    [googleUser?.email]
+  );
+
+  const handleClearMemories = useCallback(() => {
+    clearAllUserMemories(googleUser?.email);
+    setMemories(getUserMemories(googleUser?.email));
+  }, [googleUser?.email]);
+
+  const handleClearSearchHistory = useCallback(() => {
+    clearSearchHistory();
+    setSearchHistory([]);
+  }, []);
+
+  const handleOpenExternalUrl = useCallback((url: string) => {
+    void invoke('open_item', { target: url }).catch(() => {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+  }, []);
+
   if (!bootComplete) {
     return <LuminessBootScreen onComplete={handleBootComplete} />;
   }
@@ -1265,9 +1714,11 @@ function App() {
       className={`app-container ${
         showApiModal
           ? 'centered-mode'
-          : chatOpen
-            ? `companion-chat-open chat-side-${chatSide} chat-vert-${chatVert}`
-            : 'companion-bot-only'
+          : floatingWorkspaceActive
+            ? 'floating-workspace-active'
+            : chatOpen
+              ? `companion-chat-open chat-side-${chatSide} chat-vert-${chatVert}`
+              : 'companion-bot-only'
       }`}
     >
       {showApiModal ? (
@@ -1295,11 +1746,36 @@ function App() {
             <h1 className="api-modal-title">
               {selectedProvider === 'gemini' && googleUser
                 ? 'Connected with Google'
-                : 'Configure AI Provider'}
+                : 'Configure AI Provider & Storage'}
             </h1>
             <p className="api-modal-subtitle">
-              Choose your AI model provider or connect your credentials to activate Luminess Assist on your desktop.
+              Choose your AI model provider, sign in with Google to sync your personal memory, and select how much database storage Luminess may use.
             </p>
+
+            {/* Installation / Setup Database Storage Allocation Selector */}
+            <div className="setup-storage-card">
+              <div className="setup-storage-header">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <HardDrive size={13} />
+                  <span>Database Storage Allocation</span>
+                </span>
+                <span style={{ fontSize: '10px', color: '#34d399' }}>5 GB Recommended</span>
+              </div>
+              <select
+                className="setup-storage-select"
+                value={appConfig.storageTier}
+                onChange={(e) => void handleSelectStorageTier(e.target.value as StorageTierId)}
+              >
+                {STORAGE_TIER_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label} ({opt.allocationLabel}){opt.recommended ? ' ★ Recommended' : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="setup-storage-hint">
+                {STORAGE_RECOMMENDATION_EXPLANATION}
+              </div>
+            </div>
 
             {/* Provider Selection Tabs */}
             <div className="provider-tabs">
@@ -1332,7 +1808,7 @@ function App() {
                     CLI: {antigravityStatus.installed ? (antigravityStatus.version || 'Detected') : 'Not on PATH'}
                   </span>
                 </div>
-                <span className="antigravity-mode-badge">Direct Provider Mode</span>
+                <span className="antigravity-mode-badge">Windows DPAPI Vault Active</span>
               </div>
             )}
 
@@ -1356,7 +1832,7 @@ function App() {
                     <CheckCircle2 size={14} className="verified-icon" />
                   </div>
                   {googleUser.email && (
-                    <div className="google-account-email">{googleUser.email} (Identity active)</div>
+                    <div className="google-account-email">{googleUser.email} (Memory Synced)</div>
                   )}
                 </div>
               </div>
@@ -1465,7 +1941,7 @@ function App() {
                     }}
                   >
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
-                    <span>OR API KEY</span>
+                    <span>OR API KEY (SAVED TO MACHINE VAULT)</span>
                     <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
                   </div>
                 </>
@@ -1475,10 +1951,10 @@ function App() {
                 <div className="offline-mode-card">
                   <div className="offline-mode-badge">
                     <Zap size={14} />
-                    <span>Zero Internet • Zero API Key • 100% Local</span>
+                    <span>Local AI • Ollama / llama.cpp / OpenCode / Built-in</span>
                   </div>
                   <p className="offline-mode-desc">
-                    Luminess Assist will run completely locally on your Windows PC powered by the OpenCode Agent and local tools. It takes your prompt, executes code, inspects files, runs timers, and automates PC tasks without transmitting any data over the internet.
+                    Luminess Assist connects automatically to local model servers (Ollama on :11434, llama.cpp on :8080, LM Studio on :1234), OpenCode CLI, or its built-in local conversational engine with persistent memory and web search.
                   </p>
                   <button
                     type="button"
@@ -1487,12 +1963,11 @@ function App() {
                     disabled={isVerifying}
                   >
                     <Zap size={16} />
-                    <span>Activate Offline Assistant (OpenCode)</span>
+                    <span>Activate Local AI Assistant</span>
                   </button>
                 </div>
               ) : (
                 <>
-                  {/* Button for opening the provider's API key dashboard */}
                   <button
                     type="button"
                     className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
@@ -1536,11 +2011,11 @@ function App() {
                     {isVerifying ? (
                       <>
                         <Loader2 size={16} className="spin" />
-                        <span>Verifying Connection...</span>
+                        <span>Verifying & Saving to Machine Vault...</span>
                       </>
                     ) : (
                       <>
-                        <span>Verify & Activate</span>
+                        <span>Save to Machine & Activate</span>
                         <ArrowRight size={16} />
                       </>
                     )}
@@ -1552,53 +2027,132 @@ function App() {
         </div>
       ) : (
         <>
-          {chatOpen && (
-            <div ref={chatWrapRef} className={`chat-panel-wrapper side-${chatSide} vert-${chatVert}`}>
-              <ChatPanel
-                messages={messages}
+          <div
+            className={
+              floatingWorkspaceActive
+                ? `companion-anchor-stage ${
+                    chatOpen
+                      ? `companion-chat-open chat-side-${chatSide} chat-vert-${chatVert}`
+                      : 'companion-bot-only'
+                  }`
+                : undefined
+            }
+            style={
+              floatingWorkspaceActive
+                ? {
+                    left: `${companionAnchor.left}px`,
+                    top: `${companionAnchor.top}px`,
+                    width: `${companionAnchor.width}px`,
+                    height: `${companionAnchor.height}px`,
+                  }
+                : { display: 'contents' }
+            }
+          >
+            {chatOpen && (
+              <div ref={chatWrapRef} className={`chat-panel-wrapper side-${chatSide} vert-${chatVert}`}>
+                <ChatPanel
+                  messages={messages}
+                  emotion={visualEmotion}
+                  isProcessing={isProcessing}
+                  activeTool={activeTool}
+                  pendingPermission={pendingPermission}
+                  autoApprove={autoApprove}
+                  onToggleAutoApprove={() => setAutoApprove((value) => !value)}
+                  onPermissionDecision={handlePermissionDecision}
+                  onSendMessage={handleSendMessage}
+                  onOpenApiModal={handleOpenApiModal}
+                  onClose={() => setChatOpen(false)}
+                  panelSize={panelSize}
+                  onResizePanel={setPanelSize}
+                  robotSize={robotSize}
+                  onResizeRobot={handleResizeRobot}
+                  chatSide={chatSide}
+                  onToggleChatSide={handleToggleChatSide}
+                  chatVert={chatVert}
+                  onToggleChatVert={handleToggleChatVert}
+                  currentProvider={selectedProvider}
+                  brokenCountdown={brokenSeconds}
+                  activeSessionId={activeSessionId}
+                  allSessions={allSessions}
+                  onSelectSession={handleSelectSession}
+                  onNewChat={handleNewChat}
+                  onDeleteSession={handleDeleteSession}
+                  onClearAllHistory={handleClearAllHistory}
+                  isHistoryBoxOpen={historyBoxOpen}
+                  onToggleHistoryBox={handleToggleHistoryBox}
+                  isSettingsBoxOpen={settingsBoxOpen}
+                  onToggleSettingsBox={handleToggleSettingsBox}
+                />
+              </div>
+            )}
+
+            <div ref={robotWrapRef} className="robot-wrapper">
+              <Robot
+                emotion={emotion}
+                size={robotSize}
+                onResize={handleResizeRobot}
+                onClick={handleRobotClick}
+                onVisualEmotionChange={setVisualEmotion}
+                onDragStateChange={setIsDraggingBot}
+                onScreenSideChange={handleScreenSideChange}
+                onBrokenCountdownChange={setBrokenSeconds}
+                onAutonomousRemark={handleAutonomousRemark}
+              />
+            </div>
+          </div>
+
+          {/* Floating Box 1: History, User Memories & Search Database */}
+          {historyBoxOpen && (
+            <div ref={historyBoxWrapRef} style={{ display: 'contents' }}>
+              <FloatingHistoryBox
+                position={historyBoxPos}
+                onChangePosition={handleMoveHistoryBox}
                 emotion={visualEmotion}
-                isProcessing={isProcessing}
-                activeTool={activeTool}
-                pendingPermission={pendingPermission}
-                autoApprove={autoApprove}
-                onToggleAutoApprove={() => setAutoApprove((value) => !value)}
-                onPermissionDecision={handlePermissionDecision}
-                onSendMessage={handleSendMessage}
-                onOpenApiModal={handleOpenApiModal}
-                onClose={() => setChatOpen(false)}
-                panelSize={panelSize}
-                onResizePanel={setPanelSize}
-                robotSize={robotSize}
-                onResizeRobot={handleResizeRobot}
-                chatSide={chatSide}
-                onToggleChatSide={handleToggleChatSide}
-                chatVert={chatVert}
-                onToggleChatVert={handleToggleChatVert}
-                currentProvider={selectedProvider}
-                brokenCountdown={brokenSeconds}
                 activeSessionId={activeSessionId}
                 allSessions={allSessions}
+                memories={memories}
+                searchHistory={searchHistory}
+                googleEmail={googleUser?.email}
                 onSelectSession={handleSelectSession}
                 onNewChat={handleNewChat}
                 onDeleteSession={handleDeleteSession}
                 onClearAllHistory={handleClearAllHistory}
+                onAddMemory={handleAddMemory}
+                onDeleteMemory={handleDeleteMemory}
+                onClearMemories={handleClearMemories}
+                onClearSearchHistory={handleClearSearchHistory}
+                onOpenExternalUrl={handleOpenExternalUrl}
+                onClose={() => setHistoryBoxOpen(false)}
               />
             </div>
           )}
 
-          <div ref={robotWrapRef} className="robot-wrapper">
-            <Robot
-              emotion={emotion}
-              size={robotSize}
-              onResize={handleResizeRobot}
-              onClick={handleRobotClick}
-              onVisualEmotionChange={setVisualEmotion}
-              onDragStateChange={setIsDraggingBot}
-              onScreenSideChange={handleScreenSideChange}
-              onBrokenCountdownChange={setBrokenSeconds}
-              onAutonomousRemark={handleAutonomousRemark}
-            />
-          </div>
+          {/* Floating Box 2: Storage Options / Settings (config.json) */}
+          {settingsBoxOpen && (
+            <div ref={settingsBoxWrapRef} style={{ display: 'contents' }}>
+              <FloatingSettingsBox
+                position={settingsBoxPos}
+                onChangePosition={handleMoveSettingsBox}
+                emotion={visualEmotion}
+                config={appConfig}
+                storageStatus={storageStatus}
+                selectedProvider={selectedProvider}
+                providerKeys={providerKeys}
+                googleUser={googleUser}
+                isLoggingIn={isLoggingIn}
+                hardwareReport={hardwareReport}
+                localServers={localServers}
+                isScanningLocalAi={isScanningLocalAi}
+                onUpdateConfig={handleUpdateConfig}
+                onSelectStorageTier={handleSelectStorageTier}
+                onSaveProviderKeys={handleSaveProviderKeysFromVaultBox}
+                onGoogleLogin={handleGoogleLogin}
+                onGoogleLogout={handleGoogleLogout}
+                onRefreshLocalAi={refreshLocalAiStatus}
+                onClose={() => setSettingsBoxOpen(false)}
+              />
+            </div>
+          )}
         </>
       )}
     </div>

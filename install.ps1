@@ -1,5 +1,5 @@
 # ==============================================================================
-# Luminess Assist - Automated Installer & Desktop Shortcut Creator
+# Luminess Assist - Automated Installer, Storage Allocator & Shortcut Creator
 # Version: Dynamic (Latest GitHub Release)
 # Repository: https://github.com/jasonhukom/Luminess-Assist
 # ==============================================================================
@@ -8,7 +8,9 @@
 param(
     [switch]$FromSource = $false,
     [string]$Version = "",
-    [switch]$Silent = $false
+    [switch]$Silent = $false,
+    [ValidateSet("lightweight", "recommended", "extended", "large", "unlimited", "")]
+    [string]$StorageTier = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,8 +35,85 @@ function Write-LuminessBanner {
     Write-Host ""
 }
 
+function Select-LuminessStorageAllocation {
+    $DataDir = Join-Path $env:LOCALAPPDATA "LuminessAssist"
+    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+    $ConfigPath = Join-Path $DataDir "config.json"
+
+    # Inspect actual available disk space on the installation drive
+    $DriveRoot = [System.IO.Path]::GetPathRoot($DataDir)
+    $DriveInfo = New-Object System.IO.DriveInfo($DriveRoot)
+    $FreeDiskGb = [math]::Round($DriveInfo.AvailableFreeSpace / 1GB, 2)
+
+    $Options = @(
+        @{ Id = "lightweight"; Label = "Lightweight (1 GB)";       Bytes = 1073741824;  Desc = "Compact history, core user memory, and recent search cache." },
+        @{ Id = "recommended"; Label = "Recommended (5 GB) [DEFAULT]"; Bytes = 5368709120;  Desc = "Best balance for years of chats, user memories, and search engine archives." },
+        @{ Id = "extended";    Label = "Extended (10 GB)";         Bytes = 10737418240; Desc = "Expanded local database for power users and deep research history." },
+        @{ Id = "large";       Label = "Large (25 GB)";            Bytes = 26843545600; Desc = "High-capacity archive for extensive local AI logs and search indices." },
+        @{ Id = "unlimited";   Label = "Unlimited / Infinity";     Bytes = 0;           Desc = "No app-imposed cap; automatically respects physical free disk space ($FreeDiskGb GB free)." }
+    )
+
+    $SelectedOption = $Options[1] # Default: 5 GB Recommended
+
+    if ($StorageTier) {
+        $Matched = $Options | Where-Object { $_.Id -eq $StorageTier.ToLower() } | Select-Object -First 1
+        if ($Matched) { $SelectedOption = $Matched }
+    } elseif (-not $Silent) {
+        Write-Host "==============================================================================" -ForegroundColor DarkCyan
+        Write-Host " DATABASE STORAGE ALLOCATION SETUP (Available Disk Space: $FreeDiskGb GB)" -ForegroundColor Cyan
+        Write-Host "==============================================================================" -ForegroundColor DarkCyan
+        Write-Host ""
+        Write-Host "Why we recommend 5 GB (Recommended):" -ForegroundColor Green
+        Write-Host "  5 GB stores years of conversational history, your personal Google-synced" -ForegroundColor Gray
+        Write-Host "  memories, and thousands of cached web search citations without risking" -ForegroundColor Gray
+        Write-Host "  disk exhaustion. Choosing 'Unlimited / Infinity' removes the app quota" -ForegroundColor Gray
+        Write-Host "  while still protecting your PC with an automatic 512 MB disk safety reserve." -ForegroundColor Gray
+        Write-Host ""
+
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            $num = $i + 1
+            $opt = $Options[$i]
+            $color = if ($i -eq 1) { "Green" } else { "White" }
+            Write-Host "  [$num] $($opt.Label)" -ForegroundColor $color
+            Write-Host "      $($opt.Desc)" -ForegroundColor DarkGray
+        }
+        Write-Host ""
+        $Choice = Read-Host "Select storage option [1-5] (Press Enter for 2 - Recommended 5 GB)"
+        switch ($Choice.Trim()) {
+            "1" { $SelectedOption = $Options[0] }
+            "2" { $SelectedOption = $Options[1] }
+            "3" { $SelectedOption = $Options[2] }
+            "4" { $SelectedOption = $Options[3] }
+            "5" { $SelectedOption = $Options[4] }
+            default { $SelectedOption = $Options[1] }
+        }
+    }
+
+    Write-Host ">>> Selected Storage Allocation: $($SelectedOption.Label)" -ForegroundColor Green
+
+    $ConfigObj = [ordered]@{
+        storageTier               = $SelectedOption.Id
+        storageLimitBytes         = [uint64]$SelectedOption.Bytes
+        installationCompleted     = $true
+        localAiPreferredRuntime   = "auto"
+        localAiEndpoint           = "http://127.0.0.1:11434"
+        localAiModel              = "qwen2.5-coder:7b"
+        searchEngineEnabled       = $true
+        autoSaveSearchesToDb      = $true
+        historyBox                = @{ x = 48;  y = 80; width = 350; height = 470; visible = $false }
+        settingsBox               = @{ x = 420; y = 80; width = 380; height = 500; visible = $false }
+    }
+
+    $ConfigJson = $ConfigObj | ConvertTo-Json -Depth 5
+    Set-Content -Path $ConfigPath -Value $ConfigJson -Encoding UTF8
+    Write-Host ">>> Saved storage & runtime configuration to: $ConfigPath" -ForegroundColor Cyan
+}
+
 Write-LuminessBanner
 Write-Host ">>> Starting Luminess Assist v$Version Installation Pipeline..." -ForegroundColor Green
+
+# Ask user how much storage they want to allocate and save to config.json
+Select-LuminessStorageAllocation
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Luminess Assist"
 if (-not (Test-Path $InstallDir)) {
