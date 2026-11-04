@@ -32,3 +32,10 @@ staticfiles/
 .env
 venv/
 .venv/
+
+# Local built binaries & installer shortcuts
+dist-binaries/
+*.exe
+*.msi
+*.lnk
+
