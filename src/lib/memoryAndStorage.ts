@@ -8,9 +8,13 @@ export interface StorageTierOption {
   label: string;
   allocationLabel: string;
   bytes: number; // 0 means unlimited (bounded by physical disk)
+  limitBytes: number;
   recommended?: boolean;
   description: string;
 }
+
+export const STORAGE_RECOMMENDATION_EXPLANATION =
+  'We recommend 5 GB (Default) because it stores years of conversations, your Google-synced user profile memories, and thousands of cached web search citations without risking disk exhaustion. Unlimited / Infinity removes the app cap while still respecting your physical free disk space with an automatic 512 MB safety reserve.';
 
 export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
   {
@@ -18,6 +22,7 @@ export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
     label: 'Lightweight',
     allocationLabel: '1 GB',
     bytes: 1 * 1024 * 1024 * 1024,
+    limitBytes: 1 * 1024 * 1024 * 1024,
     description: 'Compact footprint for essential conversations, user profile memory, and recent search queries.',
   },
   {
@@ -25,6 +30,7 @@ export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
     label: 'Recommended',
     allocationLabel: '5 GB',
     bytes: 5 * 1024 * 1024 * 1024,
+    limitBytes: 5 * 1024 * 1024 * 1024,
     recommended: true,
     description:
       'Recommended Default: Provides ample room for years of searchable chat history, user memory, and web search cache while keeping disk usage modest.',
@@ -34,6 +40,7 @@ export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
     label: 'Extended',
     allocationLabel: '10 GB',
     bytes: 10 * 1024 * 1024 * 1024,
+    limitBytes: 10 * 1024 * 1024 * 1024,
     description: 'High-capacity local database for heavy daily research, code snippets, and deep search archives.',
   },
   {
@@ -41,6 +48,7 @@ export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
     label: 'Large',
     allocationLabel: '25 GB',
     bytes: 25 * 1024 * 1024 * 1024,
+    limitBytes: 25 * 1024 * 1024 * 1024,
     description: 'Workstation-scale allocation for extensive long-term conversational and search storage.',
   },
   {
@@ -48,6 +56,7 @@ export const STORAGE_TIER_OPTIONS: StorageTierOption[] = [
     label: 'Unlimited (Infinity)',
     allocationLabel: 'No App Cap',
     bytes: 0,
+    limitBytes: 0,
     description:
       'No application-imposed cap. Dynamically respects your actual available disk capacity with automatic low-disk warnings and safety protection.',
   },
@@ -84,6 +93,7 @@ export interface FloatingBoxPosition {
   y: number;
   width: number;
   height: number;
+  visible?: boolean;
 }
 
 export interface AppConfigJson {
@@ -581,13 +591,35 @@ export function deleteUserMemory(memoryId: string): UserMemoryItem[] {
   return cachedDb.memories;
 }
 
-export function clearAllUserMemories(): void {
+export function clearAllUserMemories(_accountEmail?: string | null): void {
   cachedDb = {
     ...cachedDb,
     memories: [],
     updatedAt: Date.now(),
   };
   void saveDatabaseToMachine();
+}
+
+export const addExplicitUserMemory = saveExplicitUserMemory;
+export const buildUserMemorySystemContext = getPersistentMemoryPromptContext;
+
+export function isWebSearchIntent(text: string): { shouldSearch: boolean; query: string } {
+  const clean = text.trim();
+  if (!clean) return { shouldSearch: false, query: '' };
+  const explicitMatch = clean.match(
+    /^(?:search\s+(?:for|the\s+web\s+for|about|up)?|look\s+up|google|find\s+info\s+on|search)\s+(.+)$/i
+  );
+  if (explicitMatch && explicitMatch[1]) {
+    return { shouldSearch: true, query: explicitMatch[1].trim() };
+  }
+  if (
+    /^(?:what\s+is|what\s+are|who\s+is|who\s+was|where\s+is|when\s+did|how\s+does|how\s+to|tell\s+me\s+about|explain|why\s+is|latest\s+news\s+on)\s+(.+)$/i.test(
+      clean
+    )
+  ) {
+    return { shouldSearch: true, query: clean };
+  }
+  return { shouldSearch: false, query: '' };
 }
 
 /**

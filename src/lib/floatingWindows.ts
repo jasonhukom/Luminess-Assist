@@ -1,5 +1,7 @@
 import type { FloatingBoxPosition } from './memoryAndStorage.ts';
 
+export type BoxRect = FloatingBoxPosition;
+
 export interface ScreenBounds {
   width: number;
   height: number;
@@ -43,23 +45,39 @@ export function clampBoxToScreen(
 export function resolveFloatingBoxCollision(
   movingBox: FloatingBoxPosition,
   obstacle: FloatingBoxPosition | null,
-  screen: ScreenBounds,
-  secondaryObstacle?: FloatingBoxPosition | null
+  thirdArg: ScreenBounds | FloatingBoxPosition[],
+  fourthArg?: FloatingBoxPosition | ScreenBounds | null,
+  customGap = COLLISION_GAP
 ): FloatingBoxPosition {
+  let screen: ScreenBounds;
+  let secondaryObstacles: FloatingBoxPosition[] = [];
+
+  if (Array.isArray(thirdArg)) {
+    secondaryObstacles = thirdArg;
+    screen = (fourthArg as ScreenBounds) || { width: 1920, height: 1080 };
+  } else {
+    screen = thirdArg;
+    if (fourthArg && !('width' in fourthArg && !('x' in fourthArg))) {
+      secondaryObstacles = [fourthArg as FloatingBoxPosition];
+    }
+  }
+
+  const gap = Math.max(COLLISION_GAP, customGap);
   let current = clampBoxToScreen(movingBox, screen);
 
   const pushAwayFrom = (
     target: FloatingBoxPosition,
-    obs: FloatingBoxPosition
+    obs: FloatingBoxPosition,
+    minGap: number
   ): FloatingBoxPosition => {
-    if (!boxesOverlap(target, obs, COLLISION_GAP)) {
+    if (!boxesOverlap(target, obs, minGap)) {
       return target;
     }
 
     const candidates: Array<{ pos: FloatingBoxPosition; dist: number; valid: boolean }> = [];
 
     // Candidate 1: Push Left of obstacle
-    const leftX = obs.x - target.width - COLLISION_GAP;
+    const leftX = obs.x - target.width - minGap;
     candidates.push({
       pos: { ...target, x: leftX },
       dist: Math.abs(target.x - leftX),
@@ -67,7 +85,7 @@ export function resolveFloatingBoxCollision(
     });
 
     // Candidate 2: Push Right of obstacle
-    const rightX = obs.x + obs.width + COLLISION_GAP;
+    const rightX = obs.x + obs.width + minGap;
     candidates.push({
       pos: { ...target, x: rightX },
       dist: Math.abs(target.x - rightX),
@@ -75,7 +93,7 @@ export function resolveFloatingBoxCollision(
     });
 
     // Candidate 3: Push Above obstacle
-    const upY = obs.y - target.height - COLLISION_GAP;
+    const upY = obs.y - target.height - minGap;
     candidates.push({
       pos: { ...target, y: upY },
       dist: Math.abs(target.y - upY),
@@ -83,14 +101,13 @@ export function resolveFloatingBoxCollision(
     });
 
     // Candidate 4: Push Below obstacle
-    const downY = obs.y + obs.height + COLLISION_GAP;
+    const downY = obs.y + obs.height + minGap;
     candidates.push({
       pos: { ...target, y: downY },
       dist: Math.abs(target.y - downY),
       valid: downY + target.height <= screen.height - SCREEN_PADDING,
     });
 
-    // Prefer valid in-screen candidates sorted by smallest movement distance
     const validCandidates = candidates
       .filter((c) => c.valid)
       .sort((a, b) => a.dist - b.dist);
@@ -99,22 +116,43 @@ export function resolveFloatingBoxCollision(
       return clampBoxToScreen(validCandidates[0].pos, screen);
     }
 
-    // If obstacle is very large, pick candidate with largest available space and clamp
     const sortedAll = candidates.sort((a, b) => a.dist - b.dist);
     return clampBoxToScreen(sortedAll[0].pos, screen);
   };
 
   if (obstacle) {
-    current = pushAwayFrom(current, obstacle);
+    current = pushAwayFrom(current, obstacle, gap);
   }
 
-  if (secondaryObstacle && boxesOverlap(current, secondaryObstacle, 8)) {
-    const nudged = pushAwayFrom(current, secondaryObstacle);
-    // Only apply secondary nudge if it doesn't push us back into the primary obstacle (the chatbox)
-    if (!obstacle || !boxesOverlap(nudged, obstacle, COLLISION_GAP)) {
-      current = nudged;
+  for (const sec of secondaryObstacles) {
+    if (sec && boxesOverlap(current, sec, gap)) {
+      const nudged = pushAwayFrom(current, sec, gap);
+      if (!obstacle || !boxesOverlap(nudged, obstacle, gap)) {
+        current = nudged;
+      }
     }
   }
 
   return current;
+}
+
+/**
+ * Computes a clean initial position for a floating box that does not overlap the Chatbox
+ * or any other active floating box.
+ */
+export function spawnNonOverlappingBox(
+  size: { width: number; height: number },
+  preferredPos: { x: number; y: number },
+  chatBox: FloatingBoxPosition | null,
+  otherBoxes: FloatingBoxPosition[],
+  screen: ScreenBounds,
+  gap = 18
+): FloatingBoxPosition {
+  const initial: FloatingBoxPosition = {
+    x: preferredPos.x,
+    y: preferredPos.y,
+    width: size.width,
+    height: size.height,
+  };
+  return resolveFloatingBoxCollision(initial, chatBox, otherBoxes, screen, gap);
 }

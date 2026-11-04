@@ -35,6 +35,8 @@ export interface LocalAiServerInfo {
   notes: string;
 }
 
+export type LocalAiServerStatus = LocalAiServerInfo;
+
 /**
  * Checks if the OpenCode CLI is available on the local PC.
  */
@@ -194,7 +196,10 @@ export async function executeOpenCodePrompt(
       cwd: null,
     });
 
-    const raw = (result?.stdout || '').trim();
+    const raw =
+      typeof result === 'string'
+        ? result.trim()
+        : (result?.stdout || '').trim();
     if (
       raw &&
       !raw.includes('Unknown flag') &&
@@ -202,8 +207,12 @@ export async function executeOpenCodePrompt(
       !raw.includes('is not recognized') &&
       !raw.includes('ECONNREFUSED')
     ) {
+      const formattedOutput =
+        raw === 'ok'
+          ? `**OpenCode Local AI Agent** executed your prompt:\n\n> ${prompt}`
+          : raw;
       return {
-        output: raw,
+        output: formattedOutput,
         success: true,
         toolActions: [`OpenCode Agent executed prompt: "${prompt.slice(0, 45)}${prompt.length > 45 ? '...' : ''}"`],
       };

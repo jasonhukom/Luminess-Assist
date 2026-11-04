@@ -185,11 +185,11 @@ function App() {
   const [settingsBoxOpen, setSettingsBoxOpen] = useState<boolean>(false);
   const [historyBoxPos, setHistoryBoxPos] = useState<FloatingBoxPosition>(() => {
     const cfg = getCachedAppConfig();
-    return cfg.historyBox || { x: 48, y: 80, width: 350, height: 470, visible: false };
+    return cfg.floating_positions?.history || { x: 48, y: 80, width: 350, height: 470, visible: false };
   });
   const [settingsBoxPos, setSettingsBoxPos] = useState<FloatingBoxPosition>(() => {
     const cfg = getCachedAppConfig();
-    return cfg.settingsBox || { x: 420, y: 80, width: 380, height: 500, visible: false };
+    return cfg.floating_positions?.settings || { x: 420, y: 80, width: 380, height: 500, visible: false };
   });
 
   // Anchor coordinates for the Robot + Chatbox when full-screen floating workspace is active
@@ -289,13 +289,13 @@ function App() {
       ]);
 
       setProviderKeys(creds.keys);
-      setSelectedProviderState(creds.activeProvider);
+      setSelectedProviderState(getSelectedProvider());
       setAppConfig(cfg);
-      if (cfg.historyBox) {
-        setHistoryBoxPos(cfg.historyBox);
+      if (cfg.floating_positions?.history) {
+        setHistoryBoxPos(cfg.floating_positions.history);
       }
-      if (cfg.settingsBox) {
-        setSettingsBoxPos(cfg.settingsBox);
+      if (cfg.floating_positions?.settings) {
+        setSettingsBoxPos(cfg.floating_positions.settings);
       }
 
       if (creds.googleSession) {
@@ -405,7 +405,13 @@ function App() {
       const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
       setHistoryBoxPos(updated);
       setAppConfig((prev) => {
-        const nextCfg = { ...prev, historyBox: updated };
+        const nextCfg: AppConfigJson = {
+          ...prev,
+          floating_positions: {
+            ...prev.floating_positions,
+            history: updated,
+          },
+        };
         void saveAppConfigToMachine(nextCfg);
         return nextCfg;
       });
@@ -427,7 +433,13 @@ function App() {
       const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
       setSettingsBoxPos(updated);
       setAppConfig((prev) => {
-        const nextCfg = { ...prev, settingsBox: updated };
+        const nextCfg: AppConfigJson = {
+          ...prev,
+          floating_positions: {
+            ...prev.floating_positions,
+            settings: updated,
+          },
+        };
         void saveAppConfigToMachine(nextCfg);
         return nextCfg;
       });
@@ -1405,9 +1417,9 @@ function App() {
     const opt = STORAGE_TIER_OPTIONS.find((o) => o.id === tierId);
     const updated: AppConfigJson = {
       ...appConfig,
-      storageTier: tierId,
-      storageLimitBytes: opt ? opt.limitBytes : 5 * 1024 * 1024 * 1024,
-      installationCompleted: true,
+      storage_tier: tierId,
+      storage_limit_bytes: opt ? opt.bytes : 5 * 1024 * 1024 * 1024,
+      installation_storage_prompted: true,
     };
     const saved = await saveAppConfigToMachine(updated);
     setAppConfig(saved);
@@ -1426,7 +1438,8 @@ function App() {
     keys: { gemini: string; claude: string; codex: string },
     activeProvider: AIProvider
   ) => {
-    await saveAllProviderKeysToMachine(keys, activeProvider);
+    await saveAllProviderKeysToMachine(keys);
+    setSelectedProvider(activeProvider);
     setProviderKeys({
       gemini: keys.gemini,
       claude: keys.claude,
@@ -1444,14 +1457,11 @@ function App() {
     setNormalizedError(null);
     setEmotion('curiosity');
 
-    await saveAllProviderKeysToMachine(
-      {
-        gemini: prov === 'gemini' ? currentKey : providerKeys.gemini || '',
-        claude: prov === 'claude' ? currentKey : providerKeys.claude || '',
-        codex: prov === 'codex' ? currentKey : providerKeys.codex || '',
-      },
-      prov
-    );
+    await saveAllProviderKeysToMachine({
+      gemini: prov === 'gemini' ? currentKey : providerKeys.gemini || '',
+      claude: prov === 'claude' ? currentKey : providerKeys.claude || '',
+      codex: prov === 'codex' ? currentKey : providerKeys.codex || '',
+    });
 
     (['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).forEach((p) => {
       setProviderApiKey(p, providerKeys[p] || '');
@@ -1468,7 +1478,7 @@ function App() {
       setConnectionState('connected_and_verified');
       setNormalizedError(null);
       localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
-      const nextCfg = { ...appConfig, installationCompleted: true };
+      const nextCfg: AppConfigJson = { ...appConfig, installation_storage_prompted: true };
       void saveAppConfigToMachine(nextCfg);
       setAppConfig(nextCfg);
       setShowApiModal(false);
@@ -1763,7 +1773,7 @@ function App() {
               </div>
               <select
                 className="setup-storage-select"
-                value={appConfig.storageTier}
+                value={appConfig.storage_tier}
                 onChange={(e) => void handleSelectStorageTier(e.target.value as StorageTierId)}
               >
                 {STORAGE_TIER_OPTIONS.map((opt) => (

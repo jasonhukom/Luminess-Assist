@@ -89,9 +89,13 @@ export function FloatingSettingsBox({
   const [keysSavedBanner, setKeysSavedBanner] = useState(false);
 
   // Local AI state
-  const [localRuntime, setLocalRuntime] = useState(config.localAiPreferredRuntime || 'auto');
-  const [localEndpoint, setLocalEndpoint] = useState(config.localAiEndpoint || 'http://127.0.0.1:11434');
-  const [localModel, setLocalModel] = useState(config.localAiModel || 'qwen2.5-coder:7b');
+  const [localRuntime, setLocalRuntime] = useState<AppConfigJson['local_ai_runtime']>(
+    config.local_ai_runtime || 'auto'
+  );
+  const [localEndpoint, setLocalEndpoint] = useState(
+    config.local_ai_endpoint || 'http://127.0.0.1:11434'
+  );
+  const [localModel, setLocalModel] = useState(config.local_ai_model || 'qwen2.5-coder:latest');
   const [localSavedBanner, setLocalSavedBanner] = useState(false);
 
   // config.json raw editor state
@@ -107,9 +111,9 @@ export function FloatingSettingsBox({
   }, [providerKeys, selectedProvider]);
 
   useEffect(() => {
-    setLocalRuntime(config.localAiPreferredRuntime || 'auto');
-    setLocalEndpoint(config.localAiEndpoint || 'http://127.0.0.1:11434');
-    setLocalModel(config.localAiModel || 'qwen2.5-coder:7b');
+    setLocalRuntime(config.local_ai_runtime || 'auto');
+    setLocalEndpoint(config.local_ai_endpoint || 'http://127.0.0.1:11434');
+    setLocalModel(config.local_ai_model || 'qwen2.5-coder:latest');
     setJsonText(JSON.stringify(config, null, 2));
   }, [config]);
 
@@ -180,9 +184,9 @@ export function FloatingSettingsBox({
   const handleSaveLocalAiSettings = async () => {
     const updated: AppConfigJson = {
       ...config,
-      localAiPreferredRuntime: localRuntime,
-      localAiEndpoint: localEndpoint.trim() || 'http://127.0.0.1:11434',
-      localAiModel: localModel.trim() || 'qwen2.5-coder:7b',
+      local_ai_runtime: localRuntime,
+      local_ai_endpoint: localEndpoint.trim() || 'http://127.0.0.1:11434',
+      local_ai_model: localModel.trim() || 'qwen2.5-coder:latest',
     };
     await onUpdateConfig(updated);
     setLocalSavedBanner(true);
@@ -216,9 +220,13 @@ export function FloatingSettingsBox({
     return `${(mb / 1024).toFixed(2)} GB`;
   };
 
-  const usagePct = storageStatus ? Math.min(100, Math.max(1, storageStatus.usagePercent)) : 2;
+  const usagePct = storageStatus ? Math.min(100, Math.max(1, storageStatus.usage_percent)) : 2;
   const usageFillClass =
-    usagePct > 90 ? 'danger' : usagePct > 75 || storageStatus?.warning ? 'warn' : '';
+    usagePct > 90 || storageStatus?.disk_critical
+      ? 'danger'
+      : usagePct > 75 || storageStatus?.disk_warning
+        ? 'warn'
+        : '';
 
   return (
     <div
@@ -296,7 +304,7 @@ export function FloatingSettingsBox({
               <div className="floating-card-row">
                 <span className="floating-card-title">Database & Disk Allocation</span>
                 <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 600 }}>
-                  {config.storageTier.toUpperCase()}
+                  {(config.storage_tier || 'recommended').toUpperCase()}
                 </span>
               </div>
               <div className="storage-meter-bar">
@@ -307,23 +315,23 @@ export function FloatingSettingsBox({
               </div>
               <div className="floating-card-row" style={{ fontSize: '10.5px', color: '#cbd5e1' }}>
                 <span>
-                  Used: {storageStatus ? formatBytesToHuman(storageStatus.dbSizeBytes) : '0 KB'}
+                  Used: {storageStatus ? formatBytesToHuman(storageStatus.used_bytes) : '0 KB'}
                 </span>
                 <span>
                   Effective Cap:{' '}
                   {storageStatus
-                    ? formatBytesToHuman(storageStatus.effectiveLimitBytes)
-                    : `${config.storageLimitBytes ? formatBytesToHuman(config.storageLimitBytes) : 'Unlimited'}`}
+                    ? formatBytesToHuman(storageStatus.effective_limit_bytes)
+                    : `${config.storage_limit_bytes ? formatBytesToHuman(config.storage_limit_bytes) : 'Unlimited'}`}
                 </span>
               </div>
               {storageStatus && (
                 <div className="floating-card-sub" style={{ fontSize: '10.5px' }}>
                   Physical Free Disk Space:{' '}
-                  <strong>{formatBytesToHuman(storageStatus.diskFreeBytes)}</strong> /{' '}
-                  {formatBytesToHuman(storageStatus.diskTotalBytes)}
+                  <strong>{formatBytesToHuman(storageStatus.disk_free_bytes)}</strong> /{' '}
+                  {formatBytesToHuman(storageStatus.disk_total_bytes)}
                 </div>
               )}
-              {storageStatus?.warning && (
+              {storageStatus?.warning_message && (
                 <div
                   style={{
                     display: 'flex',
@@ -339,7 +347,7 @@ export function FloatingSettingsBox({
                   }}
                 >
                   <AlertTriangle size={13} />
-                  <span>{storageStatus.warning}</span>
+                  <span>{storageStatus.warning_message}</span>
                 </div>
               )}
             </div>
@@ -362,7 +370,7 @@ export function FloatingSettingsBox({
             </div>
 
             {STORAGE_TIER_OPTIONS.map((option) => {
-              const isSelected = config.storageTier === option.id;
+              const isSelected = config.storage_tier === option.id;
               return (
                 <div
                   key={option.id}
@@ -553,13 +561,13 @@ export function FloatingSettingsBox({
               {hardwareReport ? (
                 <>
                   <div className="floating-card-sub" style={{ color: '#e2e8f0' }}>
-                    • RAM: <strong>{(hardwareReport.totalRamMb / 1024).toFixed(1)} GB</strong> total (
-                    {(hardwareReport.availableRamMb / 1024).toFixed(1)} GB available)
-                    <br />• CPU: <strong>{hardwareReport.cpuCores} logical cores</strong> ({hardwareReport.osArch})
-                    <br />• Recommended Model: <strong>{hardwareReport.recommendedModel}</strong>
+                    • RAM: <strong>{hardwareReport.total_ram_gb.toFixed(1)} GB</strong> total (
+                    {hardwareReport.available_ram_gb.toFixed(1)} GB available)
+                    <br />• CPU: <strong>{hardwareReport.cpu_cores} logical cores</strong> ({hardwareReport.gpu_name})
+                    <br />• Recommended Model: <strong>{hardwareReport.recommended_model}</strong>
                   </div>
                   <div className="floating-card-sub" style={{ color: '#34d399' }}>
-                    {hardwareReport.reason}
+                    {hardwareReport.compatibility_notes}
                   </div>
                 </>
               ) : (
@@ -573,7 +581,7 @@ export function FloatingSettingsBox({
               </div>
               {localServers.map((srv) => (
                 <div
-                  key={srv.provider}
+                  key={srv.name}
                   className="floating-card-row"
                   style={{
                     padding: '5px 8px',
@@ -584,14 +592,14 @@ export function FloatingSettingsBox({
                 >
                   <div>
                     <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#f8fafc' }}>
-                      {srv.provider.toUpperCase()} ({srv.endpoint})
+                      {srv.name} ({srv.endpoint})
                     </div>
                     <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-                      {srv.reachable
+                      {srv.online
                         ? srv.models.length > 0
                           ? `Models: ${srv.models.slice(0, 3).join(', ')}`
                           : 'Server Online (OpenAI-compatible)'
-                        : 'Offline • Built-in Local AI fallback ready'}
+                        : srv.notes}
                     </div>
                   </div>
                   <span
@@ -600,11 +608,11 @@ export function FloatingSettingsBox({
                       fontWeight: 700,
                       padding: '2px 7px',
                       borderRadius: '999px',
-                      background: srv.reachable ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.14)',
-                      color: srv.reachable ? '#34d399' : '#94a3b8',
+                      background: srv.online ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.14)',
+                      color: srv.online ? '#34d399' : '#94a3b8',
                     }}
                   >
-                    {srv.reachable ? 'ONLINE' : 'STANDBY'}
+                    {srv.online ? 'ONLINE' : 'STANDBY'}
                   </span>
                 </div>
               ))}
@@ -619,12 +627,11 @@ export function FloatingSettingsBox({
               <select
                 className="floating-input"
                 value={localRuntime}
-                onChange={(e) => setLocalRuntime(e.target.value)}
+                onChange={(e) => setLocalRuntime(e.target.value as AppConfigJson['local_ai_runtime'])}
               >
                 <option value="auto">Auto-Detect (Ollama → llama.cpp → OpenCode → Built-in)</option>
                 <option value="ollama">Ollama Local Server (127.0.0.1:11434)</option>
-                <option value="llamacpp">llama.cpp / LocalAI Server (127.0.0.1:8080)</option>
-                <option value="lmstudio">LM Studio Server (127.0.0.1:1234)</option>
+                <option value="openai_compatible">llama.cpp / LM Studio Server (OpenAI-Compatible)</option>
                 <option value="opencode">OpenCode Local Agent CLI</option>
                 <option value="builtin">Built-in Instant Conversational Local AI</option>
               </select>
@@ -648,7 +655,7 @@ export function FloatingSettingsBox({
                 className="floating-input"
                 value={localModel}
                 onChange={(e) => setLocalModel(e.target.value)}
-                placeholder="qwen2.5-coder:7b"
+                placeholder="qwen2.5-coder:latest"
               />
 
               <button

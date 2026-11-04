@@ -330,7 +330,7 @@ export async function runOfflineAgent(
     const drives = (ctx.drives || []).join(', ') || 'C:';
     return {
       role: 'assistant',
-      content: `**Local PC Status**\n• **OS:** ${ctx.os || 'Windows'}\n• **User:** ${ctx.username || 'User'}${rememberedName ? ` (${rememberedName})` : ''}\n• **Desktop:** \`${ctx.desktop || '~'}\`\n• **Drives:** ${drives}\n• **Mode:** ⚡ Local AI Runtime Active`,
+      content: `**Local PC Status**\n• **OS:** ${ctx.os || 'Windows'}\n• **User:** ${ctx.username || 'User'}${rememberedName ? ` (${rememberedName})` : ''}\n• **Desktop:** \`${ctx.desktop || '~'}\`\n• **Drives:** ${drives}\n• **Mode:** ⚡ Offline Local AI Active`,
       emotion: 'joy',
       toolActions: executedActions,
     };
@@ -404,7 +404,7 @@ export async function runOfflineAgent(
     const greetings = [
       `Hey there${nameGreeting}! I'm running in local AI mode. How can I help with your PC or research today?`,
       `Hello${nameGreeting}! Luminess is active locally with your memory and search engine ready. What would you like to do?`,
-      `Hi${nameGreeting}! Standing by on your desktop. You can ask me anything, search the web, open apps, or manage your files!`,
+      `Hi${nameGreeting}! Luminess is standing by in local AI mode on your desktop. How can I help you today?`,
     ];
     const picked = greetings[Math.floor(Math.random() * greetings.length)];
     onEmotion('joy');
@@ -421,7 +421,7 @@ export async function runOfflineAgent(
     onEmotion('joy');
     return {
       role: 'assistant',
-      content: `I'm **Luminess Assist** running on my **Local AI Runtime** ⚡${rememberedName ? ` for **${rememberedName}**` : ''}!\n\nHere's what I can do right now:\n• **Remember You:** Tell me your name, preferences, or projects and I save them to your account memory\n• **Search Engine:** Ask *"search for <topic>"* or any factual question to retrieve cited web sources and store them in your database\n• **Open Apps:** *"open notepad"*, *"open calc"*, *"open cmd"*\n• **System Telemetry:** *"system info"*, *"pc specs"*, *"whoami"*\n• **Math, Time & Timers:** *"25 * 4"*, *"what time is it"*, *"set timer 5 minutes"*\n• **Ollama / llama.cpp Integration:** Connect any local model server in the floating **Settings** box!`,
+      content: `I'm **Luminess Assist** running in **Offline Mode** (Local AI Runtime) ⚡${rememberedName ? ` for **${rememberedName}**` : ''}!\n\nHere's what I can do right now:\n• **Remember You:** Tell me your name, preferences, or projects and I save them to your account memory\n• **Search Engine:** Ask *"search for <topic>"* or any factual question to retrieve cited web sources and store them in your database\n• **Open Apps:** *"open notepad"*, *"open calc"*, *"open cmd"*\n• **System Telemetry:** *"system info"*, *"pc specs"*, *"whoami"*\n• **Math, Time & Timers:** *"25 * 4"*, *"what time is it"*, *"set timer 5 minutes"*\n• **Ollama / llama.cpp Integration:** Connect any local model server in the floating **Settings** box!`,
       emotion: 'joy',
       toolActions: executedActions.length > 0 ? executedActions : undefined,
     };
@@ -462,8 +462,8 @@ export async function runOfflineAgent(
     };
   }
 
-  // 13. Web Search Engine Integration for factual / research queries!
-  const searchQuery = cfg.search_engine_enabled ? (shouldSearchWeb(userText) || userText) : null;
+  // 13. Web Search Engine Integration for explicit factual / research queries!
+  const searchQuery = cfg.search_engine_enabled ? shouldSearchWeb(userText) : null;
   if (searchQuery && searchQuery.length >= 2) {
     onEmotion('curiosity');
     onToolStart(`Searching web for "${searchQuery}"...`);

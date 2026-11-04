@@ -14,11 +14,11 @@ const STORAGE_KEY_SESSIONS = 'LUMINESS_LOCAL_CHAT_SESSIONS_V1';
 const STORAGE_KEY_ACTIVE_ID = 'LUMINESS_LOCAL_ACTIVE_SESSION_ID_V1';
 
 export const LOCAL_CHAT_PRIVACY_NOTICE = {
-  badge: 'Persistent & Private',
+  badge: '100% Local Vault & Persistent Account Memory',
   title: 'Chat Memory, Account Sync & Storage Guarantee',
   license: 'MIT Open Source License • User-Controlled Database',
   summary:
-    'Your conversations, learned user profile memories, and web search history are saved in your local database with configurable storage quotas and associated with your authenticated Google account.',
+    'Your API keys are NEVER connected to your Google account and remain encrypted on your machine. Your conversations, learned user profile memories, and web search history are saved in your local database with configurable storage quotas and associated with your authenticated Google account.',
   principles: [
     {
       title: 'Separate Machine Keys vs. Account Memory',
@@ -185,14 +185,15 @@ export function loadActiveChatMessages(): { sessionId: string; messages: Message
 
 export function saveActiveChatMessages(
   sessionId: string,
-  messages: Message[]
+  messages: Message[],
+  accountEmail?: string | null
 ): void {
   const sessions = loadAllChatSessions();
   const existingIdx = sessions.findIndex((s) => s.id === sessionId);
 
   const now = Date.now();
   const title = summarizeTitle(messages);
-  const email = getCachedAppConfig().google_account_email || undefined;
+  const email = accountEmail || getCachedAppConfig().google_account_email || undefined;
 
   if (existingIdx >= 0) {
     sessions[existingIdx] = {
@@ -265,4 +266,13 @@ export function clearAllLocalChatHistory(): {
     // ignore
   }
   return createNewSession();
+}
+
+export function associateSessionsWithGoogleAccount(email: string): void {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) return;
+  const sessions = loadAllChatSessions().map((s) =>
+    !s.accountEmail ? { ...s, accountEmail: cleanEmail } : s
+  );
+  saveAllChatSessions(sessions);
 }
