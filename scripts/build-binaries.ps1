@@ -39,10 +39,20 @@ if (-not (Test-Path $exeSource)) {
 # Locate .msi
 $msiFiles = Get-ChildItem -Path "$bundleDir\msi\*.msi" -ErrorAction SilentlyContinue
 
+# Locate .exe installer from nsis
+$nsisFiles = Get-ChildItem -Path "$bundleDir\nsis\*.exe" -ErrorAction SilentlyContinue
+
 if (Test-Path $exeSource) {
     Copy-Item $exeSource -Destination "$outputDir\Luminess Assist.exe" -Force
     # Also create desktop/directory shortcut if desired
     Write-Host "Copied executable to $outputDir\Luminess Assist.exe" -ForegroundColor Green
+}
+
+if ($nsisFiles) {
+    foreach ($exe in $nsisFiles) {
+        Copy-Item $exe.FullName -Destination "$outputDir\$($exe.Name)" -Force
+        Write-Host "Copied setup executable to $outputDir\$($exe.Name)" -ForegroundColor Green
+    }
 }
 
 if ($msiFiles) {
