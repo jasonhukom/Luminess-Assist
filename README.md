@@ -1,3 +1,11 @@
+<div align="center">
+
+> [!CAUTION]
+> <strong>⚠️ LUMINESS ASSIST IS STILL VERY UNSTABLE.</strong><br />
+> Expect bugs, crashes, and unexpected behavior. Use at your own risk, back up important files, and review commands before running them.
+
+</div>
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/public/robot-icon.svg" width="112" alt="Luminess Assist robot" />
 </p>
