@@ -1,14 +1,16 @@
+pub mod extension_lock;
 pub mod services;
+use extension_lock::*;
 use services::*;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -767,53 +769,57 @@ pub struct AntigravityCliStatus {
 }
 
 #[tauri::command]
-fn check_antigravity_cli() -> AntigravityCliStatus {
-    let candidates = ["agy", "antigravity", "agy.exe", "antigravity.exe", "agy.cmd"];
-    for bin in &candidates {
-        let mut cmd = Command::new(bin);
-        cmd.arg("--version");
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+async fn check_antigravity_cli() -> Result<AntigravityCliStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let candidates = ["agy", "antigravity", "agy.exe", "antigravity.exe", "agy.cmd"];
+        for bin in &candidates {
+            let mut cmd = Command::new(bin);
+            cmd.arg("--version");
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
 
-        if let Ok(output) = cmd.output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let ver = if !stdout.is_empty() {
-                    stdout
-                } else {
-                    String::from_utf8_lossy(&output.stderr).trim().to_string()
-                };
+            if let Ok(output) = cmd.output() {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let ver = if !stdout.is_empty() {
+                        stdout
+                    } else {
+                        String::from_utf8_lossy(&output.stderr).trim().to_string()
+                    };
+                    return AntigravityCliStatus {
+                        installed: true,
+                        path: Some(bin.to_string()),
+                        version: if ver.is_empty() { None } else { Some(ver) },
+                        supported_for_ipc: false,
+                        notes: "Antigravity CLI is an interactive developer tool designed for terminal usage and does not provide an official headless daemon or third-party token-proxy IPC interface. Luminess uses direct, supported provider APIs (Google AI Studio, Claude, Codex) for desktop companion intelligence.".to_string(),
+                    };
+                }
+            }
+        }
+
+        if let Ok(user_home) = env::var("USERPROFILE").or_else(|_| env::var("HOME")) {
+            let agy_dir = Path::new(&user_home).join(".gemini").join("antigravity-cli");
+            if agy_dir.exists() {
                 return AntigravityCliStatus {
                     installed: true,
-                    path: Some(bin.to_string()),
-                    version: if ver.is_empty() { None } else { Some(ver) },
+                    path: Some(agy_dir.to_string_lossy().to_string()),
+                    version: Some("Detected in ~/.gemini/antigravity-cli".to_string()),
                     supported_for_ipc: false,
-                    notes: "Antigravity CLI is an interactive developer tool designed for terminal usage and does not provide an official headless daemon or third-party token-proxy IPC interface. Luminess uses direct, supported provider APIs (Google AI Studio, Claude, Codex) for desktop companion intelligence.".to_string(),
+                    notes: "Antigravity CLI is installed for terminal development. Headless desktop embedding is not supported; Luminess communicates directly with official AI provider APIs.".to_string(),
                 };
             }
         }
-    }
 
-    if let Ok(user_home) = env::var("USERPROFILE").or_else(|_| env::var("HOME")) {
-        let agy_dir = Path::new(&user_home).join(".gemini").join("antigravity-cli");
-        if agy_dir.exists() {
-            return AntigravityCliStatus {
-                installed: true,
-                path: Some(agy_dir.to_string_lossy().to_string()),
-                version: Some("Detected in ~/.gemini/antigravity-cli".to_string()),
-                supported_for_ipc: false,
-                notes: "Antigravity CLI is installed for terminal development. Headless desktop embedding is not supported; Luminess communicates directly with official AI provider APIs.".to_string(),
-            };
+        AntigravityCliStatus {
+            installed: false,
+            path: None,
+            version: None,
+            supported_for_ipc: false,
+            notes: "Antigravity CLI is not detected on PATH. Luminess communicates directly with official AI provider APIs.".to_string(),
         }
-    }
-
-    AntigravityCliStatus {
-        installed: false,
-        path: None,
-        version: None,
-        supported_for_ipc: false,
-        notes: "Antigravity CLI is not detected on PATH. Luminess communicates directly with official AI provider APIs.".to_string(),
-    }
+    })
+    .await
+    .map_err(|e| format!("CLI check task error: {}", e))
 }
 
 #[tauri::command]
@@ -1071,15 +1077,19 @@ fn search_recursive(
 }
 
 #[tauri::command]
-fn fs_search_files(directory: String, query: String, max_results: Option<usize>) -> Result<Vec<DirEntryInfo>, String> {
-    let target = expand_path(&directory);
-    if !target.exists() {
-        return Err(format!("Directory '{}' does not exist", target.display()));
-    }
-    let limit = max_results.unwrap_or(100);
-    let mut results = Vec::new();
-    search_recursive(&target, &query.to_lowercase(), &mut results, limit, 0);
-    Ok(results)
+async fn fs_search_files(directory: String, query: String, max_results: Option<usize>) -> Result<Vec<DirEntryInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = expand_path(&directory);
+        if !target.exists() {
+            return Err(format!("Directory '{}' does not exist", target.display()));
+        }
+        let limit = max_results.unwrap_or(100);
+        let mut results = Vec::new();
+        search_recursive(&target, &query.to_lowercase(), &mut results, limit, 0);
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("File search task error: {}", e))?
 }
 
 #[tauri::command]
@@ -1122,42 +1132,110 @@ fn fs_copy_or_move(source: String, destination: String, is_move: bool) -> Result
     }
 }
 
-#[tauri::command]
-fn execute_pc_command(command: String, cwd: Option<String>) -> Result<CommandOutput, String> {
-    let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", &command]);
-        #[cfg(target_os = "windows")]
-        c.creation_flags(CREATE_NO_WINDOW);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.args(["-c", &command]);
-        c
-    };
+const MAX_CMD_OUTPUT_BYTES: usize = 256 * 1024;
+const CMD_TIMEOUT: Duration = Duration::from_secs(20);
 
-    if let Some(dir) = cwd {
-        if !dir.trim().is_empty() {
-            let expanded = expand_path(&dir);
-            if expanded.exists() {
-                cmd.current_dir(expanded);
+fn drain_bounded_pipe<R: Read + Send + 'static>(reader: Option<R>) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut out = Vec::new();
+        let Some(mut r) = reader else { return out };
+        let mut chunk = [0u8; 4096];
+        loop {
+            match r.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if out.len() < MAX_CMD_OUTPUT_BYTES {
+                        let remaining = MAX_CMD_OUTPUT_BYTES - out.len();
+                        let take_n = n.min(remaining);
+                        out.extend_from_slice(&chunk[..take_n]);
+                    }
+                }
+                Err(_) => break,
             }
         }
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to execute command: {}", e))?;
-
-    Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
+        out
     })
 }
 
 #[tauri::command]
-fn open_item(target: String) -> Result<String, String> {
+async fn execute_pc_command(command: String, cwd: Option<String>) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = if cfg!(target_os = "windows") {
+            let mut c = Command::new("powershell");
+            c.args(["-NoProfile", "-NonInteractive", "-Command", &command]);
+            #[cfg(target_os = "windows")]
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args(["-c", &command]);
+            c
+        };
+
+        if let Some(dir) = cwd {
+            if !dir.trim().is_empty() {
+                let expanded = expand_path(&dir);
+                if expanded.exists() {
+                    cmd.current_dir(expanded);
+                }
+            }
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to execute command: {}", e))?;
+
+        // Decouple stdout/stderr readers so heavy OpenCode output never blocks or deadlocks Tauri.
+        let stdout_handle = drain_bounded_pipe(child.stdout.take());
+        let stderr_handle = drain_bounded_pipe(child.stderr.take());
+
+        let started = Instant::now();
+        let mut timed_out = false;
+        let exit_code = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.code().unwrap_or(-1),
+                Ok(None) => {
+                    if started.elapsed() >= CMD_TIMEOUT {
+                        timed_out = true;
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break -1;
+                    }
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => {
+                    let _ = child.kill();
+                    return Err(format!("Failed while waiting for command: {}", err));
+                }
+            }
+        };
+
+        let stdout_bytes = stdout_handle.join().unwrap_or_default();
+        let mut stderr_bytes = stderr_handle.join().unwrap_or_default();
+        if timed_out {
+            stderr_bytes.extend_from_slice(b"\n[Command timed out after 20s and was terminated gracefully]");
+        }
+
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&stdout_bytes).to_string(),
+            stderr: String::from_utf8_lossy(&stderr_bytes).to_string(),
+            exit_code,
+        })
+    })
+    .await
+    .map_err(|e| format!("Command task error: {}", e))?
+}
+
+#[tauri::command]
+async fn open_item(target: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || open_item_blocking(target))
+        .await
+        .map_err(|e| format!("Open item task error: {}", e))?
+}
+
+fn open_item_blocking(target: String) -> Result<String, String> {
     let trimmed = target.trim();
     if trimmed.is_empty() {
         return Err("Target path or application name cannot be empty".to_string());
@@ -1324,9 +1402,12 @@ exit 1
 pub fn run() {
     let companion_state = Arc::new(Mutex::new(CompanionState::default()));
     let state_for_setup = companion_state.clone();
+    let extension_lock_state = Arc::new(ExtensionLockState::default());
+    let lock_state_for_setup = extension_lock_state.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(companion_state)
+        .manage(extension_lock_state)
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -1336,7 +1417,13 @@ pub fn run() {
                 )?;
             }
 
-            let window = app.get_webview_window("main").unwrap();
+            let Some(window) = app.get_webview_window("main") else {
+                log::error!("Main webview window 'main' was not found during setup");
+                return Ok(());
+            };
+
+            // Start the non-blocking Bible-Plan Extension IPC loopback server
+            spawn_extension_ipc_server(app.handle().clone(), lock_state_for_setup.clone());
 
             // Ensure OS window border/shadow is completely disabled
             let _ = window.set_shadow(false);
@@ -1360,7 +1447,7 @@ pub fn run() {
 
             // Background loop for:
             // 1) Click-through transparency everywhere except interactive regions (character model / open chat / modal)
-            // 2) Smart positioning when an external app is opened (bottom-right if full, next to app if half/partial)
+            // 2) Debounced smart positioning when an external app is opened (bottom-right if full, next to app if half/partial)
             #[cfg(target_os = "windows")]
             {
                 let win_clone = window.clone();
@@ -1380,7 +1467,8 @@ pub fn run() {
                                 .map(|g| g.auto_glide.is_some())
                                 .unwrap_or(false)
                         };
-                        thread::sleep(Duration::from_millis(if is_gliding { 15 } else { 25 }));
+                        // Debounced minimum polling: 20ms during glide, 50ms when idle so external apps (e.g. OpenCode) stay responsive
+                        thread::sleep(Duration::from_millis(if is_gliding { 20 } else { 50 }));
                         tick_count = tick_count.wrapping_add(1);
 
                         let (rects, force_interactive, companion_active, last_ignore) = {
@@ -1423,9 +1511,10 @@ pub fn run() {
 
                             let win_down = lwin_down || rwin_down;
 
-                            // 1. Windows + Escape: Terminate Luminess
+                            // 1. Windows + Escape: Terminate Luminess gracefully
                             if win_down && esc_down {
-                                std::process::exit(0);
+                                win_clone.app_handle().exit(0);
+                                break;
                             }
 
                             // 2. Windows + Shift + C (or legacy Ctrl+Alt+C / Alt+Shift+C): Open/toggle chat
@@ -1541,37 +1630,39 @@ pub fn run() {
                             }
                         }
 
-                        // 2. Update click-through state based on cursor position vs interactive rects
-                        if let (Some((cx, cy)), Ok(win_pos), Ok(scale)) = (
-                            win32::get_cursor_pos(),
-                            win_clone.outer_position(),
-                            win_clone.scale_factor(),
-                        ) {
-                            let rel_x = (cx - win_pos.x) as f64 / scale;
-                            let rel_y = (cy - win_pos.y) as f64 / scale;
+                        // 2. Update click-through state based on cursor position vs interactive rects (debounced 100ms when idle)
+                        if force_interactive || is_gliding || tick_count % 2 == 0 {
+                            if let (Some((cx, cy)), Ok(win_pos), Ok(scale)) = (
+                                win32::get_cursor_pos(),
+                                win_clone.outer_position(),
+                                win_clone.scale_factor(),
+                            ) {
+                                let rel_x = (cx - win_pos.x) as f64 / scale;
+                                let rel_y = (cy - win_pos.y) as f64 / scale;
 
-                            let is_inside = if force_interactive || rects.is_empty() {
-                                true
-                            } else {
-                                rects.iter().any(|r| {
-                                    rel_x >= r.x - 6.0
-                                        && rel_x <= r.x + r.width + 6.0
-                                        && rel_y >= r.y - 6.0
-                                        && rel_y <= r.y + r.height + 6.0
-                                })
-                            };
+                                let is_inside = if force_interactive || rects.is_empty() {
+                                    true
+                                } else {
+                                    rects.iter().any(|r| {
+                                        rel_x >= r.x - 6.0
+                                            && rel_x <= r.x + r.width + 6.0
+                                            && rel_y >= r.y - 6.0
+                                            && rel_y <= r.y + r.height + 6.0
+                                    })
+                                };
 
-                            let should_ignore = !is_inside;
-                            if last_ignore != Some(should_ignore) {
-                                let _ = win_clone.set_ignore_cursor_events(should_ignore);
-                                if let Ok(mut guard) = st_clone.lock() {
-                                    guard.is_ignoring_cursor = Some(should_ignore);
+                                let should_ignore = !is_inside;
+                                if last_ignore != Some(should_ignore) {
+                                    let _ = win_clone.set_ignore_cursor_events(should_ignore);
+                                    if let Ok(mut guard) = st_clone.lock() {
+                                        guard.is_ignoring_cursor = Some(should_ignore);
+                                    }
                                 }
                             }
                         }
 
-                        // 3. Check active external app every ~200ms (8 ticks) when companion mode is active
-                        if companion_active && !force_interactive && tick_count % 8 == 0 {
+                        // 3. Debounced external app watcher: check every ~500ms (10 ticks) when companion mode is active
+                        if companion_active && !force_interactive && tick_count % 10 == 0 {
                             if let Some(app_info) = win32::get_active_external_app(self_pid) {
                                 let current_bounds = (
                                     app_info.rect.left,
@@ -1724,9 +1815,11 @@ pub fn run() {
             let center_i = MenuItem::with_id(app, "center", "Return Mascot to Screen", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &center_i, &quit_i])?;
 
-            let _tray = TrayIconBuilder::new()
-                .menu(&menu)
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut tray_builder = TrayIconBuilder::new().menu(&menu);
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            let _tray = tray_builder
                 .on_menu_event(move |app, event| {
                     if event.id() == "quit" {
                         app.exit(0);
@@ -1781,8 +1874,13 @@ pub fn run() {
             check_local_ai_hardware,
             probe_local_ai_servers,
             local_ai_chat_completion,
-            perform_web_search
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while building tauri application");
+            perform_web_search,
+            get_bible_plan_extension_lock,
+            set_bible_plan_extension_handshake,
+            sync_bible_plan_remote_heartbeat
+        ]);
+
+    if let Err(err) = builder.run(tauri::generate_context!()) {
+        log::error!("Failed to run Luminess Assist Tauri application: {}", err);
+    }
 }
