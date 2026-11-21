@@ -189,7 +189,7 @@ function App() {
   const [extensionLock, setExtensionLock] = useState<ExtensionLockStatus | null>(null);
   const [isCheckingExtensionLock, setIsCheckingExtensionLock] = useState<boolean>(false);
 
-  const isExtensionLocked = extensionLock !== null && !extensionLock.unlocked;
+  const isExtensionLocked = extensionLock === null || !extensionLock.unlocked;
   const isBiblePlanConnected = Boolean(extensionLock?.unlocked);
 
   const refreshExtensionLockStatus = useCallback(async () => {
