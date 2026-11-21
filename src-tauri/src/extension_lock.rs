@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
 use crate::services::get_app_data_dir;
@@ -177,9 +177,17 @@ pub fn fetch_remote_heartbeat(heartbeat_url: &str) -> Result<BiblePlanHandshakeP
         Some(idx) => (&rest[..idx], &rest[idx..]),
         None => (rest, "/api/extensions/luminess-heartbeat"),
     };
-    let addr: SocketAddr = host_port
-        .parse()
-        .map_err(|e| format!("Invalid heartbeat socket address '{}': {}", host_port, e))?;
+    let addr_spec = if host_port.contains(':') {
+        host_port.to_string()
+    } else {
+        format!("{}:80", host_port)
+    };
+    let addr: SocketAddr = addr_spec
+        .as_str()
+        .to_socket_addrs()
+        .map_err(|e| format!("Failed to resolve heartbeat address '{}': {}", host_port, e))?
+        .next()
+        .ok_or_else(|| format!("No socket address resolved for '{}'", host_port))?;
 
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(800))
         .map_err(|e| format!("Failed to reach Bible-Plan heartbeat '{}': {}", host_port, e))?;
@@ -215,15 +223,77 @@ pub fn fetch_remote_heartbeat(heartbeat_url: &str) -> Result<BiblePlanHandshakeP
         .map_err(|e| format!("Failed to parse heartbeat payload: {}", e))
 }
 
+fn parse_content_length(headers: &str) -> usize {
+    for line in headers.lines() {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                if let Ok(len) = value.trim().parse::<usize>() {
+                    return len;
+                }
+            }
+        }
+    }
+    0
+}
+
+fn read_http_request(stream: &mut TcpStream, max_bytes: usize) -> String {
+    let mut raw = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let mut header_end: Option<usize> = None;
+    let mut expected_total: Option<usize> = None;
+
+    while raw.len() < max_bytes {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let remaining = max_bytes - raw.len();
+                let take_n = n.min(remaining);
+                raw.extend_from_slice(&chunk[..take_n]);
+
+                if header_end.is_none() {
+                    if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        header_end = Some(pos);
+                        let headers = String::from_utf8_lossy(&raw[..pos]);
+                        let content_len = parse_content_length(&headers);
+                        expected_total = Some((pos + 4).saturating_add(content_len).min(max_bytes));
+                    }
+                }
+
+                if let Some(total) = expected_total {
+                    if raw.len() >= total {
+                        break;
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    String::from_utf8_lossy(&raw).to_string()
+}
+
 fn write_http_json(stream: &mut TcpStream, status_line: &str, body_json: &str) {
     let resp = format!(
-        "HTTP/1.1 {}\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-App-Version\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {}\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-App-Version\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         status_line,
         body_json.len(),
         body_json
     );
     let _ = stream.write_all(resp.as_bytes());
     let _ = stream.flush();
+}
+
+fn resolve_configured_heartbeat_url() -> Option<String> {
+    if let Ok(url) = env::var("BIBLE_PLAN_HEARTBEAT_URL") {
+        let trimmed = url.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+    }
+    load_saved_handshake()
+        .and_then(|hs| hs.heartbeat_url)
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
 }
 
 /// Starts a lightweight localhost IPC HTTP server (`127.0.0.1:47821`) so the
@@ -248,25 +318,25 @@ pub fn spawn_extension_ipc_server(app: AppHandle, lock_state: Arc<ExtensionLockS
             return;
         }
 
-        // Also check optional BIBLE_PLAN_HEARTBEAT_URL once at startup without crashing
-        if let Ok(url) = env::var("BIBLE_PLAN_HEARTBEAT_URL") {
+        // Check optional configured heartbeat URL once at startup without crashing
+        if let Some(url) = resolve_configured_heartbeat_url() {
             if let Ok(payload) = fetch_remote_heartbeat(&url) {
                 if let Ok(status) = lock_state.update_from_handshake(payload) {
-                    let _ = app.emit("bible-plan-extension-status", status);
+                    let _ = app.emit("bible-plan-extension-status", &status);
                 }
             }
         }
 
+        let mut last_heartbeat_poll = Instant::now();
+
         loop {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    let _ = stream.set_read_timeout(Some(Duration::from_millis(400)));
-                    let mut buf = [0u8; 32 * 1024];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    if n == 0 {
+                    let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
+                    let req = read_http_request(&mut stream, 64 * 1024);
+                    if req.is_empty() {
                         continue;
                     }
-                    let req = String::from_utf8_lossy(&buf[..n]);
                     let first_line = req.lines().next().unwrap_or("");
                     let mut parts = first_line.split_whitespace();
                     let method = parts.next().unwrap_or("");
@@ -331,6 +401,16 @@ pub fn spawn_extension_ipc_server(app: AppHandle, lock_state: Arc<ExtensionLockS
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(80));
+                    if last_heartbeat_poll.elapsed() >= Duration::from_secs(30) {
+                        last_heartbeat_poll = Instant::now();
+                        if let Some(url) = resolve_configured_heartbeat_url() {
+                            if let Ok(payload) = fetch_remote_heartbeat(&url) {
+                                if let Ok(status) = lock_state.update_from_handshake(payload) {
+                                    let _ = app.emit("bible-plan-extension-status", &status);
+                                }
+                            }
+                        }
+                    }
                 }
                 Err(err) => {
                     log::warn!("Extension IPC accept error: {}", err);
@@ -374,4 +454,53 @@ pub async fn sync_bible_plan_remote_heartbeat(
     })
     .await
     .map_err(|e| format!("Heartbeat task error: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_requires_install_enabled_and_matching_version() {
+        let unlinked = evaluate_lock_status(None);
+        assert!(!unlinked.unlocked);
+        assert_eq!(unlinked.reason, "unlinked");
+        assert_eq!(unlinked.message, EXTENSION_LOCK_MESSAGE);
+
+        let disabled = evaluate_lock_status(Some(&BiblePlanHandshakePayload {
+            installed_from_bible_plan: true,
+            enabled: false,
+            app_version: REQUIRED_BIBLE_PLAN_VERSION.to_string(),
+            ..Default::default()
+        }));
+        assert!(!disabled.unlocked);
+        assert_eq!(disabled.reason, "disabled_in_bible_plan");
+
+        let outdated = evaluate_lock_status(Some(&BiblePlanHandshakePayload {
+            installed_from_bible_plan: true,
+            enabled: true,
+            app_version: "0.0.0".to_string(),
+            ..Default::default()
+        }));
+        assert!(!outdated.unlocked);
+        assert_eq!(outdated.reason, "version_mismatch");
+
+        let active = evaluate_lock_status(Some(&BiblePlanHandshakePayload {
+            installed_from_bible_plan: true,
+            enabled: true,
+            app_version: REQUIRED_BIBLE_PLAN_VERSION.to_string(),
+            ..Default::default()
+        }));
+        assert!(active.unlocked);
+        assert_eq!(active.reason, "active");
+    }
+
+    #[test]
+    fn parses_content_length_case_insensitively() {
+        assert_eq!(
+            parse_content_length("POST /api/extensions/luminess-handshake HTTP/1.1\r\nHost: 127.0.0.1\r\ncontent-length: 128\r\n"),
+            128
+        );
+        assert_eq!(parse_content_length("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n"), 0);
+    }
 }
