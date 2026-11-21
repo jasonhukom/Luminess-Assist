@@ -98,7 +98,43 @@ import {
   TerminalSquare,
   Zap,
   HardDrive,
+  Lock,
+  BookOpen,
+  Power,
 } from 'lucide-react';
+
+interface BiblePlanReadingItem {
+  book?: string;
+  bookName: string;
+  chaptersText: string;
+  completed?: boolean;
+}
+
+interface BiblePlanScheduleFeed {
+  planName?: string;
+  todayDate?: string;
+  totalForToday?: number;
+  completedForToday?: number;
+  readings?: BiblePlanReadingItem[];
+}
+
+interface ExtensionLockStatus {
+  unlocked: boolean;
+  installedFromBiblePlan: boolean;
+  enabled: boolean;
+  appVersion: string;
+  requiredVersion: string;
+  reason: string;
+  message: string;
+  scheduleFeed?: BiblePlanScheduleFeed | null;
+  ipcEndpoint: string;
+}
+
+const BIBLE_PLAN_EXTENSION_URL = 'https://bible-plan.jasonhukom.my.id/extensions';
+const BIBLE_PLAN_LOCAL_EXTENSION_URL = 'http://localhost:5173/extensions';
+const BIBLE_PLAN_REQUIRED_VERSION = 'Alpha0.0.1';
+const BIBLE_PLAN_LOCK_MESSAGE =
+  'Luminess requires an active update/connection from the Bible-Plan Extension page.';
 
 const PROVIDER_INFO: Record<
   AIProvider,
@@ -150,6 +186,84 @@ const CHAT_BOT_GAP = 28;
 function App() {
   const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(() => getGoogleSession());
   const [bootComplete, setBootComplete] = useState<boolean>(false);
+  const [extensionLock, setExtensionLock] = useState<ExtensionLockStatus | null>(null);
+  const [isCheckingExtensionLock, setIsCheckingExtensionLock] = useState<boolean>(false);
+
+  const isExtensionLocked = extensionLock !== null && !extensionLock.unlocked;
+  const isBiblePlanConnected = Boolean(extensionLock?.unlocked);
+
+  const refreshExtensionLockStatus = useCallback(async () => {
+    setIsCheckingExtensionLock(true);
+    try {
+      const status = await invoke<ExtensionLockStatus>('get_bible_plan_extension_lock');
+      setExtensionLock(status);
+    } catch {
+      setExtensionLock((prev) =>
+        prev ?? {
+          unlocked: false,
+          installedFromBiblePlan: false,
+          enabled: false,
+          appVersion: '',
+          requiredVersion: BIBLE_PLAN_REQUIRED_VERSION,
+          reason: 'unlinked',
+          message: BIBLE_PLAN_LOCK_MESSAGE,
+          ipcEndpoint: 'http://127.0.0.1:47821',
+        }
+      );
+    } finally {
+      setIsCheckingExtensionLock(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unlistenStatus: (() => void) | undefined;
+
+    const initLockHandshake = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const installedParam = params.get('installedFromBiblePlan') ?? params.get('biblePlanInstalled');
+        const enabledParam = params.get('enabled');
+        const versionParam = params.get('appVersion') ?? params.get('version');
+        const heartbeatUrlParam = params.get('heartbeatUrl');
+
+        if (installedParam === '1' || installedParam === 'true') {
+          const hsStatus = await invoke<ExtensionLockStatus>('set_bible_plan_extension_handshake', {
+            payload: {
+              extensionId: 'luminess-assist',
+              installedFromBiblePlan: true,
+              enabled: enabledParam !== '0' && enabledParam !== 'false',
+              appVersion: versionParam || BIBLE_PLAN_REQUIRED_VERSION,
+              heartbeatUrl: heartbeatUrlParam || null,
+              updatedAtMs: Date.now(),
+            },
+          });
+          if (active) setExtensionLock(hsStatus);
+        } else {
+          await refreshExtensionLockStatus();
+        }
+      } catch {
+        if (active) await refreshExtensionLockStatus();
+      }
+
+      try {
+        unlistenStatus = await listen<ExtensionLockStatus>('bible-plan-extension-status', (event) => {
+          if (active && event.payload) {
+            setExtensionLock(event.payload);
+          }
+        });
+      } catch {
+        // Ignore outside Tauri runtime
+      }
+    };
+
+    void initLockHandshake();
+
+    return () => {
+      active = false;
+      if (unlistenStatus) unlistenStatus();
+    };
+  }, [refreshExtensionLockStatus]);
   const [selectedProvider, setSelectedProviderState] = useState<AIProvider>(() => getSelectedProvider());
   const [providerKeys, setProviderKeys] = useState<Record<AIProvider, string>>(() => ({
     gemini: getProviderApiKey('gemini'),
@@ -162,6 +276,7 @@ function App() {
     !localStorage.getItem('LUMINNESS_SETUP_COMPLETED') ||
     (!getGoogleSession() && !hasAnyProviderKey())
   );
+  const showCenteredCard = isExtensionLocked || showApiModal;
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [normalizedError, setNormalizedError] = useState<NormalizedAIError | null>(null);
@@ -548,7 +663,7 @@ function App() {
 
     if (!bootComplete) {
       rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
-    } else if (showApiModal) {
+    } else if (showCenteredCard) {
       const el = modalCardRef.current;
       if (el) {
         const r = el.getBoundingClientRect();
@@ -594,11 +709,11 @@ function App() {
 
     void invoke('set_interactive_regions', {
       rects,
-      forceInteractive: !bootComplete || showApiModal || isDraggingBot,
-      companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
+      forceInteractive: !bootComplete || showCenteredCard || isDraggingBot,
+      companionActive: bootComplete && !showCenteredCard && companionReadyRef.current && brokenSeconds <= 0,
       botCenter,
     }).catch(() => {});
-  }, [bootComplete, showApiModal, chatOpen, historyBoxOpen, settingsBoxOpen, isDraggingBot, brokenSeconds]);
+  }, [bootComplete, showCenteredCard, chatOpen, historyBoxOpen, settingsBoxOpen, isDraggingBot, brokenSeconds]);
 
   useEffect(() => {
     syncInteractiveRegions();
@@ -610,7 +725,7 @@ function App() {
     };
   }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert, historyBoxPos, settingsBoxPos]);
 
-  const floatingWorkspaceActive = !showApiModal && (historyBoxOpen || settingsBoxOpen);
+  const floatingWorkspaceActive = !showCenteredCard && (historyBoxOpen || settingsBoxOpen);
 
   useEffect(() => {
     const updateWindowGeometry = async () => {
@@ -630,13 +745,13 @@ function App() {
           return;
         }
 
-        const targetCssW = showApiModal
+        const targetCssW = showCenteredCard
           ? 520
           : chatOpen
             ? panelSize.width + CHAT_BOT_GAP + robotSize + 144
             : robotSize + 144;
 
-        const targetCssH = showApiModal
+        const targetCssH = showCenteredCard
           ? 760
           : chatOpen
             ? Math.max(panelSize.height, robotSize) + 144
@@ -676,7 +791,7 @@ function App() {
           return;
         }
 
-        if (prevFloatingWorkspaceRef.current && !floatingWorkspaceActive && !showApiModal) {
+        if (prevFloatingWorkspaceRef.current && !floatingWorkspaceActive && !showCenteredCard) {
           prevFloatingWorkspaceRef.current = false;
           const restoreX = bounds.monitor_x + Math.round(companionAnchor.left * dpr);
           const restoreY = bounds.monitor_y + Math.round(companionAnchor.top * dpr);
@@ -692,16 +807,16 @@ function App() {
 
         const prev = prevModeRef.current;
 
-        // Login card is user-movable: once it has been placed, never snap it back to center
-        if (showApiModal && modalPlacedRef.current) {
-          prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
+        // Centered modal/lock card is user-movable: once placed, never snap it back to center
+        if (showCenteredCard && modalPlacedRef.current) {
+          prevModeRef.current = { showApiModal: showCenteredCard, chatOpen, chatSide, chatVert, robotSize };
           setTimeout(syncInteractiveRegions, 40);
           return;
         }
 
-        if (showApiModal || (prev.showApiModal && !showApiModal)) {
-          modalPlacedRef.current = showApiModal;
-          prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
+        if (showCenteredCard || (prev.showApiModal && !showCenteredCard)) {
+          modalPlacedRef.current = showCenteredCard;
+          prevModeRef.current = { showApiModal: showCenteredCard, chatOpen, chatSide, chatVert, robotSize };
           companionReadyRef.current = false;
           const centerX = bounds.monitor_x + Math.round((bounds.monitor_width - targetW) / 2);
           const centerY = bounds.monitor_y + Math.round((bounds.monitor_height - targetH) / 2);
@@ -711,7 +826,7 @@ function App() {
             width: targetW,
             height: targetH,
           });
-          companionReadyRef.current = !showApiModal;
+          companionReadyRef.current = !showCenteredCard;
           setTimeout(syncInteractiveRegions, 40);
           return;
         }
@@ -769,7 +884,7 @@ function App() {
         }
 
         prevModeRef.current = {
-          showApiModal,
+          showApiModal: showCenteredCard,
           chatOpen,
           chatSide: effectiveSide,
           chatVert: effectiveVert,
@@ -903,7 +1018,7 @@ function App() {
     void updateWindowGeometry();
   }, [
     bootComplete,
-    showApiModal,
+    showCenteredCard,
     chatOpen,
     chatSide,
     chatVert,
@@ -1018,7 +1133,7 @@ function App() {
         return;
       }
 
-      if (e.key === 'Escape' && !showApiModal) {
+      if (e.key === 'Escape' && !showCenteredCard) {
         setChatOpen(false);
         setHistoryBoxOpen(false);
         setSettingsBoxOpen(false);
@@ -1026,7 +1141,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showApiModal]);
+  }, [showCenteredCard]);
 
   // Ctrl + Arrow moves the bot smoothly on screen (diagonals, contradiction last-pressed priority, auto-flip chat).
   // Plain Arrow moves the chat position relative to the bot.
@@ -1180,7 +1295,7 @@ function App() {
 
       if (nextSide !== currentSide || nextVert !== currentVert) {
         prevModeRef.current = {
-          showApiModal,
+          showApiModal: showCenteredCard,
           chatOpen: isChat,
           chatSide: nextSide,
           chatVert: nextVert,
@@ -1246,7 +1361,7 @@ function App() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showApiModal) return;
+      if (showCenteredCard) return;
 
       const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
       if (!arrowKeys.includes(e.key)) return;
@@ -1337,7 +1452,7 @@ function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [chatOpen, showApiModal, syncInteractiveRegions]);
+  }, [chatOpen, showCenteredCard, syncInteractiveRegions]);
 
   useEffect(() => {
     void checkAntigravityCliStatus().then((status) => {
@@ -1541,7 +1656,7 @@ function App() {
   };
 
   const handleRobotClick = () => {
-    if (showApiModal) return;
+    if (showCenteredCard) return;
     setChatOpen((prev) => !prev);
   };
 
@@ -1715,6 +1830,9 @@ function App() {
     });
   }, []);
 
+  const todayReadings = extensionLock?.scheduleFeed?.readings || [];
+  const pendingReadings = todayReadings.filter((r) => !r.completed);
+
   if (!bootComplete) {
     return <LuminessBootScreen onComplete={handleBootComplete} />;
   }
@@ -1722,7 +1840,7 @@ function App() {
   return (
     <div
       className={`app-container ${
-        showApiModal
+        showCenteredCard
           ? 'centered-mode'
           : floatingWorkspaceActive
             ? 'floating-workspace-active'
@@ -1731,7 +1849,111 @@ function App() {
               : 'companion-bot-only'
       }`}
     >
-      {showApiModal ? (
+      {isExtensionLocked ? (
+        <div className="api-modal-backdrop emotion-border-sadness">
+          <div ref={modalCardRef} className="api-modal-card" onMouseDown={handleModalDragStart}>
+            <div className="api-modal-drag-handle" title="Drag to move">
+              <span />
+            </div>
+            <div className="api-modal-robot-preview">
+              <Robot
+                emotion="sadness"
+                size={118}
+                onResize={setRobotSize}
+                onClick={() => setEmotion('sadness')}
+                onVisualEmotionChange={setVisualEmotion}
+                onDragStateChange={setIsDraggingBot}
+              />
+            </div>
+
+            <div className="api-modal-badge status-error">
+              <Lock size={13} />
+              <span>
+                Bible-Plan Extension Lock • {extensionLock?.requiredVersion || BIBLE_PLAN_REQUIRED_VERSION} Required
+              </span>
+            </div>
+
+            <h1 className="api-modal-title">Bible-Plan Connection Required</h1>
+            <p className="api-modal-subtitle">
+              {extensionLock?.message || BIBLE_PLAN_LOCK_MESSAGE}
+            </p>
+
+            <div className="setup-storage-card" style={{ gap: '8px' }}>
+              <div className="setup-storage-header">
+                <span>Extension Gate Status</span>
+                <span style={{ fontSize: '11px', color: '#f87171', fontWeight: 600 }}>
+                  {(extensionLock?.reason || 'unlinked').replace(/_/g, ' ').toUpperCase()}
+                </span>
+              </div>
+              <div className="setup-storage-hint" style={{ display: 'grid', gap: '4px' }}>
+                <div>
+                  Installed from Bible-Plan:{' '}
+                  <strong>{extensionLock?.installedFromBiblePlan ? 'Yes' : 'No'}</strong>
+                </div>
+                <div>
+                  Extension Toggle:{' '}
+                  <strong>{extensionLock?.enabled ? 'ON' : 'OFF'}</strong>
+                </div>
+                <div>
+                  Registered Version:{' '}
+                  <strong>{extensionLock?.appVersion || 'None'}</strong> (Required:{' '}
+                  <strong>{extensionLock?.requiredVersion || BIBLE_PLAN_REQUIRED_VERSION}</strong>)
+                </div>
+                <div>
+                  Local IPC Handshake:{' '}
+                  <code>{extensionLock?.ipcEndpoint || 'http://127.0.0.1:47821'}</code>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="api-submit-btn"
+              onClick={() => handleOpenExternalUrl(BIBLE_PLAN_EXTENSION_URL)}
+            >
+              <ExternalLink size={15} />
+              <span>Open Bible-Plan Extension Page</span>
+            </button>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', width: '100%' }}>
+              <button
+                type="button"
+                className="google-logout-btn"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={() => void refreshExtensionLockStatus()}
+                disabled={isCheckingExtensionLock}
+              >
+                <RefreshCw size={14} className={isCheckingExtensionLock ? 'spin' : undefined} />
+                <span>{isCheckingExtensionLock ? 'Checking...' : 'Re-check Lock'}</span>
+              </button>
+              <button
+                type="button"
+                className="google-logout-btn"
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  color: '#fca5a5',
+                  borderColor: 'rgba(248, 113, 113, 0.35)',
+                }}
+                onClick={() => void invoke('terminate_app')}
+              >
+                <Power size={14} />
+                <span>Quit Luminess</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="provider-keylink-btn"
+              style={{ marginTop: '8px', justifyContent: 'center', opacity: 0.85 }}
+              onClick={() => handleOpenExternalUrl(BIBLE_PLAN_LOCAL_EXTENSION_URL)}
+            >
+              <ExternalLink size={13} />
+              <span>Open Local Dev Extension Page (localhost:5173/extensions)</span>
+            </button>
+          </div>
+        </div>
+      ) : showApiModal ? (
         <div className={`api-modal-backdrop emotion-border-${visualEmotion}`}>
           <div ref={modalCardRef} className="api-modal-card" onMouseDown={handleModalDragStart}>
             <div className="api-modal-drag-handle" title="Drag to move">
@@ -2096,7 +2318,11 @@ function App() {
               </div>
             )}
 
-            <div ref={robotWrapRef} className="robot-wrapper">
+            <div
+              ref={robotWrapRef}
+              className="robot-wrapper"
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+            >
               <Robot
                 emotion={emotion}
                 size={robotSize}
@@ -2108,6 +2334,51 @@ function App() {
                 onBrokenCountdownChange={setBrokenSeconds}
                 onAutonomousRemark={handleAutonomousRemark}
               />
+              {isBiblePlanConnected && todayReadings.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenExternalUrl('https://bible-plan.jasonhukom.my.id/plan');
+                  }}
+                  title={
+                    pendingReadings.length > 0
+                      ? `Today's Bible Plan: ${pendingReadings.map((r) => `${r.bookName} ${r.chaptersText}`).join(', ')}`
+                      : `Today's Bible Plan complete (${extensionLock?.scheduleFeed?.planName || 'Reading Plan'})`
+                  }
+                  style={{
+                    marginTop: '6px',
+                    maxWidth: `${Math.max(robotSize + 40, 190)}px`,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    border:
+                      pendingReadings.length > 0
+                        ? '1px solid rgba(56, 189, 248, 0.45)'
+                        : '1px solid rgba(52, 211, 153, 0.45)',
+                    background: 'rgba(15, 16, 24, 0.88)',
+                    backdropFilter: 'blur(12px)',
+                    color: pendingReadings.length > 0 ? '#bae6fd' : '#6ee7b7',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    fontFamily: 'Inter, system-ui, sans-serif',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.4)',
+                  }}
+                >
+                  <BookOpen size={12} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {pendingReadings.length > 0
+                      ? `${pendingReadings[0].bookName} ${pendingReadings[0].chaptersText}${pendingReadings.length > 1 ? ` +${pendingReadings.length - 1}` : ''}`
+                      : 'Bible Plan done today'}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
