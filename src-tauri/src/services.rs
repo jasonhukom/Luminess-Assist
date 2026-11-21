@@ -450,7 +450,9 @@ pub fn get_storage_status() -> Result<StorageStatus, String> {
 
     // Reserve at least 512 MB of real disk space so Unlimited or Large tiers never fill the OS drive
     let safety_reserve: u64 = 512 * 1024 * 1024;
-    let max_safe_disk_allocation = (disk_free_bytes + used_bytes).saturating_sub(safety_reserve);
+    let max_safe_disk_allocation = disk_free_bytes
+        .saturating_add(used_bytes)
+        .saturating_sub(safety_reserve);
 
     let configured_limit_bytes = if cfg.storage_tier.to_lowercase() == "unlimited" {
         0
@@ -660,17 +662,21 @@ fn http_get_local_json(host_port: &str, path: &str, timeout_ms: u64) -> Option<s
     stream.write_all(req.as_bytes()).ok()?;
 
     let mut resp_bytes = Vec::new();
-    let _ = stream.read_to_end(&mut resp_bytes);
+    let _ = stream.take(512 * 1024).read_to_end(&mut resp_bytes);
     let resp_str = String::from_utf8_lossy(&resp_bytes);
     let body = resp_str.split("\r\n\r\n").nth(1)?;
     let start = body.find('{')?;
     let end = body.rfind('}')?;
+    if start > end {
+        return None;
+    }
     serde_json::from_str(&body[start..=end]).ok()
 }
 
 #[tauri::command]
-pub fn probe_local_ai_servers() -> Result<Vec<LocalAiServerInfo>, String> {
-    let mut servers = Vec::new();
+pub async fn probe_local_ai_servers() -> Result<Vec<LocalAiServerInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut servers = Vec::new();
 
     // 1. Probe Ollama (127.0.0.1:11434)
     let mut ollama_models = Vec::new();
@@ -779,7 +785,10 @@ pub fn probe_local_ai_servers() -> Result<Vec<LocalAiServerInfo>, String> {
         notes: "Always-on local conversational engine with PC tool execution, persistent memory, and web search.".to_string(),
     });
 
-    Ok(servers)
+        Ok(servers)
+    })
+    .await
+    .map_err(|e| format!("Failed to probe local AI servers: {}", e))?
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
