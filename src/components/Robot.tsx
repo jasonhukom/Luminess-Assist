@@ -72,6 +72,10 @@ interface RobotProps {
   angerTriggerSignal?: BotAngerTriggerSignal | null;
   onResize: (newSize: number, anchor?: { clientX: number; clientY: number }) => void;
   onClick: () => void;
+  onDoubleClick?: () => void;
+  workspaceMode?: boolean;
+  workspacePos?: { x: number; y: number };
+  onMoveWorkspacePos?: (x: number, y: number) => void;
   onEmotionChange?: (emotion: Emotion) => void;
   onVisualEmotionChange?: (visualEmotion: VisualEmotion) => void;
   onDragStateChange?: (dragging: boolean) => void;
@@ -241,6 +245,10 @@ export function Robot({
   angerTriggerSignal,
   onResize,
   onClick,
+  onDoubleClick,
+  workspaceMode = false,
+  workspacePos,
+  onMoveWorkspacePos,
   onEmotionChange,
   onVisualEmotionChange,
   onDragStateChange,
@@ -319,6 +327,11 @@ export function Robot({
   const damageRef = useRef<number>(0);
 
   const onScreenSideChangeRef = useRef(onScreenSideChange);
+  const onDoubleClickRef = useRef(onDoubleClick);
+  const workspaceModeRef = useRef(workspaceMode);
+  const workspacePosRef = useRef(workspacePos);
+  const onMoveWorkspacePosRef = useRef(onMoveWorkspacePos);
+  const isWorkspaceDragRef = useRef(false);
   const onEmotionChangeRef = useRef(onEmotionChange);
   const onVisualEmotionChangeRef = useRef(onVisualEmotionChange);
   const onBrokenCountdownChangeRef = useRef(onBrokenCountdownChange);
@@ -327,6 +340,22 @@ export function Robot({
   useEffect(() => {
     onScreenSideChangeRef.current = onScreenSideChange;
   }, [onScreenSideChange]);
+
+  useEffect(() => {
+    onDoubleClickRef.current = onDoubleClick;
+  }, [onDoubleClick]);
+
+  useEffect(() => {
+    workspaceModeRef.current = workspaceMode;
+  }, [workspaceMode]);
+
+  useEffect(() => {
+    workspacePosRef.current = workspacePos;
+  }, [workspacePos]);
+
+  useEffect(() => {
+    onMoveWorkspacePosRef.current = onMoveWorkspacePos;
+  }, [onMoveWorkspacePos]);
 
   useEffect(() => {
     onEmotionChangeRef.current = onEmotionChange;
@@ -969,6 +998,30 @@ export function Robot({
     dragStateRef.current.startScreenY = screenY;
     lastDragVelRef.current = { vx: 0, vy: 0 };
 
+    if (workspaceModeRef.current && workspacePosRef.current) {
+      isWorkspaceDragRef.current = true;
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : 1080;
+      dragStateRef.current.startWinX = workspacePosRef.current.x;
+      dragStateRef.current.startWinY = workspacePosRef.current.y;
+      dragStateRef.current.samples = [
+        { x: workspacePosRef.current.x, y: workspacePosRef.current.y, t: performance.now() },
+      ];
+      dragStateRef.current.bounds = {
+        x: workspacePosRef.current.x,
+        y: workspacePosRef.current.y,
+        width: size + 144,
+        height: size + 144,
+        monitor_x: 0,
+        monitor_y: 0,
+        monitor_width: vw,
+        monitor_height: vh,
+        scale_factor: 1,
+      };
+      return;
+    }
+
+    isWorkspaceDragRef.current = false;
     try {
       const bounds = await invoke<WindowBounds>('get_window_bounds');
       dragStateRef.current.bounds = bounds;
@@ -1124,9 +1177,19 @@ export function Robot({
     }
 
     if (st.hasMoved && st.bounds) {
-      const dpr = st.bounds.scale_factor || window.devicePixelRatio || 1;
-      const newX = st.startWinX + Math.round(dxCss * dpr);
-      const newY = st.startWinY + Math.round(dyCss * dpr);
+      const isWs = isWorkspaceDragRef.current;
+      const dpr = isWs ? 1 : st.bounds.scale_factor || window.devicePixelRatio || 1;
+      let newX = st.startWinX + Math.round(dxCss * dpr);
+      let newY = st.startWinY + Math.round(dyCss * dpr);
+
+      if (isWs) {
+        const minX = -56;
+        const maxX = Math.max(0, (st.bounds.monitor_width || window.innerWidth) - size - 86);
+        const minY = -56;
+        const maxY = Math.max(0, (st.bounds.monitor_height || window.innerHeight) - size - 86);
+        newX = Math.max(minX, Math.min(maxX, newX));
+        newY = Math.max(minY, Math.min(maxY, newY));
+      }
 
       const now = performance.now();
       st.samples.push({ x: newX, y: newY, t: now });
@@ -1172,8 +1235,12 @@ export function Robot({
         scaleY: 1 - stretch * 0.4,
       });
 
-      st.pendingPos = { x: newX, y: newY };
-      void flushWindowMove();
+      if (isWs && onMoveWorkspacePosRef.current) {
+        onMoveWorkspacePosRef.current(Math.round(newX), Math.round(newY));
+      } else {
+        st.pendingPos = { x: newX, y: newY };
+        void flushWindowMove();
+      }
     } else if (st.hasMoved) {
       // Fallback when outside Tauri runtime (e.g. modal preview drag shake)
       const dragSpeed = Math.hypot(e.movementX, e.movementY);
@@ -1205,12 +1272,23 @@ export function Robot({
       setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
 
       const now = performance.now();
-      if (now - lastTapTimeRef.current < 380) {
+      if (now - lastTapTimeRef.current < 280) {
         tapCountRef.current += 1;
       } else {
         tapCountRef.current = 1;
       }
       lastTapTimeRef.current = now;
+
+      if (tapCountRef.current === 2 && onDoubleClickRef.current) {
+        if (clickTimerRef.current) {
+          window.clearTimeout(clickTimerRef.current);
+          clickTimerRef.current = null;
+        }
+        tapCountRef.current = 0;
+        triggerHappy(4500);
+        onDoubleClickRef.current();
+        return;
+      }
 
       if (tapCountRef.current >= 2 || isPattingRef.current) {
         triggerHeadPat(e.clientX, e.clientY);
@@ -1225,7 +1303,66 @@ export function Robot({
         tapCountRef.current = 0;
         triggerHappy(4500);
         onClick();
-      }, 220);
+      }, 240);
+      return;
+    }
+
+    if (isWorkspaceDragRef.current && onMoveWorkspacePosRef.current && st.bounds) {
+      const now = performance.now();
+      const samples = st.samples;
+      const latest = samples[samples.length - 1] || { x: st.startWinX, y: st.startWinY, t: now };
+      const oldest = samples[0] || latest;
+      const dt = now - oldest.t;
+
+      let vx = 0;
+      let vy = 0;
+      if (dt >= 8 && now - latest.t < 140) {
+        vx = Math.max(-70, Math.min(70, ((latest.x - oldest.x) / dt) * 16.67));
+        vy = Math.max(-70, Math.min(70, ((latest.y - oldest.y) / dt) * 16.67));
+      }
+
+      const vw = typeof window !== 'undefined' ? window.innerWidth : st.bounds.monitor_width || 1920;
+      const vh = typeof window !== 'undefined' ? window.innerHeight : st.bounds.monitor_height || 1080;
+      const minX = -56;
+      const maxX = Math.max(0, vw - size - 86);
+      const minY = -56;
+      const maxY = Math.max(0, vh - size - 86);
+
+      let posX = Math.max(minX, Math.min(maxX, latest.x));
+      let posY = Math.max(minY, Math.min(maxY, latest.y));
+      const speed = Math.hypot(vx, vy);
+
+      if (speed > 3.5) {
+        setIsFlying(true);
+        const stepWs = () => {
+          posX = Math.max(minX, Math.min(maxX, posX + vx));
+          posY = Math.max(minY, Math.min(maxY, posY + vy));
+          if (posX <= minX || posX >= maxX) vx = -vx * 0.45;
+          if (posY <= minY || posY >= maxY) vy = -vy * 0.45;
+          vx *= 0.92;
+          vy *= 0.92;
+          const s = Math.hypot(vx, vy);
+          setTilt({
+            deg: Math.max(-24, Math.min(24, vx * 0.55)),
+            scaleX: 1,
+            scaleY: 1,
+          });
+          onMoveWorkspacePosRef.current?.(Math.round(posX), Math.round(posY));
+          if (s < 0.55) {
+            setIsFlying(false);
+            onDragStateChange?.(false);
+            setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
+            rafRef.current = null;
+            return;
+          }
+          rafRef.current = requestAnimationFrame(stepWs);
+        };
+        rafRef.current = requestAnimationFrame(stepWs);
+      } else {
+        onMoveWorkspacePosRef.current(Math.round(posX), Math.round(posY));
+        onDragStateChange?.(false);
+        setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
+      }
       return;
     }
 

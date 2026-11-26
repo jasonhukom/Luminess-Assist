@@ -5,6 +5,7 @@ import {
   createEmptyWellbeingHistory,
   formatBytesMem,
   formatWellbeingDuration,
+  isLuminessSelfApp,
   isRealUserApplication,
   parseWellbeingCommand,
   pruneWellbeingHistory90Days,
@@ -229,5 +230,65 @@ describe('digitalWellbeing', () => {
     expect(recent).toHaveLength(5);
     expect(recent.map((r) => r.app_key)).not.toContain('searchhost.exe');
     expect(recent[0].app_key).toBe('discord.exe');
+  });
+
+  it('never records or reports Luminess Assist itself in digital wellbeing', () => {
+    const today = new Date(2026, 10, 26, 14, 0, 0).getTime();
+    expect(isLuminessSelfApp('Luminess Assist.exe')).toBe(true);
+    expect(isLuminessSelfApp('luminess-assist.exe')).toBe(true);
+    expect(isLuminessSelfApp('app.exe')).toBe(true);
+    expect(isLuminessSelfApp('Code.exe', 'C:\\Apps\\Code.exe', 'Visual Studio Code')).toBe(false);
+
+    let store = createEmptyWellbeingHistory(today);
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 999,
+        exe_name: 'Luminess Assist.exe',
+        exe_path: 'C:\\Program Files\\Luminess Assist\\Luminess Assist.exe',
+        process_name: 'Luminess Assist',
+        window_title: 'Luminess',
+        is_idle: false,
+        idle_seconds: 0,
+        sampled_at_ms: today,
+      },
+      30,
+      today
+    );
+    expect(store.days['2026-11-26']).toBeUndefined();
+
+    // Historical Luminess entries should be scrubbed cleanly on prune/report
+    store.days['2026-11-26'] = {
+      date: '2026-11-26',
+      total_seconds: 90,
+      apps: {
+        'luminess assist.exe': {
+          app_key: 'luminess assist.exe',
+          display_name: 'Luminess Assist',
+          category: 'Productivity',
+          seconds: 40,
+          last_title: 'Luminess',
+          exe_path: '',
+          last_seen_ms: today,
+        },
+        'code.exe': {
+          app_key: 'code.exe',
+          display_name: 'Visual Studio Code',
+          category: 'Development',
+          seconds: 50,
+          last_title: 'App.tsx - Luminess',
+          exe_path: 'C:\\Apps\\Code.exe',
+          last_seen_ms: today,
+        },
+      },
+    };
+
+    const pruned = pruneWellbeingHistory90Days(store, today);
+    expect(pruned.days['2026-11-26']?.total_seconds).toBe(50);
+    expect(pruned.days['2026-11-26']?.apps['luminess assist.exe']).toBeUndefined();
+
+    const report = buildWellbeingRangeReport(store, 'day', today);
+    expect(report.total_seconds).toBe(50);
+    expect(report.all_apps.map((a) => a.app_key)).toEqual(['code.exe']);
   });
 });

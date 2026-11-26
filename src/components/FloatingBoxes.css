@@ -892,3 +892,129 @@
     0 0 36px -4px color-mix(in oklch, var(--panel-glow) 55%, transparent);
   animation: drinkToastPop 0.26s cubic-bezier(0.2, 0.85, 0.25, 1);
 }
+
+/* Smooth animated auto-reposition & smart resize (disabled during direct pointer drag/resize) */
+.floating-ui-box {
+  transition:
+    left 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.floating-ui-box.is-dragging,
+.floating-ui-box.is-resizing {
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.floating-idle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+
+.floating-idle-pill.urgent {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(251, 191, 36, 0.42);
+}
+
+/* 8-direction invisible edge & corner resize handles */
+.box-resize-handle {
+  position: absolute;
+  z-index: 12;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.box-resize-n {
+  top: -3px;
+  left: 12px;
+  right: 12px;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.box-resize-s {
+  bottom: -3px;
+  left: 12px;
+  right: 12px;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.box-resize-e {
+  right: -3px;
+  top: 12px;
+  bottom: 12px;
+  width: 7px;
+  cursor: ew-resize;
+}
+
+.box-resize-w {
+  left: -3px;
+  top: 12px;
+  bottom: 12px;
+  width: 7px;
+  cursor: ew-resize;
+}
+
+.box-resize-nw {
+  top: -3px;
+  left: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.box-resize-ne {
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nesw-resize;
+}
+
+.box-resize-sw {
+  bottom: -3px;
+  left: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nesw-resize;
+}
+
+.box-resize-se {
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.box-resize-se::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-bottom-right-radius: 3px;
+  opacity: 0.45;
+  transition: opacity 0.16s ease;
+}
+
+.floating-ui-box:hover .box-resize-se::after {
+  opacity: 0.9;
+}

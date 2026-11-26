@@ -13,6 +13,8 @@ import {
   ExternalLink,
   MessageSquare,
   Move,
+  Maximize2,
+  Minimize2,
   UserCheck,
 } from 'lucide-react';
 import type { VisualEmotion } from './Robot.tsx';
@@ -22,10 +24,12 @@ import type {
   SearchHistoryEntry,
   UserMemoryItem,
 } from '../lib/memoryAndStorage.ts';
+import { BOX_SIZE_CONSTRAINTS } from '../lib/floatingWindows.ts';
+import { FloatingBoxResizeHandles } from './FloatingBoxResizeHandles.tsx';
 
 interface FloatingHistoryBoxProps {
   position: FloatingBoxPosition;
-  onChangePosition: (next: FloatingBoxPosition) => void;
+  onChangePosition: (next: FloatingBoxPosition, isUserResize?: boolean) => void;
   emotion: VisualEmotion;
   activeSessionId: string;
   allSessions: ChatSession[];
@@ -41,6 +45,10 @@ interface FloatingHistoryBoxProps {
   onClearMemories: () => void;
   onClearSearchHistory: () => void;
   onOpenExternalUrl: (url: string) => void;
+  isCompact?: boolean;
+  onToggleCompact?: () => void;
+  idleSecondsLeft?: number;
+  onActivity?: () => void;
   onClose: () => void;
 }
 
@@ -62,11 +70,16 @@ export function FloatingHistoryBox({
   onClearMemories,
   onClearSearchHistory,
   onOpenExternalUrl,
+  isCompact = false,
+  onToggleCompact,
+  idleSecondsLeft,
+  onActivity,
   onClose,
 }: FloatingHistoryBoxProps) {
   const [activeTab, setActiveTab] = useState<'chats' | 'memories' | 'searches'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
 
   const [newMemCategory, setNewMemCategory] = useState<UserMemoryItem['category']>('identity');
   const [newMemKey, setNewMemKey] = useState('');
@@ -91,6 +104,7 @@ export function FloatingHistoryBox({
     if (target.closest('button, input, select, a')) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    onActivity?.();
     dragRef.current = {
       active: true,
       startX: e.clientX,
@@ -173,33 +187,71 @@ export function FloatingHistoryBox({
     URL.revokeObjectURL(url);
   };
 
+  const limits = BOX_SIZE_CONSTRAINTS.history;
+
   return (
     <div
-      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''}`}
+      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''} ${
+        isResizing ? 'is-resizing' : ''
+      }`}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
         width: `${position.width}px`,
         height: `${position.height}px`,
       }}
+      onPointerDownCapture={() => onActivity?.()}
+      onKeyDownCapture={() => onActivity?.()}
+      onWheelCapture={() => onActivity?.()}
     >
+      <FloatingBoxResizeHandles
+        position={position}
+        minWidth={limits.minWidth}
+        minHeight={limits.minHeight}
+        maxWidth={limits.maxWidth}
+        maxHeight={limits.maxHeight}
+        onChangePosition={onChangePosition}
+        onResizingChange={setIsResizing}
+        onActivity={onActivity}
+      />
       <div
         className="floating-box-header"
         onPointerDown={handleHeaderPointerDown}
         onPointerMove={handleHeaderPointerMove}
         onPointerUp={handleHeaderPointerUp}
         onPointerCancel={handleHeaderPointerUp}
-        title="Drag anywhere on screen • Automatically moves away when touching Chatbox"
+        title="Drag anywhere on screen • Smart-avoids Chat, Companion & other boxes"
       >
         <div className="floating-box-title">
           <History size={16} className="text-glow" />
           <span>History & Memory</span>
-          <span className="floating-avoid-pill" title="Moves away automatically if touching Chatbox">
+          <span className="floating-avoid-pill" title="Follows Companion & avoids collisions">
             <Move size={10} />
-            <span>Auto-Dodge</span>
+            <span>Smart</span>
           </span>
+          {idleSecondsLeft !== undefined && idleSecondsLeft <= 45 && (
+            <span
+              className={`floating-idle-pill ${idleSecondsLeft <= 15 ? 'urgent' : ''}`}
+              title="Auto-closes if untouched"
+            >
+              {idleSecondsLeft}s
+            </span>
+          )}
         </div>
         <div className="chat-actions">
+          {onToggleCompact && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                onActivity?.();
+                onToggleCompact();
+              }}
+              title={isCompact ? 'Expand box' : 'Compact box'}
+            >
+              {isCompact ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            </button>
+          )}
           <button
             type="button"
             className="icon-btn"

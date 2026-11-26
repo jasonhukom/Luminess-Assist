@@ -22,6 +22,7 @@ import {
   Disc3,
   Droplets,
   Activity,
+  Cpu,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision, AIProvider } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
@@ -69,6 +70,8 @@ interface ChatPanelProps {
   isMusicPlaying?: boolean;
   isWellbeingBoxOpen?: boolean;
   onToggleWellbeingBox?: () => void;
+  isTaskManagerBoxOpen?: boolean;
+  onToggleTaskManagerBox?: () => void;
   drinkDailyGlasses?: number;
   drinkGoalGlasses?: number;
   drinkEnabled?: boolean;
@@ -112,6 +115,8 @@ export function ChatPanel({
   isMusicPlaying = false,
   isWellbeingBoxOpen = false,
   onToggleWellbeingBox,
+  isTaskManagerBoxOpen = false,
+  onToggleTaskManagerBox,
   drinkDailyGlasses = 0,
   drinkGoalGlasses = 8,
   drinkEnabled = true,
@@ -262,15 +267,27 @@ export function ChatPanel({
             <History size={15} />
           </button>
 
-          {/* Floating Digital Wellbeing & Task Manager Viewer Toggle */}
+          {/* Floating Digital Wellbeing Box Toggle */}
           {onToggleWellbeingBox && (
             <button
               type="button"
               className={`icon-btn ${isWellbeingBoxOpen ? 'active' : ''}`}
               onClick={onToggleWellbeingBox}
-              title="Digital Wellbeing (Circle Stats • Week/Month) & Task Manager Viewer"
+              title="Digital Wellbeing (Circle View • Week/Month • Recent Apps)"
             >
               <Activity size={15} />
+            </button>
+          )}
+
+          {/* Floating Standalone Read-Only Task Manager Box Toggle */}
+          {onToggleTaskManagerBox && (
+            <button
+              type="button"
+              className={`icon-btn ${isTaskManagerBoxOpen ? 'active' : ''}`}
+              onClick={onToggleTaskManagerBox}
+              title="Read-Only Task Manager Viewer (Own Floating Box)"
+            >
+              <Cpu size={15} />
             </button>
           )}
 

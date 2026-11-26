@@ -152,6 +152,66 @@ fn current_epoch_days() -> i64 {
     (now_unix_ms() / 86_400_000) as i64
 }
 
+pub fn is_luminess_process(exe_name: &str, exe_path: &str, display_name: &str) -> bool {
+    let lower_exe = exe_name.trim().to_ascii_lowercase();
+    let lower_path = exe_path.trim().to_ascii_lowercase();
+    let lower_name = display_name.trim().to_ascii_lowercase();
+
+    const LUMINESS_NAMES: &[&str] = &[
+        "luminess",
+        "luminess.exe",
+        "luminess assist",
+        "luminess assist.exe",
+        "luminess-assist",
+        "luminess-assist.exe",
+        "luminess_assist",
+        "luminess_assist.exe",
+        "app.exe",
+    ];
+
+    if LUMINESS_NAMES.contains(&lower_exe.as_str()) || LUMINESS_NAMES.contains(&lower_name.as_str()) {
+        return true;
+    }
+
+    if lower_exe.starts_with("luminess") || lower_name.starts_with("luminess assist") {
+        return true;
+    }
+
+    lower_path.ends_with("\\luminess assist.exe")
+        || lower_path.ends_with("\\luminess-assist.exe")
+        || lower_path.ends_with("\\luminess_assist.exe")
+        || lower_path.ends_with("\\luminess.exe")
+        || lower_path.ends_with("\\app.exe")
+        || lower_path.contains("\\luminess assist\\")
+        || lower_path.contains("\\luminess-assist\\")
+}
+
+pub fn strip_self_from_wellbeing_store(store: &mut WellbeingHistoryStore) -> bool {
+    let mut changed = false;
+    for day in store.days.values_mut() {
+        let mut removed_seconds: u64 = 0;
+        let before_len = day.apps.len();
+        day.apps.retain(|app_key, entry| {
+            let is_self = is_luminess_process(app_key, &entry.exe_path, &entry.display_name)
+                || is_luminess_process(&entry.app_key, &entry.exe_path, &entry.display_name);
+            if is_self {
+                removed_seconds = removed_seconds.saturating_add(entry.seconds);
+                false
+            } else {
+                true
+            }
+        });
+        if day.apps.len() != before_len {
+            changed = true;
+            day.total_seconds = day.total_seconds.saturating_sub(removed_seconds);
+        }
+    }
+    if changed {
+        store.days.retain(|_, day| day.total_seconds > 0 || !day.apps.is_empty());
+    }
+    changed
+}
+
 pub fn prune_wellbeing_history(store: &mut WellbeingHistoryStore, reference_epoch_days: i64) -> bool {
     let cutoff = reference_epoch_days - WELLBEING_RETENTION_DAYS + 1;
     let before = store.days.len();
@@ -160,8 +220,10 @@ pub fn prune_wellbeing_history(store: &mut WellbeingHistoryStore, reference_epoc
             .map(|d| d >= cutoff)
             .unwrap_or(false)
     });
+    let pruned_days = store.days.len() != before;
+    let stripped_self = strip_self_from_wellbeing_store(store);
     store.retention_days = WELLBEING_RETENTION_DAYS as u32;
-    store.days.len() != before
+    pruned_days || stripped_self
 }
 
 fn get_wellbeing_file_path() -> PathBuf {
@@ -565,6 +627,20 @@ mod win32_monitor {
             .unwrap_or(&exe_name)
             .to_string();
 
+        let self_pid = std::process::id();
+        if pid == self_pid || is_luminess_process(&exe_name, &exe_path, &process_name) {
+            return ForegroundAppSample {
+                pid: 0,
+                exe_name: String::new(),
+                exe_path: String::new(),
+                process_name: String::new(),
+                window_title: String::new(),
+                is_idle: true,
+                idle_seconds: idle_ms / 1000,
+                sampled_at_ms: now_ms,
+            };
+        }
+
         ForegroundAppSample {
             pid,
             exe_name,
@@ -895,7 +971,7 @@ mod win32_monitor {
             "luminess-assist.exe",
             "app.exe",
         ];
-        if EXCLUDED_EXES.contains(&lower_exe.as_str()) {
+        if is_luminess_process(&lower_exe, &lower_path, "") || EXCLUDED_EXES.contains(&lower_exe.as_str()) {
             return true;
         }
         if lower_path.contains("\\windows\\system32\\")
@@ -1146,5 +1222,55 @@ mod tests {
         assert!(!store.days.contains_key("2026-08-23"));
         assert!(store.days.contains_key("2026-08-29"));
         assert!(store.days.contains_key("2026-11-26"));
+    }
+
+    #[test]
+    fn excludes_and_strips_luminess_from_wellbeing_history() {
+        assert!(is_luminess_process("Luminess Assist.exe", "", ""));
+        assert!(is_luminess_process("luminess-assist.exe", "", ""));
+        assert!(is_luminess_process("app.exe", "C:\\Program Files\\Luminess Assist\\app.exe", ""));
+        assert!(!is_luminess_process("Code.exe", "C:\\Apps\\Code.exe", "Visual Studio Code"));
+
+        let mut store = WellbeingHistoryStore::default();
+        let mut apps = HashMap::new();
+        apps.insert(
+            "luminess assist.exe".to_string(),
+            WellbeingAppUsageEntry {
+                app_key: "luminess assist.exe".to_string(),
+                display_name: "Luminess Assist".to_string(),
+                category: "Productivity".to_string(),
+                seconds: 120,
+                last_title: "Luminess".to_string(),
+                exe_path: String::new(),
+                last_seen_ms: 100,
+            },
+        );
+        apps.insert(
+            "code.exe".to_string(),
+            WellbeingAppUsageEntry {
+                app_key: "code.exe".to_string(),
+                display_name: "Visual Studio Code".to_string(),
+                category: "Development".to_string(),
+                seconds: 300,
+                last_title: "App.tsx".to_string(),
+                exe_path: String::new(),
+                last_seen_ms: 200,
+            },
+        );
+        store.days.insert(
+            "2026-11-26".to_string(),
+            WellbeingDayRecord {
+                date: "2026-11-26".to_string(),
+                total_seconds: 420,
+                apps,
+            },
+        );
+
+        let stripped = strip_self_from_wellbeing_store(&mut store);
+        assert!(stripped);
+        let day = store.days.get("2026-11-26").expect("day retained");
+        assert_eq!(day.total_seconds, 300);
+        assert!(!day.apps.contains_key("luminess assist.exe"));
+        assert!(day.apps.contains_key("code.exe"));
     }
 }

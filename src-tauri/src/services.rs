@@ -327,6 +327,8 @@ pub struct AppConfigJson {
     pub auto_start_windows: bool,
     pub startup_registered_once: bool,
     pub google_account_email: Option<String>,
+    pub bot_single_click_action: String,
+    pub box_auto_close_seconds: u64,
     pub floating_positions: serde_json::Value,
     pub bot_customization: serde_json::Value,
     pub drink_reminder: serde_json::Value,
@@ -360,11 +362,14 @@ impl Default for AppConfigJson {
             auto_start_windows: true,
             startup_registered_once: false,
             google_account_email: None,
+            bot_single_click_action: "chat".to_string(),
+            box_auto_close_seconds: 120,
             floating_positions: serde_json::json!({
-                "history": { "x": 64, "y": 80, "width": 360, "height": 470 },
-                "settings": { "x": 448, "y": 80, "width": 430, "height": 560 },
-                "music": { "x": 88, "y": 116, "width": 392, "height": 496 },
-                "wellbeing": { "x": 140, "y": 72, "width": 560, "height": 560 }
+                "history": { "x": 20, "y": 20, "width": 350, "height": 440 },
+                "settings": { "x": 860, "y": 430, "width": 430, "height": 520 },
+                "music": { "x": 450, "y": 20, "width": 392, "height": 420 },
+                "wellbeing": { "x": 20, "y": 430, "width": 520, "height": 500 },
+                "taskmanager": { "x": 860, "y": 20, "width": 440, "height": 420 }
             }),
             bot_customization: serde_json::json!({}),
             drink_reminder: serde_json::json!({

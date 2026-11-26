@@ -188,9 +188,49 @@ const KNOWN_APPS: Record<string, { display: string; category: WellbeingCategory 
   'epicgameslauncher.exe': { display: 'Epic Games', category: 'Gaming' },
   'explorer.exe': { display: 'File Explorer', category: 'System & Utilities' },
   'taskmgr.exe': { display: 'Windows Task Manager', category: 'System & Utilities' },
-  'luminess assist.exe': { display: 'Luminess Assist', category: 'Productivity' },
-  'app.exe': { display: 'Luminess Assist', category: 'Productivity' },
 };
+
+const LUMINESS_SELF_EXES = new Set([
+  'luminess',
+  'luminess.exe',
+  'luminess assist',
+  'luminess assist.exe',
+  'luminess-assist',
+  'luminess-assist.exe',
+  'luminess_assist',
+  'luminess_assist.exe',
+  'app.exe',
+]);
+
+/**
+ * Returns true if the foreground sample, exe, or display name identifies Luminess Assist itself
+ * so Luminess never counts toward Digital Wellbeing or Recent Real Apps.
+ */
+export function isLuminessSelfApp(
+  exeName?: string,
+  exePath?: string,
+  displayName?: string
+): boolean {
+  const lowerExe = (exeName || '').trim().toLowerCase();
+  const lowerPath = (exePath || '').trim().toLowerCase();
+  const lowerName = (displayName || '').trim().toLowerCase();
+
+  if (LUMINESS_SELF_EXES.has(lowerExe) || LUMINESS_SELF_EXES.has(lowerName)) {
+    return true;
+  }
+  if (lowerExe.startsWith('luminess') || lowerName.startsWith('luminess assist')) {
+    return true;
+  }
+  return (
+    lowerPath.endsWith('\\luminess assist.exe') ||
+    lowerPath.endsWith('\\luminess-assist.exe') ||
+    lowerPath.endsWith('\\luminess_assist.exe') ||
+    lowerPath.endsWith('\\luminess.exe') ||
+    lowerPath.endsWith('\\app.exe') ||
+    lowerPath.includes('\\luminess assist\\') ||
+    lowerPath.includes('\\luminess-assist\\')
+  );
+}
 
 const CATEGORY_COLORS: Record<WellbeingCategory, string> = {
   Development: '#38bdf8',
@@ -283,7 +323,30 @@ export function pruneWellbeingHistory90Days(
   for (const [dateKey, record] of Object.entries(store.days || {})) {
     const epoch = dateKeyToEpochDays(dateKey);
     if (epoch !== null && epoch >= cutoff && record && typeof record === 'object') {
-      nextDays[dateKey] = record;
+      const nextApps: Record<string, WellbeingAppUsageEntry> = {};
+      let removedSelfSeconds = 0;
+      for (const [appKey, entry] of Object.entries(record.apps || {})) {
+        if (
+          isLuminessSelfApp(appKey, entry?.exe_path, entry?.display_name) ||
+          isLuminessSelfApp(entry?.app_key, entry?.exe_path, entry?.display_name)
+        ) {
+          removedSelfSeconds += entry?.seconds || 0;
+        } else if (entry) {
+          nextApps[appKey] = entry;
+        }
+      }
+      const nextTotal = Math.max(0, (record.total_seconds || 0) - removedSelfSeconds);
+      if (removedSelfSeconds > 0 && nextTotal === 0 && Object.keys(nextApps).length === 0) {
+        continue;
+      }
+      nextDays[dateKey] =
+        removedSelfSeconds > 0
+          ? {
+              ...record,
+              total_seconds: nextTotal,
+              apps: nextApps,
+            }
+          : record;
     }
   }
 
@@ -301,7 +364,12 @@ export function recordForegroundUsageSample(
   elapsedSeconds: number,
   nowMs: number = Date.now()
 ): WellbeingHistoryStore {
-  if (sample.is_idle || elapsedSeconds <= 0 || !sample.pid) {
+  if (
+    sample.is_idle ||
+    elapsedSeconds <= 0 ||
+    !sample.pid ||
+    isLuminessSelfApp(sample.exe_name, sample.exe_path, sample.process_name)
+  ) {
     return pruneWellbeingHistory90Days(store, nowMs);
   }
 
@@ -419,18 +487,15 @@ export function buildWellbeingRangeReport(
 
   for (const key of dateKeys) {
     const rec = store.days[key];
-    const daySecs = rec?.total_seconds || 0;
-    totalSeconds += daySecs;
-    if (daySecs > 0) activeDays += 1;
-
-    dailySeries.push({
-      date: key,
-      shortLabel: key.slice(5), // MM-DD
-      total_seconds: daySecs,
-    });
+    let daySecs = rec?.total_seconds || 0;
+    let skippedSelfSecs = 0;
 
     if (rec?.apps) {
       for (const app of Object.values(rec.apps)) {
+        if (isLuminessSelfApp(app.app_key, app.exe_path, app.display_name)) {
+          skippedSelfSecs += app.seconds || 0;
+          continue;
+        }
         const existing = aggregatedApps.get(app.app_key);
         if (existing) {
           existing.seconds += app.seconds;
@@ -443,6 +508,16 @@ export function buildWellbeingRangeReport(
         }
       }
     }
+
+    daySecs = Math.max(0, daySecs - skippedSelfSecs);
+    totalSeconds += daySecs;
+    if (daySecs > 0) activeDays += 1;
+
+    dailySeries.push({
+      date: key,
+      shortLabel: key.slice(5), // MM-DD
+      total_seconds: daySecs,
+    });
   }
 
   const sortedRaw = Array.from(aggregatedApps.values())
@@ -682,9 +757,11 @@ export function isRealUserApplication(
   const lowerPath = (exePath || '').trim().toLowerCase();
   const lowerName = (displayName || '').trim().toLowerCase();
 
-  if (EXCLUDED_SYSTEM_EXES.has(lowerExe)) return false;
+  if (isLuminessSelfApp(lowerExe, lowerPath, lowerName) || EXCLUDED_SYSTEM_EXES.has(lowerExe)) {
+    return false;
+  }
   if (/^process-\d+\.exe$/.test(lowerExe)) return false;
-  if (lowerName === 'luminess assist' || lowerName === 'windows explorer') return false;
+  if (lowerName === 'windows explorer') return false;
   if (
     lowerPath.includes('\\windows\\system32\\') ||
     lowerPath.includes('\\windows\\syswow64\\') ||

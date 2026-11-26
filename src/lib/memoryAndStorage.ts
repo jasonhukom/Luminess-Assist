@@ -176,6 +176,22 @@ export interface FloatingBoxPosition {
   visible?: boolean;
 }
 
+export type BotSingleClickAction =
+  | 'chat'
+  | 'dashboard'
+  | 'settings'
+  | 'music'
+  | 'wellbeing'
+  | 'taskmanager';
+
+export interface FloatingPositionsMap {
+  history: FloatingBoxPosition;
+  settings: FloatingBoxPosition;
+  music: FloatingBoxPosition;
+  wellbeing: FloatingBoxPosition;
+  taskmanager: FloatingBoxPosition;
+}
+
 export interface AppConfigJson {
   version: string;
   selected_provider: string;
@@ -200,12 +216,9 @@ export interface AppConfigJson {
   auto_start_windows: boolean;
   startup_registered_once: boolean;
   google_account_email: string | null;
-  floating_positions: {
-    history: FloatingBoxPosition;
-    settings: FloatingBoxPosition;
-    music: FloatingBoxPosition;
-    wellbeing: FloatingBoxPosition;
-  };
+  bot_single_click_action: BotSingleClickAction;
+  box_auto_close_seconds: number;
+  floating_positions: FloatingPositionsMap;
   bot_customization: BotCustomizationManifest;
   drink_reminder: DrinkReminderConfig;
   music_player: MusicPlayerConfig;
@@ -288,11 +301,14 @@ export function createDefaultAppConfig(): AppConfigJson {
     auto_start_windows: true,
     startup_registered_once: false,
     google_account_email: null,
+    bot_single_click_action: 'chat',
+    box_auto_close_seconds: 120,
     floating_positions: {
-      history: { x: 48, y: 72, width: 350, height: 460 },
-      settings: { x: 420, y: 72, width: 430, height: 560 },
-      music: { x: 88, y: 116, width: 392, height: 496 },
-      wellbeing: { x: 140, y: 72, width: 560, height: 560 },
+      history: { x: 20, y: 20, width: 350, height: 440 },
+      settings: { x: 860, y: 430, width: 430, height: 520 },
+      music: { x: 450, y: 20, "width": 392, "height": 420 },
+      wellbeing: { x: 20, y: 430, width: 520, height: 500 },
+      taskmanager: { x: 860, y: 20, width: 440, height: 420 },
     },
     bot_customization: createDefaultBotCustomization(),
     drink_reminder: createDefaultDrinkReminder(),
@@ -445,9 +461,19 @@ export async function saveAppConfigToMachine(partial: Partial<AppConfigJson>): P
   try {
     const saved = await invoke<AppConfigJson>('save_app_config', { config: next });
     if (saved) {
+      const clampedAutoClose = Math.max(
+        60,
+        Math.min(180, Number(saved.box_auto_close_seconds) || 120)
+      );
       cachedConfig = {
         ...next,
         ...saved,
+        box_auto_close_seconds: clampedAutoClose,
+        floating_positions: {
+          ...defaults.floating_positions,
+          ...(next.floating_positions || {}),
+          ...(saved.floating_positions || {}),
+        },
         bot_customization: mergeBotCustomization(nextBotCustomization, saved.bot_customization),
         drink_reminder: normalizeDrinkReminderConfig({
           ...nextDrinkReminder,

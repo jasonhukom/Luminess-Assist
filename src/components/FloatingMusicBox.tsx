@@ -6,6 +6,8 @@ import {
   FolderOpen,
   Link2,
   ListMusic,
+  Maximize2,
+  Minimize2,
   Move,
   Music2,
   Pause,
@@ -26,6 +28,8 @@ import {
 } from 'lucide-react';
 import type { VisualEmotion } from './Robot.tsx';
 import type { FloatingBoxPosition } from '../lib/memoryAndStorage.ts';
+import { BOX_SIZE_CONSTRAINTS } from '../lib/floatingWindows.ts';
+import { FloatingBoxResizeHandles } from './FloatingBoxResizeHandles.tsx';
 import {
   formatAudioTime,
   type MusicLoopMode,
@@ -35,7 +39,7 @@ import {
 
 interface FloatingMusicBoxProps {
   position: FloatingBoxPosition;
-  onChangePosition: (next: FloatingBoxPosition) => void;
+  onChangePosition: (next: FloatingBoxPosition, isUserResize?: boolean) => void;
   emotion: VisualEmotion;
   config: MusicPlayerConfig;
   playlist: MusicPlayerTrack[];
@@ -58,6 +62,10 @@ interface FloatingMusicBoxProps {
   onScanFolder: (folderOverride?: string) => void;
   onAddUrlTrack: (url: string, title?: string) => string | null;
   onRemoveCustomTrack: (trackId: string) => void;
+  isCompact?: boolean;
+  onToggleCompact?: () => void;
+  idleSecondsLeft?: number;
+  onActivity?: () => void;
   onClose: () => void;
 }
 
@@ -92,6 +100,10 @@ export function FloatingMusicBox({
   onScanFolder,
   onAddUrlTrack,
   onRemoveCustomTrack,
+  isCompact = false,
+  onToggleCompact,
+  idleSecondsLeft,
+  onActivity,
   onClose,
 }: FloatingMusicBoxProps) {
   const [activeTab, setActiveTab] = useState<'player' | 'library'>('player');
@@ -101,6 +113,7 @@ export function FloatingMusicBox({
   const [titleInput, setTitleInput] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
 
   const dragRef = useRef<{
     active: boolean;
@@ -121,6 +134,7 @@ export function FloatingMusicBox({
     if (target.closest('button, input, select, a')) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    onActivity?.();
     dragRef.current = {
       active: true,
       startX: e.clientX,
@@ -182,37 +196,78 @@ export function FloatingMusicBox({
   const localCount = playlist.filter((t) => t.source === 'local').length;
   const urlCount = playlist.filter((t) => t.source === 'url').length;
 
+  const limits = BOX_SIZE_CONSTRAINTS.music;
+
   return (
     <div
-      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''}`}
+      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''} ${
+        isResizing ? 'is-resizing' : ''
+      }`}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
         width: `${position.width}px`,
         height: `${position.height}px`,
       }}
+      onPointerDownCapture={() => onActivity?.()}
+      onKeyDownCapture={() => onActivity?.()}
+      onWheelCapture={() => onActivity?.()}
     >
+      <FloatingBoxResizeHandles
+        position={position}
+        minWidth={limits.minWidth}
+        minHeight={limits.minHeight}
+        maxWidth={limits.maxWidth}
+        maxHeight={limits.maxHeight}
+        onChangePosition={onChangePosition}
+        onResizingChange={setIsResizing}
+        onActivity={onActivity}
+      />
       <div
         className="floating-box-header"
         onPointerDown={handleHeaderPointerDown}
         onPointerMove={handleHeaderPointerMove}
         onPointerUp={handleHeaderPointerUp}
         onPointerCancel={handleHeaderPointerUp}
-        title="Drag anywhere on screen • Auto-dodges Chatbox & Companion"
+        title="Drag anywhere on screen • Smart-avoids Chat, Companion & other boxes"
       >
         <div className="floating-box-title">
           <Disc3 size={16} className={isPlaying ? 'text-glow animate-spin' : 'text-glow'} />
           <span>Music Player</span>
-          <span className="floating-avoid-pill" title="Moves away automatically if touching Chatbox">
+          <span className="floating-avoid-pill" title="Follows Companion & avoids collisions">
             <Move size={10} />
-            <span>Auto-Dodge</span>
+            <span>Smart</span>
           </span>
+          {idleSecondsLeft !== undefined && idleSecondsLeft <= 45 && (
+            <span
+              className={`floating-idle-pill ${idleSecondsLeft <= 15 ? 'urgent' : ''}`}
+              title="Auto-closes if untouched (music keeps playing)"
+            >
+              {idleSecondsLeft}s
+            </span>
+          )}
         </div>
         <div className="chat-actions">
+          {onToggleCompact && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                onActivity?.();
+                onToggleCompact();
+              }}
+              title={isCompact ? 'Expand box' : 'Compact box'}
+            >
+              {isCompact ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            </button>
+          )}
           <button
             type="button"
             className="icon-btn"
-            onClick={() => onScanFolder(folderInput || undefined)}
+            onClick={() => {
+              onActivity?.();
+              onScanFolder(folderInput || undefined);
+            }}
             title="Scan local Music folder"
             disabled={isScanning}
           >

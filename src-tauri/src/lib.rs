@@ -1,5 +1,7 @@
+pub mod box_layout;
 pub mod services;
 pub mod wellbeing;
+use box_layout::*;
 use services::*;
 use wellbeing::*;
 use serde::{Deserialize, Serialize};
@@ -1806,7 +1808,9 @@ pub fn run() {
             get_windows_startup_enabled,
             set_windows_startup_enabled,
             ensure_windows_startup,
-            get_installed_real_apps
+            get_installed_real_apps,
+            compute_smart_box_layout,
+            compute_preset_dashboard_layout
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

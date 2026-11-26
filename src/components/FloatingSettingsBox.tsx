@@ -32,10 +32,16 @@ import {
   Disc3,
   Activity,
   Brain,
+  Cpu,
   Lock,
+  Maximize2,
+  Minimize2,
+  MousePointerClick,
   Trash2,
   Plus,
 } from 'lucide-react';
+import { BOX_SIZE_CONSTRAINTS } from '../lib/floatingWindows.ts';
+import { FloatingBoxResizeHandles } from './FloatingBoxResizeHandles.tsx';
 import {
   clampDrinkGoal,
   clampDrinkIntervalMinutes,
@@ -50,6 +56,7 @@ import {
   STORAGE_TIER_OPTIONS,
   STORAGE_RECOMMENDATION_EXPLANATION,
   type AppConfigJson,
+  type BotSingleClickAction,
   type FloatingBoxPosition,
   type StorageStatus,
   type StorageTierId,
@@ -74,7 +81,7 @@ export type SettingsTabId = 'connectors' | 'look' | 'anger' | 'fork' | 'storage'
 
 interface FloatingSettingsBoxProps {
   position: FloatingBoxPosition;
-  onChangePosition: (next: FloatingBoxPosition) => void;
+  onChangePosition: (next: FloatingBoxPosition, isUserResize?: boolean) => void;
   emotion: VisualEmotion;
   config: AppConfigJson;
   storageStatus: StorageStatus | null;
@@ -109,6 +116,7 @@ interface FloatingSettingsBoxProps {
   drinkCountdownLabel?: string;
   onOpenMusicPlayer?: () => void;
   onOpenWellbeingBox?: () => void;
+  onOpenTaskManager?: () => void;
   onTriggerDrinkAlert?: () => void;
   onLogDrink?: () => void;
   memories: UserMemoryItem[];
@@ -116,6 +124,10 @@ interface FloatingSettingsBoxProps {
   onDeleteMemory: (memoryId: string) => void;
   onClearMemories: () => void;
   onToggleWindowsStartup?: (enabled: boolean) => Promise<void>;
+  isCompact?: boolean;
+  onToggleCompact?: () => void;
+  idleSecondsLeft?: number;
+  onActivity?: () => void;
   onClose: () => void;
 }
 
@@ -170,6 +182,7 @@ export function FloatingSettingsBox({
   drinkCountdownLabel,
   onOpenMusicPlayer,
   onOpenWellbeingBox,
+  onOpenTaskManager,
   onTriggerDrinkAlert,
   onLogDrink,
   memories,
@@ -177,6 +190,10 @@ export function FloatingSettingsBox({
   onDeleteMemory,
   onClearMemories,
   onToggleWindowsStartup,
+  isCompact = false,
+  onToggleCompact,
+  idleSecondsLeft,
+  onActivity,
   onClose,
 }: FloatingSettingsBoxProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
@@ -187,6 +204,7 @@ export function FloatingSettingsBox({
   }
 
   const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const [showSecrets, setShowSecrets] = useState(false);
 
   // Provider & No-Preset Custom API draft fields initialized cleanly and kept in sync when signature changes
@@ -283,6 +301,7 @@ export function FloatingSettingsBox({
     if (target.closest('button, input, select, textarea, a')) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    onActivity?.();
     dragRef.current = {
       active: true,
       startX: e.clientX,
@@ -574,33 +593,71 @@ export function FloatingSettingsBox({
 
   const aiCustomizePrompt = buildAiForkCustomizePrompt(botCustom);
 
+  const limits = BOX_SIZE_CONSTRAINTS.settings;
+
   return (
     <div
-      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''}`}
+      className={`floating-ui-box emotion-border-${emotion} ${isDragging ? 'is-dragging' : ''} ${
+        isResizing ? 'is-resizing' : ''
+      }`}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
         width: `${position.width}px`,
         height: `${position.height}px`,
       }}
+      onPointerDownCapture={() => onActivity?.()}
+      onKeyDownCapture={() => onActivity?.()}
+      onWheelCapture={() => onActivity?.()}
     >
+      <FloatingBoxResizeHandles
+        position={position}
+        minWidth={limits.minWidth}
+        minHeight={limits.minHeight}
+        maxWidth={limits.maxWidth}
+        maxHeight={limits.maxHeight}
+        onChangePosition={onChangePosition}
+        onResizingChange={setIsResizing}
+        onActivity={onActivity}
+      />
       <div
         className="floating-box-header"
         onPointerDown={handleHeaderPointerDown}
         onPointerMove={handleHeaderPointerMove}
         onPointerUp={handleHeaderPointerUp}
         onPointerCancel={handleHeaderPointerUp}
-        title="Drag anywhere on screen • Automatically moves away when touching Chatbox"
+        title="Drag anywhere on screen • Smart-avoids Chat, Companion & other boxes"
       >
         <div className="floating-box-title">
           <Settings size={16} className="text-glow" />
           <span>{botCustom.botName || 'Luminess'} • Settings & Connectors</span>
-          <span className="floating-avoid-pill" title="Moves away automatically if touching Chatbox">
+          <span className="floating-avoid-pill" title="Follows Companion & avoids collisions">
             <Move size={10} />
-            <span>Auto-Dodge</span>
+            <span>Smart</span>
           </span>
+          {idleSecondsLeft !== undefined && idleSecondsLeft <= 45 && (
+            <span
+              className={`floating-idle-pill ${idleSecondsLeft <= 15 ? 'urgent' : ''}`}
+              title="Auto-closes if untouched"
+            >
+              {idleSecondsLeft}s
+            </span>
+          )}
         </div>
         <div className="chat-actions">
+          {onToggleCompact && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => {
+                onActivity?.();
+                onToggleCompact();
+              }}
+              title={isCompact ? 'Expand box' : 'Compact box'}
+            >
+              {isCompact ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            </button>
+          )}
           <button type="button" className="icon-btn" onClick={onClose} title="Close Settings">
             <X size={15} />
           </button>
@@ -2085,10 +2142,75 @@ export function FloatingSettingsBox({
                 {onOpenWellbeingBox && (
                   <button type="button" className="floating-btn-secondary" onClick={onOpenWellbeingBox}>
                     <Activity size={13} />
-                    <span>Wellbeing & Tasks</span>
+                    <span>Digital Wellbeing</span>
+                  </button>
+                )}
+                {onOpenTaskManager && (
+                  <button type="button" className="floating-btn-secondary" onClick={onOpenTaskManager}>
+                    <Cpu size={13} />
+                    <span>Task Manager</span>
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="floating-card-item">
+              <div className="floating-card-row">
+                <span className="floating-card-title">
+                  <MousePointerClick size={13} style={{ display: 'inline', marginRight: '5px' }} />
+                  Bot Clicks & Smart Box Workspace
+                </span>
+              </div>
+              <div className="floating-card-sub">
+                Customize single-click on the Companion (double-click always arranges all 5 tabs in preset corners & moves Bot Top-Right).
+              </div>
+              <label style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '6px' }}>
+                Bot Single-Click Action:
+                <select
+                  className="floating-input"
+                  style={{ marginTop: '3px' }}
+                  value={config.bot_single_click_action || 'chat'}
+                  onChange={(e) =>
+                    void onUpdateConfig({
+                      ...config,
+                      bot_single_click_action: e.target.value as BotSingleClickAction,
+                    })
+                  }
+                >
+                  <option value="chat">Open / Toggle Chat Panel (Default)</option>
+                  <option value="dashboard">Open All Boxes in Preset Layout</option>
+                  <option value="settings">Open Settings & Connectors</option>
+                  <option value="music">Open Music Player</option>
+                  <option value="wellbeing">Open Digital Wellbeing</option>
+                  <option value="taskmanager">Open Task Manager</option>
+                </select>
+              </label>
+              <label style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '6px' }}>
+                <div className="floating-card-row">
+                  <span>Auto-Close Idle Floating Boxes</span>
+                  <strong style={{ color: '#38bdf8' }}>
+                    {Math.round(Math.max(60, Math.min(180, config.box_auto_close_seconds ?? 120)))}s (
+                    {((Math.max(60, Math.min(180, config.box_auto_close_seconds ?? 120))) / 60).toFixed(1)}m)
+                  </strong>
+                </div>
+                <input
+                  type="range"
+                  min={60}
+                  max={180}
+                  step={15}
+                  style={{ width: '100%', marginTop: '4px', accentColor: '#38bdf8' }}
+                  value={Math.max(60, Math.min(180, config.box_auto_close_seconds ?? 120))}
+                  onChange={(e) =>
+                    void onUpdateConfig({
+                      ...config,
+                      box_auto_close_seconds: Math.max(60, Math.min(180, Number(e.target.value) || 120)),
+                    })
+                  }
+                />
+                <div className="floating-card-sub" style={{ fontSize: '10px' }}>
+                  Closes inactive boxes after 1–3 minutes. Chat Panel never auto-closes; Music keeps playing.
+                </div>
+              </label>
             </div>
 
             <div className="floating-card-item">
