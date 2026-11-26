@@ -335,7 +335,7 @@ pub struct AppConfigJson {
 impl Default for AppConfigJson {
     fn default() -> Self {
         Self {
-            version: "1.2.0".to_string(),
+            version: "1.3.0".to_string(),
             selected_provider: "gemini".to_string(),
             gemini_model: "gemini-2.5-flash".to_string(),
             claude_model: "claude-sonnet-4-20250514".to_string(),

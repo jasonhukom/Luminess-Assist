@@ -262,7 +262,7 @@ function writeFallbackStorage(key: string, value: string): void {
 
 export function createDefaultAppConfig(): AppConfigJson {
   return {
-    version: '1.2.0',
+    version: '1.3.0',
     selected_provider: 'gemini',
     gemini_model: 'gemini-2.5-flash',
     claude_model: 'claude-sonnet-4-20250514',
