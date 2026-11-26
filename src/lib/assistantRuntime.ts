@@ -12,12 +12,20 @@ import {
   normalizeMusicPlayerConfig,
   type MusicCommandAction,
 } from './musicPlayer.ts';
+import {
+  buildWellbeingRangeReport,
+  loadWellbeingHistoryFromMachine,
+  type WellbeingCommandAction,
+} from './digitalWellbeing.ts';
 import { getCachedAppConfig, saveAppConfigToMachine } from './memoryAndStorage.ts';
 
 export interface AssistantRuntimeHandlers {
   onDrinkConfigUpdated?: (next: DrinkReminderConfig) => void;
   onMusicCommand?: (
     action: MusicCommandAction
+  ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  onWellbeingCommand?: (
+    action: WellbeingCommandAction
   ) => Promise<Record<string, unknown>> | Record<string, unknown>;
 }
 
@@ -152,5 +160,29 @@ export async function executeMusicToolAction(
     ok: true,
     action: action.type,
     summary: `Music command "${action.type}" queued. Open the Music Player button in the chat header to control playback.`,
+  };
+}
+
+export async function executeWellbeingToolAction(
+  action: WellbeingCommandAction
+): Promise<Record<string, unknown>> {
+  if (activeHandlers.onWellbeingCommand) {
+    return await activeHandlers.onWellbeingCommand(action);
+  }
+
+  const history = await loadWellbeingHistoryFromMachine();
+  const report = buildWellbeingRangeReport(history, action.range || 'day');
+  return {
+    ok: true,
+    action: action.type,
+    range: report.range,
+    total_seconds: report.total_seconds,
+    top_apps: report.all_apps.slice(0, 5).map((a) => ({
+      name: a.display_name,
+      category: a.category,
+      seconds: a.seconds,
+      percentage: Number(a.percentage.toFixed(1)),
+    })),
+    summary: report.overall_explanation,
   };
 }

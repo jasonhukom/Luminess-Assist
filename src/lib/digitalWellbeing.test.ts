@@ -1,0 +1,154 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildWellbeingRangeReport,
+  createEmptyWellbeingHistory,
+  formatBytesMem,
+  formatWellbeingDuration,
+  parseWellbeingCommand,
+  pruneWellbeingHistory90Days,
+  recordForegroundUsageSample,
+  resolveAppProfile,
+} from './digitalWellbeing';
+
+describe('digitalWellbeing', () => {
+  it('resolves known apps into clean display names and categories', () => {
+    expect(resolveAppProfile('Code.exe')).toEqual({
+      appKey: 'code.exe',
+      displayName: 'Visual Studio Code',
+      category: 'Development',
+    });
+    expect(resolveAppProfile('chrome.exe')).toEqual({
+      appKey: 'chrome.exe',
+      displayName: 'Google Chrome',
+      category: 'Browser',
+    });
+  });
+
+  it('records foreground samples, ignores idle samples, and auto-deletes data older than 90 days', () => {
+    const today = new Date(2026, 10, 26, 14, 0, 0).getTime();
+    let store = createEmptyWellbeingHistory(today);
+
+    // Inject an expired 95-day-old entry + a valid 80-day-old entry
+    store.days['2026-08-23'] = {
+      date: '2026-08-23',
+      total_seconds: 500,
+      apps: {},
+    };
+    store.days['2026-09-08'] = {
+      date: '2026-09-08',
+      total_seconds: 300,
+      apps: {},
+    };
+
+    // Idle sample must NOT add seconds
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 123,
+        exe_name: 'chrome.exe',
+        process_name: 'chrome',
+        window_title: 'Docs',
+        is_idle: true,
+        idle_seconds: 350,
+        sampled_at_ms: today,
+      },
+      10,
+      today
+    );
+    expect(store.days['2026-11-26']).toBeUndefined();
+    expect(store.days['2026-08-23']).toBeUndefined(); // purged (> 90 days old)
+    expect(store.days['2026-09-08']?.total_seconds).toBe(300);
+
+    // Active sample records cleanly
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 456,
+        exe_name: 'Code.exe',
+        process_name: 'Code',
+        window_title: 'App.tsx - Luminess',
+        is_idle: false,
+        idle_seconds: 2,
+        sampled_at_ms: today,
+      },
+      12,
+      today
+    );
+
+    const pruned = pruneWellbeingHistory90Days(store, today);
+    expect(pruned.days['2026-11-26']?.total_seconds).toBe(12);
+    expect(pruned.days['2026-11-26']?.apps['code.exe']?.seconds).toBe(12);
+  });
+
+  it('builds day, week, and month reports with circle slices and explanations', () => {
+    const today = new Date(2026, 10, 26, 14, 0, 0).getTime();
+    const yesterday = today - 86_400_000;
+    let store = createEmptyWellbeingHistory(today);
+
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 10,
+        exe_name: 'Code.exe',
+        process_name: 'Code',
+        window_title: 'Editor',
+        is_idle: false,
+        idle_seconds: 0,
+        sampled_at_ms: yesterday,
+      },
+      60,
+      yesterday
+    );
+
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 20,
+        exe_name: 'chrome.exe',
+        process_name: 'chrome',
+        window_title: 'Research',
+        is_idle: false,
+        idle_seconds: 0,
+        sampled_at_ms: today,
+      },
+      40,
+      today
+    );
+
+    const dayReport = buildWellbeingRangeReport(store, 'day', today);
+    expect(dayReport.total_seconds).toBe(40);
+    expect(dayReport.chart_slices[0].display_name).toBe('Google Chrome');
+
+    const weekReport = buildWellbeingRangeReport(store, 'week', today);
+    expect(weekReport.date_keys).toHaveLength(7);
+    expect(weekReport.total_seconds).toBe(100);
+    expect(weekReport.active_days).toBe(2);
+    expect(weekReport.chart_slices[0].display_name).toBe('Visual Studio Code');
+    expect(weekReport.overall_explanation).toContain('90 days');
+
+    const monthReport = buildWellbeingRangeReport(store, 'month', today);
+    expect(monthReport.date_keys).toHaveLength(30);
+    expect(monthReport.total_seconds).toBe(100);
+  });
+
+  it('formats durations, memory bytes, and natural chat commands cleanly', () => {
+    expect(formatWellbeingDuration(45)).toBe('45s');
+    expect(formatWellbeingDuration(5400)).toBe('1h 30m');
+    expect(formatBytesMem(512 * 1024 * 1024)).toBe('512 MB');
+    expect(formatBytesMem(2.5 * 1024 * 1024 * 1024)).toBe('2.5 GB');
+
+    expect(parseWellbeingCommand('open digital wellbeing')).toEqual({
+      type: 'open',
+      tab: 'wellbeing',
+      range: 'day',
+    });
+    expect(parseWellbeingCommand('show task manager')).toEqual({
+      type: 'open',
+      tab: 'taskmanager',
+    });
+    expect(parseWellbeingCommand('how much screen time this week?')).toEqual({
+      type: 'summary',
+      range: 'week',
+    });
+  });
+});

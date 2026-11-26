@@ -189,7 +189,7 @@ mod win_dpapi {
     }
 }
 
-fn now_unix_ms() -> u64 {
+pub fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -335,7 +335,7 @@ pub struct AppConfigJson {
 impl Default for AppConfigJson {
     fn default() -> Self {
         Self {
-            version: "1.3.0".to_string(),
+            version: "1.3.1".to_string(),
             selected_provider: "gemini".to_string(),
             gemini_model: "gemini-2.5-flash".to_string(),
             claude_model: "claude-sonnet-4-20250514".to_string(),
@@ -359,7 +359,8 @@ impl Default for AppConfigJson {
             floating_positions: serde_json::json!({
                 "history": { "x": 64, "y": 80, "width": 360, "height": 470 },
                 "settings": { "x": 448, "y": 80, "width": 430, "height": 560 },
-                "music": { "x": 88, "y": 116, "width": 392, "height": 496 }
+                "music": { "x": 88, "y": 116, "width": 392, "height": 496 },
+                "wellbeing": { "x": 140, "y": 72, "width": 560, "height": 560 }
             }),
             bot_customization: serde_json::json!({}),
             drink_reminder: serde_json::json!({

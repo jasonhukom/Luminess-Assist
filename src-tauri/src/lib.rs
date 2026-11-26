@@ -1,5 +1,7 @@
 pub mod services;
+pub mod wellbeing;
 use services::*;
+use wellbeing::*;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -1785,7 +1787,12 @@ pub fn run() {
             http_proxy_request,
             fetch_github_fork_manifest,
             get_media_stream_url,
-            scan_local_music
+            scan_local_music,
+            get_foreground_app_usage_sample,
+            get_task_manager_snapshot,
+            load_wellbeing_history,
+            save_wellbeing_history,
+            clear_wellbeing_history
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

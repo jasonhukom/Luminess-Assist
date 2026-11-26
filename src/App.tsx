@@ -9,6 +9,25 @@ import { FloatingHistoryBox } from './components/FloatingHistoryBox.tsx';
 import { FloatingSettingsBox, type SettingsTabId } from './components/FloatingSettingsBox.tsx';
 import { FloatingMusicBox } from './components/FloatingMusicBox.tsx';
 import {
+  FloatingWellbeingBox,
+  type WellbeingTabId,
+} from './components/FloatingWellbeingBox.tsx';
+import {
+  buildWellbeingRangeReport,
+  clearWellbeingHistoryOnMachine,
+  createEmptyWellbeingHistory,
+  fetchForegroundAppSample,
+  fetchTaskManagerSnapshot,
+  loadWellbeingHistoryFromMachine,
+  recordForegroundUsageSample,
+  resolveAppProfile,
+  saveWellbeingHistoryToMachine,
+  type TaskManagerSnapshot,
+  type WellbeingCommandAction,
+  type WellbeingHistoryStore,
+  type WellbeingRange,
+} from './lib/digitalWellbeing.ts';
+import {
   DEFAULT_DRINK_MESSAGE,
   formatCountdownMs,
   getNextDrinkDueMs,
@@ -226,12 +245,16 @@ function App() {
   const [localServers, setLocalServers] = useState<LocalAiServerStatus[]>([]);
   const [isScanningLocalAi, setIsScanningLocalAi] = useState<boolean>(false);
 
-  // Three Independent Floating UI Boxes (History Box, Settings Box, Music Player) + Drink Reminder Alert
+  // Four Independent Floating UI Boxes (History, Settings, Music Player, Digital Wellbeing & Task Manager) + Drink Reminder Alert
   const [historyBoxOpen, setHistoryBoxOpen] = useState<boolean>(false);
   const [settingsBoxOpen, setSettingsBoxOpen] = useState<boolean>(false);
   const [musicBoxOpen, setMusicBoxOpen] = useState<boolean>(false);
+  const [wellbeingBoxOpen, setWellbeingBoxOpen] = useState<boolean>(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('connectors');
   const [settingsTabSeq, setSettingsTabSeq] = useState<number>(0);
+  const [wellbeingTab, setWellbeingTab] = useState<WellbeingTabId>('wellbeing');
+  const [wellbeingTabSeq, setWellbeingTabSeq] = useState<number>(0);
+  const [wellbeingRange, setWellbeingRange] = useState<WellbeingRange>('day');
   const [historyBoxPos, setHistoryBoxPos] = useState<FloatingBoxPosition>(() => {
     const cfg = getCachedAppConfig();
     return cfg.floating_positions?.history || { x: 48, y: 80, width: 350, height: 470, visible: false };
@@ -244,6 +267,17 @@ function App() {
     const cfg = getCachedAppConfig();
     return cfg.floating_positions?.music || { x: 88, y: 116, width: 392, height: 496, visible: false };
   });
+  const [wellbeingBoxPos, setWellbeingBoxPos] = useState<FloatingBoxPosition>(() => {
+    const cfg = getCachedAppConfig();
+    return cfg.floating_positions?.wellbeing || { x: 140, y: 72, width: 560, height: 560, visible: false };
+  });
+
+  const [wellbeingHistory, setWellbeingHistory] = useState<WellbeingHistoryStore>(() =>
+    createEmptyWellbeingHistory()
+  );
+  const [activeForegroundApp, setActiveForegroundApp] = useState<string | null>(null);
+  const [taskSnapshot, setTaskSnapshot] = useState<TaskManagerSnapshot | null>(null);
+  const [isPollingTasks, setIsPollingTasks] = useState<boolean>(true);
 
   const [drinkAlertVisible, setDrinkAlertVisible] = useState<boolean>(false);
   const [drinkCountdownLabel, setDrinkCountdownLabel] = useState<string>('45m 00s');
@@ -298,11 +332,13 @@ function App() {
   const historyBoxWrapRef = useRef<HTMLDivElement>(null);
   const settingsBoxWrapRef = useRef<HTMLDivElement>(null);
   const musicBoxWrapRef = useRef<HTMLDivElement>(null);
+  const wellbeingBoxWrapRef = useRef<HTMLDivElement>(null);
   const drinkAlertWrapRef = useRef<HTMLDivElement>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const synthRef = useRef<AmbientSynthController | null>(null);
   const appConfigRef = useRef<AppConfigJson>(appConfig);
   const drinkAlertVisibleRef = useRef<boolean>(false);
+  const wellbeingHistoryRef = useRef<WellbeingHistoryStore>(wellbeingHistory);
 
   const companionReadyRef = useRef<boolean>(false);
   const modalPlacedRef = useRef<boolean>(false);
@@ -431,9 +467,9 @@ function App() {
     };
   }, [chatOpen]);
 
-  // Whenever Chatbox opens/moves/resizes, ensure History Box, Settings Box, and Music Player avoid overlap
+  // Whenever Chatbox opens/moves/resizes, ensure History, Settings, Music, and Wellbeing boxes avoid overlap
   useEffect(() => {
-    if (!historyBoxOpen && !settingsBoxOpen && !musicBoxOpen) return;
+    if (!historyBoxOpen && !settingsBoxOpen && !musicBoxOpen && !wellbeingBoxOpen) return;
     const timer = window.setTimeout(() => {
       const chatRect = getCurrentChatBoxScreenRect();
       if (!chatRect) return;
@@ -444,6 +480,7 @@ function App() {
         const obstacles = [
           ...(settingsBoxOpen ? [settingsBoxPos] : []),
           ...(musicBoxOpen ? [musicBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
         ];
         const resolved = resolveFloatingBoxCollision(prevHist, chatRect, obstacles, screenBounds, 18);
         if (resolved.x !== prevHist.x || resolved.y !== prevHist.y) {
@@ -457,6 +494,7 @@ function App() {
         const obstacles = [
           ...(historyBoxOpen ? [historyBoxPos] : []),
           ...(musicBoxOpen ? [musicBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
         ];
         const resolved = resolveFloatingBoxCollision(prevSet, chatRect, obstacles, screenBounds, 18);
         if (resolved.x !== prevSet.x || resolved.y !== prevSet.y) {
@@ -470,12 +508,27 @@ function App() {
         const obstacles = [
           ...(historyBoxOpen ? [historyBoxPos] : []),
           ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
         ];
         const resolved = resolveFloatingBoxCollision(prevMusic, chatRect, obstacles, screenBounds, 18);
         if (resolved.x !== prevMusic.x || resolved.y !== prevMusic.y) {
           return { ...prevMusic, x: resolved.x, y: resolved.y };
         }
         return prevMusic;
+      });
+
+      setWellbeingBoxPos((prevWb) => {
+        if (!wellbeingBoxOpen) return prevWb;
+        const obstacles = [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+        ];
+        const resolved = resolveFloatingBoxCollision(prevWb, chatRect, obstacles, screenBounds, 18);
+        if (resolved.x !== prevWb.x || resolved.y !== prevWb.y) {
+          return { ...prevWb, x: resolved.x, y: resolved.y };
+        }
+        return prevWb;
       });
     }, 30);
     return () => window.clearTimeout(timer);
@@ -488,9 +541,11 @@ function App() {
     historyBoxOpen,
     settingsBoxOpen,
     musicBoxOpen,
+    wellbeingBoxOpen,
     historyBoxPos,
     settingsBoxPos,
     musicBoxPos,
+    wellbeingBoxPos,
     getCurrentChatBoxScreenRect,
   ]);
 
@@ -501,7 +556,11 @@ function App() {
       const resolved = resolveFloatingBoxCollision(
         nextPos,
         chatRect,
-        [...(settingsBoxOpen ? [settingsBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
+        [
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+        ],
         screenBounds,
         18
       );
@@ -519,7 +578,15 @@ function App() {
         return nextCfg;
       });
     },
-    [getCurrentChatBoxScreenRect, settingsBoxOpen, settingsBoxPos, musicBoxOpen, musicBoxPos]
+    [
+      getCurrentChatBoxScreenRect,
+      settingsBoxOpen,
+      settingsBoxPos,
+      musicBoxOpen,
+      musicBoxPos,
+      wellbeingBoxOpen,
+      wellbeingBoxPos,
+    ]
   );
 
   const handleMoveSettingsBox = useCallback(
@@ -529,7 +596,11 @@ function App() {
       const resolved = resolveFloatingBoxCollision(
         nextPos,
         chatRect,
-        [...(historyBoxOpen ? [historyBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
+        [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+        ],
         screenBounds,
         18
       );
@@ -547,7 +618,15 @@ function App() {
         return nextCfg;
       });
     },
-    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, musicBoxOpen, musicBoxPos]
+    [
+      getCurrentChatBoxScreenRect,
+      historyBoxOpen,
+      historyBoxPos,
+      musicBoxOpen,
+      musicBoxPos,
+      wellbeingBoxOpen,
+      wellbeingBoxPos,
+    ]
   );
 
   const handleMoveMusicBox = useCallback(
@@ -557,7 +636,11 @@ function App() {
       const resolved = resolveFloatingBoxCollision(
         nextPos,
         chatRect,
-        [...(historyBoxOpen ? [historyBoxPos] : []), ...(settingsBoxOpen ? [settingsBoxPos] : [])],
+        [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+        ],
         screenBounds,
         18
       );
@@ -575,7 +658,55 @@ function App() {
         return nextCfg;
       });
     },
-    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, settingsBoxOpen, settingsBoxPos]
+    [
+      getCurrentChatBoxScreenRect,
+      historyBoxOpen,
+      historyBoxPos,
+      settingsBoxOpen,
+      settingsBoxPos,
+      wellbeingBoxOpen,
+      wellbeingBoxPos,
+    ]
+  );
+
+  const handleMoveWellbeingBox = useCallback(
+    (nextPos: FloatingBoxPosition) => {
+      const chatRect = getCurrentChatBoxScreenRect();
+      const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+      const resolved = resolveFloatingBoxCollision(
+        nextPos,
+        chatRect,
+        [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+        ],
+        screenBounds,
+        18
+      );
+      const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
+      setWellbeingBoxPos(updated);
+      setAppConfig((prev) => {
+        const nextCfg: AppConfigJson = {
+          ...prev,
+          floating_positions: {
+            ...prev.floating_positions,
+            wellbeing: updated,
+          },
+        };
+        void saveAppConfigToMachine(nextCfg);
+        return nextCfg;
+      });
+    },
+    [
+      getCurrentChatBoxScreenRect,
+      historyBoxOpen,
+      historyBoxPos,
+      settingsBoxOpen,
+      settingsBoxPos,
+      musicBoxOpen,
+      musicBoxPos,
+    ]
   );
 
   const handleToggleHistoryBox = useCallback(() => {
@@ -591,7 +722,11 @@ function App() {
               { width: cur.width, height: cur.height },
               { x: cur.x, y: cur.y },
               chatRect,
-              [...(settingsBoxOpen ? [settingsBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
+              [
+                ...(settingsBoxOpen ? [settingsBoxPos] : []),
+                ...(musicBoxOpen ? [musicBoxPos] : []),
+                ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+              ],
               screenBounds
             );
             return { ...cur, x: spawned.x, y: spawned.y, visible: true };
@@ -607,6 +742,8 @@ function App() {
     settingsBoxPos,
     musicBoxOpen,
     musicBoxPos,
+    wellbeingBoxOpen,
+    wellbeingBoxPos,
   ]);
 
   const handleToggleSettingsBox = useCallback(() => {
@@ -623,7 +760,11 @@ function App() {
               { width: cur.width, height: cur.height },
               { x: cur.x, y: cur.y },
               chatRect,
-              [...(historyBoxOpen ? [historyBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
+              [
+                ...(historyBoxOpen ? [historyBoxPos] : []),
+                ...(musicBoxOpen ? [musicBoxPos] : []),
+                ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+              ],
               screenBounds
             );
             return { ...cur, x: spawned.x, y: spawned.y, visible: true };
@@ -640,6 +781,8 @@ function App() {
     historyBoxPos,
     musicBoxOpen,
     musicBoxPos,
+    wellbeingBoxOpen,
+    wellbeingBoxPos,
   ]);
 
   const handleToggleMusicBox = useCallback(() => {
@@ -654,7 +797,11 @@ function App() {
               { width: cur.width, height: cur.height },
               { x: cur.x, y: cur.y },
               chatRect,
-              [...(historyBoxOpen ? [historyBoxPos] : []), ...(settingsBoxOpen ? [settingsBoxPos] : [])],
+              [
+                ...(historyBoxOpen ? [historyBoxPos] : []),
+                ...(settingsBoxOpen ? [settingsBoxPos] : []),
+                ...(wellbeingBoxOpen ? [wellbeingBoxPos] : []),
+              ],
               screenBounds
             );
             return { ...cur, x: spawned.x, y: spawned.y, visible: true };
@@ -663,7 +810,50 @@ function App() {
       }
       return next;
     });
-  }, [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, settingsBoxOpen, settingsBoxPos]);
+  }, [
+    getCurrentChatBoxScreenRect,
+    historyBoxOpen,
+    historyBoxPos,
+    settingsBoxOpen,
+    settingsBoxPos,
+    wellbeingBoxOpen,
+    wellbeingBoxPos,
+  ]);
+
+  const handleToggleWellbeingBox = useCallback(() => {
+    setWellbeingBoxOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          const chatRect = getCurrentChatBoxScreenRect();
+          const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+          setWellbeingBoxPos((cur) => {
+            const spawned = spawnNonOverlappingBox(
+              { width: cur.width, height: cur.height },
+              { x: cur.x, y: cur.y },
+              chatRect,
+              [
+                ...(historyBoxOpen ? [historyBoxPos] : []),
+                ...(settingsBoxOpen ? [settingsBoxPos] : []),
+                ...(musicBoxOpen ? [musicBoxPos] : []),
+              ],
+              screenBounds
+            );
+            return { ...cur, x: spawned.x, y: spawned.y, visible: true };
+          });
+        }, 50);
+      }
+      return next;
+    });
+  }, [
+    getCurrentChatBoxScreenRect,
+    historyBoxOpen,
+    historyBoxPos,
+    settingsBoxOpen,
+    settingsBoxPos,
+    musicBoxOpen,
+    musicBoxPos,
+  ]);
 
   const handleScreenSideChange = useCallback(
     (botScreenSide: 'left' | 'right', botScreenVert: 'up' | 'down') => {
@@ -736,6 +926,10 @@ function App() {
         const r = musicBoxWrapRef.current.getBoundingClientRect();
         rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
       }
+      if (wellbeingBoxOpen && wellbeingBoxWrapRef.current) {
+        const r = wellbeingBoxWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
       if (drinkAlertVisible && drinkAlertWrapRef.current) {
         const r = drinkAlertWrapRef.current.getBoundingClientRect();
         rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
@@ -776,6 +970,7 @@ function App() {
     historyBoxOpen,
     settingsBoxOpen,
     musicBoxOpen,
+    wellbeingBoxOpen,
     drinkAlertVisible,
     isDraggingBot,
     brokenSeconds,
@@ -798,10 +993,12 @@ function App() {
     historyBoxPos,
     settingsBoxPos,
     musicBoxPos,
+    wellbeingBoxPos,
   ]);
 
   const floatingWorkspaceActive =
-    !showApiModal && (historyBoxOpen || settingsBoxOpen || musicBoxOpen || drinkAlertVisible);
+    !showApiModal &&
+    (historyBoxOpen || settingsBoxOpen || musicBoxOpen || wellbeingBoxOpen || drinkAlertVisible);
 
   useEffect(() => {
     const updateWindowGeometry = async () => {
@@ -1214,6 +1411,7 @@ function App() {
         setHistoryBoxOpen(false);
         setSettingsBoxOpen(false);
         setMusicBoxOpen(false);
+        setWellbeingBoxOpen(false);
         setDrinkAlertVisible(false);
       }
     };
@@ -1646,6 +1844,103 @@ function App() {
     drinkAlertVisibleRef.current = drinkAlertVisible;
   }, [drinkAlertVisible]);
 
+  useEffect(() => {
+    wellbeingHistoryRef.current = wellbeingHistory;
+  }, [wellbeingHistory]);
+
+  // Background Digital Wellbeing tracker (5s foreground window sampler with idle pause & 90-day auto-prune)
+  useEffect(() => {
+    let mounted = true;
+    let lastSampleAt = Date.now();
+    let ticksSinceSave = 0;
+
+    void loadWellbeingHistoryFromMachine().then((loaded) => {
+      if (!mounted) return;
+      wellbeingHistoryRef.current = loaded;
+      setWellbeingHistory(loaded);
+    });
+
+    const sampleOnce = async () => {
+      const sample = await fetchForegroundAppSample();
+      if (!mounted || !sample) return;
+      const nowMs = Date.now();
+      const elapsedSec = Math.max(1, Math.min(15, Math.round((nowMs - lastSampleAt) / 1000)));
+      lastSampleAt = nowMs;
+
+      if (sample.is_idle) {
+        setActiveForegroundApp('Idle (> 5m pause)');
+      } else {
+        setActiveForegroundApp(resolveAppProfile(sample.exe_name, sample.process_name).displayName);
+      }
+
+      const nextStore = recordForegroundUsageSample(
+        wellbeingHistoryRef.current,
+        sample,
+        elapsedSec,
+        nowMs
+      );
+      wellbeingHistoryRef.current = nextStore;
+      setWellbeingHistory(nextStore);
+
+      ticksSinceSave += 1;
+      if (ticksSinceSave >= 6) {
+        ticksSinceSave = 0;
+        void saveWellbeingHistoryToMachine(nextStore);
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void sampleOnce();
+    }, 5_000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+      void saveWellbeingHistoryToMachine(wellbeingHistoryRef.current);
+    };
+  }, []);
+
+  const refreshTaskSnapshotNow = useCallback(async () => {
+    const snap = await fetchTaskManagerSnapshot();
+    if (snap) setTaskSnapshot(snap);
+  }, []);
+
+  // Poll read-only Windows Task Manager snapshot only when Wellbeing & Tasks window is open and unpaused
+  useEffect(() => {
+    if (!wellbeingBoxOpen) return;
+    let cancelled = false;
+    void fetchTaskManagerSnapshot().then((first) => {
+      if (cancelled || !first) return;
+      setTaskSnapshot(first);
+    });
+    const warmup = window.setTimeout(() => {
+      if (!cancelled) {
+        void fetchTaskManagerSnapshot().then((second) => {
+          if (!cancelled && second) setTaskSnapshot(second);
+        });
+      }
+    }, 550);
+
+    if (!isPollingTasks) {
+      return () => {
+        cancelled = true;
+        window.clearTimeout(warmup);
+      };
+    }
+
+    const intervalId = window.setInterval(() => {
+      void fetchTaskManagerSnapshot().then((snap) => {
+        if (!cancelled && snap) setTaskSnapshot(snap);
+      });
+    }, 2_000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(warmup);
+      window.clearInterval(intervalId);
+    };
+  }, [wellbeingBoxOpen, isPollingTasks]);
+
   const musicConfig = useMemo(
     () => normalizeMusicPlayerConfig(appConfig.music_player),
     [appConfig.music_player]
@@ -2056,6 +2351,39 @@ function App() {
           summary: `${musicIsPlaying ? 'Playing' : 'Paused'}: "${activeMusicTrack.title}" by ${activeMusicTrack.artist}.`,
         };
       },
+      onWellbeingCommand: async (action: WellbeingCommandAction) => {
+        if (action.type === 'open') {
+          if (action.tab) setWellbeingTab(action.tab);
+          if (action.range) setWellbeingRange(action.range);
+          setWellbeingTabSeq((s) => s + 1);
+          if (!wellbeingBoxOpen) handleToggleWellbeingBox();
+          return {
+            ok: true,
+            tab: action.tab || 'wellbeing',
+            summary:
+              action.tab === 'taskmanager'
+                ? 'Opened the read-only Windows Task Manager viewer.'
+                : 'Opened the Digital Wellbeing circle view & usage explainer.',
+          };
+        }
+
+        const report = buildWellbeingRangeReport(
+          wellbeingHistoryRef.current,
+          action.range || 'day'
+        );
+        return {
+          ok: true,
+          range: report.range,
+          total_seconds: report.total_seconds,
+          top_apps: report.all_apps.slice(0, 5).map((a) => ({
+            name: a.display_name,
+            category: a.category,
+            seconds: a.seconds,
+            percentage: Number(a.percentage.toFixed(1)),
+          })),
+          summary: report.overall_explanation,
+        };
+      },
     });
   }, [
     activeMusicTrack,
@@ -2065,11 +2393,13 @@ function App() {
     handleScanMusicFolder,
     handleSetMusicVolume,
     handleToggleMusicBox,
+    handleToggleWellbeingBox,
     musicBoxOpen,
     musicConfig,
     musicIsPlaying,
     musicPlaylist,
     startPlayingTrack,
+    wellbeingBoxOpen,
   ]);
 
   const handleUpdateConfig = async (nextCfg: AppConfigJson) => {
@@ -2877,6 +3207,8 @@ function App() {
                   isMusicBoxOpen={musicBoxOpen}
                   onToggleMusicBox={handleToggleMusicBox}
                   isMusicPlaying={musicIsPlaying}
+                  isWellbeingBoxOpen={wellbeingBoxOpen}
+                  onToggleWellbeingBox={handleToggleWellbeingBox}
                   drinkDailyGlasses={appConfig.drink_reminder?.daily_glasses ?? 0}
                   drinkGoalGlasses={appConfig.drink_reminder?.daily_goal_glasses ?? 8}
                   drinkEnabled={appConfig.drink_reminder?.enabled ?? true}
@@ -2971,6 +3303,9 @@ function App() {
                 onOpenMusicPlayer={() => {
                   if (!musicBoxOpen) handleToggleMusicBox();
                 }}
+                onOpenWellbeingBox={() => {
+                  if (!wellbeingBoxOpen) handleToggleWellbeingBox();
+                }}
                 onTriggerDrinkAlert={() => setDrinkAlertVisible(true)}
                 onLogDrink={() => void handleQuickLogDrink()}
                 onClose={() => setSettingsBoxOpen(false)}
@@ -3007,6 +3342,33 @@ function App() {
                 onAddUrlTrack={handleAddUrlMusicTrack}
                 onRemoveCustomTrack={handleRemoveCustomMusicTrack}
                 onClose={() => setMusicBoxOpen(false)}
+              />
+            </div>
+          )}
+
+          {/* Floating Box 4: Digital Wellbeing (Circle View + Week/Month + 90d Retention) & Read-Only Task Manager */}
+          {wellbeingBoxOpen && (
+            <div ref={wellbeingBoxWrapRef} style={{ display: 'contents' }}>
+              <FloatingWellbeingBox
+                position={wellbeingBoxPos}
+                onChangePosition={handleMoveWellbeingBox}
+                emotion={visualEmotion}
+                initialTab={wellbeingTab}
+                externalTabSeq={wellbeingTabSeq}
+                initialRange={wellbeingRange}
+                historyStore={wellbeingHistory}
+                activeForegroundApp={activeForegroundApp}
+                taskSnapshot={taskSnapshot}
+                isPollingTasks={isPollingTasks}
+                onTogglePollingTasks={() => setIsPollingTasks((p) => !p)}
+                onRefreshTasksNow={() => void refreshTaskSnapshotNow()}
+                onClearHistory={() => {
+                  void clearWellbeingHistoryOnMachine().then((cleared) => {
+                    wellbeingHistoryRef.current = cleared;
+                    setWellbeingHistory(cleared);
+                  });
+                }}
+                onClose={() => setWellbeingBoxOpen(false)}
               />
             </div>
           )}

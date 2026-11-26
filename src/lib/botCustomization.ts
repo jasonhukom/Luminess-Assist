@@ -275,7 +275,7 @@ export const COLOR_PALETTE_PRESETS: Array<{
 
 export function createDefaultBotCustomization(): BotCustomizationManifest {
   return {
-    schemaVersion: '1.3.0',
+    schemaVersion: '1.3.1',
     botName: 'Luminess',
     tagline: 'Living Desktop AI Companion',
     userName: '',

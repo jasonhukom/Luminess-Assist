@@ -202,6 +202,7 @@ export interface AppConfigJson {
     history: FloatingBoxPosition;
     settings: FloatingBoxPosition;
     music: FloatingBoxPosition;
+    wellbeing: FloatingBoxPosition;
   };
   bot_customization: BotCustomizationManifest;
   drink_reminder: DrinkReminderConfig;
@@ -262,7 +263,7 @@ function writeFallbackStorage(key: string, value: string): void {
 
 export function createDefaultAppConfig(): AppConfigJson {
   return {
-    version: '1.3.0',
+    version: '1.3.1',
     selected_provider: 'gemini',
     gemini_model: 'gemini-2.5-flash',
     claude_model: 'claude-sonnet-4-20250514',
@@ -287,6 +288,7 @@ export function createDefaultAppConfig(): AppConfigJson {
       history: { x: 48, y: 72, width: 350, height: 460 },
       settings: { x: 420, y: 72, width: 430, height: 560 },
       music: { x: 88, y: 116, width: 392, height: 496 },
+      wellbeing: { x: 140, y: 72, width: 560, height: 560 },
     },
     bot_customization: createDefaultBotCustomization(),
     drink_reminder: createDefaultDrinkReminder(),

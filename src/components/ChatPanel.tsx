@@ -21,6 +21,7 @@ import {
   Settings,
   Disc3,
   Droplets,
+  Activity,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision, AIProvider } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
@@ -66,6 +67,8 @@ interface ChatPanelProps {
   isMusicBoxOpen?: boolean;
   onToggleMusicBox?: () => void;
   isMusicPlaying?: boolean;
+  isWellbeingBoxOpen?: boolean;
+  onToggleWellbeingBox?: () => void;
   drinkDailyGlasses?: number;
   drinkGoalGlasses?: number;
   drinkEnabled?: boolean;
@@ -107,6 +110,8 @@ export function ChatPanel({
   isMusicBoxOpen = false,
   onToggleMusicBox,
   isMusicPlaying = false,
+  isWellbeingBoxOpen = false,
+  onToggleWellbeingBox,
   drinkDailyGlasses = 0,
   drinkGoalGlasses = 8,
   drinkEnabled = true,
@@ -256,6 +261,18 @@ export function ChatPanel({
           >
             <History size={15} />
           </button>
+
+          {/* Floating Digital Wellbeing & Task Manager Viewer Toggle */}
+          {onToggleWellbeingBox && (
+            <button
+              type="button"
+              className={`icon-btn ${isWellbeingBoxOpen ? 'active' : ''}`}
+              onClick={onToggleWellbeingBox}
+              title="Digital Wellbeing (Circle Stats • Week/Month) & Task Manager Viewer"
+            >
+              <Activity size={15} />
+            </button>
+          )}
 
           {/* Floating Music Player Box Toggle */}
           {onToggleMusicBox && (

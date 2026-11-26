@@ -4,8 +4,9 @@ import type { Emotion } from '../components/Robot.tsx';
 import type { CustomApiFormat } from './botCustomization.ts';
 import { getPersonalityPromptContext } from './personality.ts';
 import { runOfflineAgent } from './offlineAi.ts';
-import { executeDrinkToolAction, executeMusicToolAction } from './assistantRuntime.ts';
+import { executeDrinkToolAction, executeMusicToolAction, executeWellbeingToolAction } from './assistantRuntime.ts';
 import type { MusicCommandAction } from './musicPlayer.ts';
+import type { WellbeingCommandAction, WellbeingRange } from './digitalWellbeing.ts';
 import {
   normalizeAIError,
   type NormalizedAIError,
@@ -1425,6 +1426,8 @@ function describeToolCall(name: string, args: Record<string, any>): string {
       return `Drink reminder (${args.action || 'status'}${args.interval_minutes ? `, ${args.interval_minutes}m` : ''})`;
     case 'control_music_player':
       return `Music player (${args.action || 'status'}${args.query ? `: ${args.query}` : ''})`;
+    case 'view_wellbeing_or_tasks':
+      return `Digital Wellbeing & Task Manager (${args.action || 'summary'})`;
     default:
       return `Execute ${name} with ${JSON.stringify(args)}`;
   }
@@ -1548,6 +1551,19 @@ export async function executeToolOnPc(
       }
       return await executeMusicToolAction(musicAction);
     }
+    case 'view_wellbeing_or_tasks': {
+      const act = String(args.action || 'summary').toLowerCase();
+      const rangeRaw = String(args.range || 'day').toLowerCase();
+      const range: WellbeingRange =
+        rangeRaw === 'week' || rangeRaw === 'month' ? rangeRaw : 'day';
+      const payload: WellbeingCommandAction =
+        act === 'open_taskmanager'
+          ? { type: 'open', tab: 'taskmanager' }
+          : act === 'open_wellbeing'
+            ? { type: 'open', tab: 'wellbeing', range }
+            : { type: 'summary', range };
+      return await executeWellbeingToolAction(payload);
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -1659,6 +1675,7 @@ const SAFE_AUTO_TOOLS = new Set([
   'remember_user_fact',
   'manage_drink_reminder',
   'control_music_player',
+  'view_wellbeing_or_tasks',
 ]);
 
 async function runAlternativeProviderAgent(
@@ -2503,6 +2520,25 @@ Current PC Environment:
             required: ['action'],
           },
         },
+        {
+          name: 'view_wellbeing_or_tasks',
+          description:
+            'Inspect Digital Wellbeing app screen-time usage (today, week, month; 90-day retention) or open the read-only Windows Task Manager viewer.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              action: {
+                type: Type.STRING,
+                description: 'One of: summary, open_wellbeing, open_taskmanager',
+              },
+              range: {
+                type: Type.STRING,
+                description: 'One of: day, week, month',
+              },
+            },
+            required: ['action'],
+          },
+        },
       ],
     },
   ];
@@ -2550,6 +2586,7 @@ You have FULL access to the user's PC, persistent user memory, and a live web se
 - set_timer, get_pc_context
 - manage_drink_reminder (sets recurring water/drink reminders, logs glasses drank, checks daily hydration progress)
 - control_music_player (controls the built-in Music Player: play/pause/skip/volume/scan local music folder/open player)
+- view_wellbeing_or_tasks (shows app screen-time circle reports for day/week/month with 90-day retention, or opens the read-only Windows Task Manager viewer)
 
 Whenever the user asks you to look up external facts or current information, use 'web_search' and cite your sources. Whenever the user shares who they are or their preferences, use 'remember_user_fact' and naturally remember them in conversation.
 

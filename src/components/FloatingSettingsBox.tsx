@@ -30,6 +30,7 @@ import {
   Wand2,
   Droplets,
   Disc3,
+  Activity,
 } from 'lucide-react';
 import {
   clampDrinkGoal,
@@ -102,6 +103,7 @@ interface FloatingSettingsBoxProps {
   onRunAiForkCustomize?: (prompt: string) => void;
   drinkCountdownLabel?: string;
   onOpenMusicPlayer?: () => void;
+  onOpenWellbeingBox?: () => void;
   onTriggerDrinkAlert?: () => void;
   onLogDrink?: () => void;
   onClose: () => void;
@@ -157,6 +159,7 @@ export function FloatingSettingsBox({
   onRunAiForkCustomize,
   drinkCountdownLabel,
   onOpenMusicPlayer,
+  onOpenWellbeingBox,
   onTriggerDrinkAlert,
   onLogDrink,
   onClose,
@@ -1891,6 +1894,12 @@ export function FloatingSettingsBox({
                   <button type="button" className="floating-btn-secondary" onClick={onOpenMusicPlayer}>
                     <Disc3 size={13} />
                     <span>Music Player</span>
+                  </button>
+                )}
+                {onOpenWellbeingBox && (
+                  <button type="button" className="floating-btn-secondary" onClick={onOpenWellbeingBox}>
+                    <Activity size={13} />
+                    <span>Wellbeing & Tasks</span>
                   </button>
                 )}
               </div>

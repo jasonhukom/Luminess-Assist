@@ -18,7 +18,12 @@ import {
 import { getPersonalityPromptContext } from './personality.ts';
 import { parseDrinkReminderCommand } from './drinkReminder.ts';
 import { parseMusicPlayerCommand } from './musicPlayer.ts';
-import { executeDrinkToolAction, executeMusicToolAction } from './assistantRuntime.ts';
+import { parseWellbeingCommand } from './digitalWellbeing.ts';
+import {
+  executeDrinkToolAction,
+  executeMusicToolAction,
+  executeWellbeingToolAction,
+} from './assistantRuntime.ts';
 
 /**
  * Safely evaluates simple mathematical expressions like "25 * 4", "100 / 5", "12 + 38".
@@ -496,6 +501,20 @@ export async function runOfflineAgent(
     return {
       role: 'assistant',
       content: `🎵 ${String(res.summary || 'Updated Music Player.')}`,
+      emotion: 'joy',
+      toolActions: executedActions,
+    };
+  }
+
+  // 12D. Digital Wellbeing & Read-Only Task Manager Commands
+  const wellbeingAction = parseWellbeingCommand(userText);
+  if (wellbeingAction) {
+    const res = await executeWellbeingToolAction(wellbeingAction);
+    executedActions.push(`Wellbeing & Tasks: ${String(res.summary || wellbeingAction.type)}`);
+    onEmotion('joy');
+    return {
+      role: 'assistant',
+      content: `📊 ${String(res.summary || 'Opened Digital Wellbeing & Tasks.')}`,
       emotion: 'joy',
       toolActions: executedActions,
     };
