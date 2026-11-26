@@ -35,6 +35,9 @@ $exeSource = Join-Path $repoDir "src-tauri\target\release\Luminess Assist.exe"
 if (-not (Test-Path $exeSource)) {
     $exeSource = Join-Path $repoDir "src-tauri\target\release\luminess-assist.exe"
 }
+if (-not (Test-Path $exeSource)) {
+    $exeSource = Join-Path $repoDir "src-tauri\target\release\app.exe"
+}
 
 # Locate .msi
 $msiFiles = Get-ChildItem -Path "$bundleDir\msi\*.msi" -ErrorAction SilentlyContinue
