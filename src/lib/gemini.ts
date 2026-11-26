@@ -4,6 +4,8 @@ import type { Emotion } from '../components/Robot.tsx';
 import type { CustomApiFormat } from './botCustomization.ts';
 import { getPersonalityPromptContext } from './personality.ts';
 import { runOfflineAgent } from './offlineAi.ts';
+import { executeDrinkToolAction, executeMusicToolAction } from './assistantRuntime.ts';
+import type { MusicCommandAction } from './musicPlayer.ts';
 import {
   normalizeAIError,
   type NormalizedAIError,
@@ -1419,6 +1421,10 @@ function describeToolCall(name: string, args: Record<string, any>): string {
       return `Search the web for "${args.query}" and store citations in database`;
     case 'remember_user_fact':
       return `Save user memory [${args.category || 'fact'}] ${args.key} = "${args.value}"`;
+    case 'manage_drink_reminder':
+      return `Drink reminder (${args.action || 'status'}${args.interval_minutes ? `, ${args.interval_minutes}m` : ''})`;
+    case 'control_music_player':
+      return `Music player (${args.action || 'status'}${args.query ? `: ${args.query}` : ''})`;
     default:
       return `Execute ${name} with ${JSON.stringify(args)}`;
   }
@@ -1501,6 +1507,46 @@ export async function executeToolOnPc(
         saved: true,
         memory: saved,
       };
+    }
+    case 'manage_drink_reminder': {
+      return await executeDrinkToolAction({
+        action: args.action ? String(args.action) : 'status',
+        interval_minutes:
+          typeof args.interval_minutes === 'number' ? Number(args.interval_minutes) : undefined,
+        glasses: typeof args.glasses === 'number' ? Number(args.glasses) : undefined,
+        goal_glasses:
+          typeof args.goal_glasses === 'number' ? Number(args.goal_glasses) : undefined,
+        snooze_minutes:
+          typeof args.snooze_minutes === 'number' ? Number(args.snooze_minutes) : undefined,
+        message: typeof args.message === 'string' ? args.message : undefined,
+        sound_enabled:
+          typeof args.sound_enabled === 'boolean' ? args.sound_enabled : undefined,
+      });
+    }
+    case 'control_music_player': {
+      const actionType = String(args.action || 'status').toLowerCase();
+      let musicAction: MusicCommandAction = { type: 'status' };
+      if (actionType === 'play') {
+        musicAction = { type: 'play', query: args.query ? String(args.query) : undefined };
+      } else if (actionType === 'pause') {
+        musicAction = { type: 'pause' };
+      } else if (actionType === 'resume') {
+        musicAction = { type: 'resume' };
+      } else if (actionType === 'next') {
+        musicAction = { type: 'next' };
+      } else if (actionType === 'prev' || actionType === 'previous') {
+        musicAction = { type: 'prev' };
+      } else if (actionType === 'open') {
+        musicAction = { type: 'open' };
+      } else if (actionType === 'close') {
+        musicAction = { type: 'close' };
+      } else if (actionType === 'scan') {
+        musicAction = { type: 'scan' };
+      } else if (actionType === 'volume' && typeof args.volume === 'number') {
+        const rawVol = Number(args.volume);
+        musicAction = { type: 'volume', volume: rawVol > 1 ? rawVol / 100 : rawVol };
+      }
+      return await executeMusicToolAction(musicAction);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -1608,7 +1654,12 @@ function extractProviderError(body: any, fallback: string): string {
   return String(body?.error?.message || body?.message || body?.error || fallback);
 }
 
-const SAFE_AUTO_TOOLS = new Set(['web_search', 'remember_user_fact']);
+const SAFE_AUTO_TOOLS = new Set([
+  'web_search',
+  'remember_user_fact',
+  'manage_drink_reminder',
+  'control_music_player',
+]);
 
 async function runAlternativeProviderAgent(
   provider: Exclude<AIProvider, 'gemini' | 'offline'>,
@@ -2389,6 +2440,69 @@ Current PC Environment:
             required: ['minutes'],
           },
         },
+        {
+          name: 'manage_drink_reminder',
+          description:
+            'Configure recurring hydration / drink water reminders, log water intake glasses, snooze reminders, or check daily water progress.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              action: {
+                type: Type.STRING,
+                description: 'One of: enable, disable, log, snooze, set_goal, status',
+              },
+              interval_minutes: {
+                type: Type.NUMBER,
+                description: 'Reminder interval in minutes (5 to 240, e.g. 45)',
+              },
+              glasses: {
+                type: Type.NUMBER,
+                description: 'Number of glasses drank when action is log (default 1)',
+              },
+              goal_glasses: {
+                type: Type.NUMBER,
+                description: 'Daily hydration target in glasses (1 to 24)',
+              },
+              snooze_minutes: {
+                type: Type.NUMBER,
+                description: 'Minutes to snooze when action is snooze',
+              },
+              message: {
+                type: Type.STRING,
+                description: 'Custom reminder message',
+              },
+              sound_enabled: {
+                type: Type.BOOLEAN,
+                description: 'Whether to play the gentle water chime sound',
+              },
+            },
+            required: ['action'],
+          },
+        },
+        {
+          name: 'control_music_player',
+          description:
+            'Control the built-in Luminess Music Player: play ambient synth or local/stream tracks, pause, resume, skip next/previous, set volume, open/close player window, or scan the Music folder.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              action: {
+                type: Type.STRING,
+                description: 'One of: play, pause, resume, next, prev, volume, open, close, scan, status',
+              },
+              query: {
+                type: Type.STRING,
+                description:
+                  'Optional track name or keyword when action is play (e.g. lofi, space, chimes, brown)',
+              },
+              volume: {
+                type: Type.NUMBER,
+                description: 'Volume level between 0 and 100 (or 0.0 to 1.0)',
+              },
+            },
+            required: ['action'],
+          },
+        },
       ],
     },
   ];
@@ -2434,6 +2548,8 @@ You have FULL access to the user's PC, persistent user memory, and a live web se
 - execute_pc_command (runs any PowerShell command on the PC)
 - open_item (opens any app, file, folder, or URL)
 - set_timer, get_pc_context
+- manage_drink_reminder (sets recurring water/drink reminders, logs glasses drank, checks daily hydration progress)
+- control_music_player (controls the built-in Music Player: play/pause/skip/volume/scan local music folder/open player)
 
 Whenever the user asks you to look up external facts or current information, use 'web_search' and cite your sources. Whenever the user shares who they are or their preferences, use 'remember_user_fact' and naturally remember them in conversation.
 

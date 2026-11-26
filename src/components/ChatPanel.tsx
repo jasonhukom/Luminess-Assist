@@ -19,6 +19,8 @@ import {
   Info,
   Zap,
   Settings,
+  Disc3,
+  Droplets,
 } from 'lucide-react';
 import type { Message, ToolPermissionRequest, PermissionDecision, AIProvider } from '../lib/gemini.ts';
 import type { VisualEmotion } from './Robot.tsx';
@@ -61,6 +63,13 @@ interface ChatPanelProps {
   onToggleHistoryBox?: () => void;
   isSettingsBoxOpen?: boolean;
   onToggleSettingsBox?: () => void;
+  isMusicBoxOpen?: boolean;
+  onToggleMusicBox?: () => void;
+  isMusicPlaying?: boolean;
+  drinkDailyGlasses?: number;
+  drinkGoalGlasses?: number;
+  drinkEnabled?: boolean;
+  onQuickLogDrink?: () => void;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -95,6 +104,13 @@ export function ChatPanel({
   onToggleHistoryBox,
   isSettingsBoxOpen = false,
   onToggleSettingsBox,
+  isMusicBoxOpen = false,
+  onToggleMusicBox,
+  isMusicPlaying = false,
+  drinkDailyGlasses = 0,
+  drinkGoalGlasses = 8,
+  drinkEnabled = true,
+  onQuickLogDrink,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [isResizing, setIsResizing] = useState(false);
@@ -240,6 +256,38 @@ export function ChatPanel({
           >
             <History size={15} />
           </button>
+
+          {/* Floating Music Player Box Toggle */}
+          {onToggleMusicBox && (
+            <button
+              type="button"
+              className={`icon-btn ${isMusicBoxOpen || isMusicPlaying ? 'active' : ''}`}
+              onClick={onToggleMusicBox}
+              title={
+                isMusicPlaying
+                  ? 'Music Player (Playing) • Click to show/hide player'
+                  : 'Open Floating Music Player'
+              }
+            >
+              <Disc3 size={15} className={isMusicPlaying ? 'animate-spin' : ''} />
+            </button>
+          )}
+
+          {/* Quick Drink Water Logger */}
+          {onQuickLogDrink && (
+            <button
+              type="button"
+              className={`icon-btn ${drinkEnabled ? 'active' : ''}`}
+              onClick={onQuickLogDrink}
+              title={`Log +1 glass of water (${drinkDailyGlasses}/${drinkGoalGlasses} today)`}
+              style={{ width: 'auto', padding: '0 6px', gap: 3, display: 'inline-flex', alignItems: 'center' }}
+            >
+              <Droplets size={14} />
+              <span style={{ fontSize: '10px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {drinkDailyGlasses}
+              </span>
+            </button>
+          )}
 
           {/* Floating Storage & Settings (config.json) Box Toggle */}
           {onToggleSettingsBox && (

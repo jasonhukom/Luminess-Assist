@@ -28,7 +28,16 @@ import {
   Download,
   Copy,
   Wand2,
+  Droplets,
+  Disc3,
 } from 'lucide-react';
+import {
+  clampDrinkGoal,
+  clampDrinkIntervalMinutes,
+  clampDrinkSnoozeMinutes,
+  normalizeDrinkReminderConfig,
+  playGentleWaterChime,
+} from '../lib/drinkReminder.ts';
 import type { VisualEmotion } from './Robot.tsx';
 import type { AIProvider, GoogleUserSession } from '../lib/gemini.ts';
 import type { NormalizedAIError } from '../lib/aiErrors.ts';
@@ -91,6 +100,10 @@ interface FloatingSettingsBoxProps {
   onOpenExternalUrl: (url: string) => void;
   onOpenSetupWizard?: () => void;
   onRunAiForkCustomize?: (prompt: string) => void;
+  drinkCountdownLabel?: string;
+  onOpenMusicPlayer?: () => void;
+  onTriggerDrinkAlert?: () => void;
+  onLogDrink?: () => void;
   onClose: () => void;
 }
 
@@ -142,6 +155,10 @@ export function FloatingSettingsBox({
   onOpenExternalUrl,
   onOpenSetupWizard,
   onRunAiForkCustomize,
+  drinkCountdownLabel,
+  onOpenMusicPlayer,
+  onTriggerDrinkAlert,
+  onLogDrink,
   onClose,
 }: FloatingSettingsBoxProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
@@ -1722,6 +1739,161 @@ export function FloatingSettingsBox({
                   </div>
                 );
               })}
+            </div>
+
+            <div className="floating-card-item">
+              <div className="floating-card-row">
+                <span className="floating-card-title">
+                  <Droplets size={13} style={{ display: 'inline', marginRight: '5px', color: '#38bdf8' }} />
+                  Hydration & Drink Reminder
+                </span>
+                <span style={{ fontSize: '10.5px', color: '#7dd3fc', fontWeight: 700 }}>
+                  {config.drink_reminder?.daily_glasses ?? 0}/{config.drink_reminder?.daily_goal_glasses ?? 8} glasses
+                </span>
+              </div>
+              <div className="floating-card-sub">
+                Next reminder: <strong>{drinkCountdownLabel || (config.drink_reminder?.enabled ? 'Scheduled' : 'Paused')}</strong>
+              </div>
+              <label className="floating-toggle-row" style={{ marginTop: '4px' }}>
+                <span>Enable Recurring Drink Reminder</span>
+                <input
+                  type="checkbox"
+                  checked={config.drink_reminder?.enabled ?? true}
+                  onChange={(e) => {
+                    const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                    void onUpdateConfig({
+                      ...config,
+                      drink_reminder: {
+                        ...base,
+                        enabled: e.target.checked,
+                        last_reminded_at: Date.now(),
+                        snoozed_until: 0,
+                      },
+                    });
+                  }}
+                />
+              </label>
+              <label className="floating-toggle-row" style={{ marginTop: '4px' }}>
+                <span>Gentle Water Chime Sound</span>
+                <input
+                  type="checkbox"
+                  checked={config.drink_reminder?.sound_enabled ?? true}
+                  onChange={(e) => {
+                    const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                    void onUpdateConfig({
+                      ...config,
+                      drink_reminder: { ...base, sound_enabled: e.target.checked },
+                    });
+                  }}
+                />
+              </label>
+              <div className="floating-pill-grid" style={{ marginTop: '6px' }}>
+                {[15, 30, 45, 60, 90, 120].map((mins) => {
+                  const active = (config.drink_reminder?.interval_minutes ?? 45) === mins;
+                  return (
+                    <button
+                      key={mins}
+                      type="button"
+                      className={`floating-chip ${active ? 'active' : ''}`}
+                      onClick={() => {
+                        const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                        void onUpdateConfig({
+                          ...config,
+                          drink_reminder: {
+                            ...base,
+                            enabled: true,
+                            interval_minutes: clampDrinkIntervalMinutes(mins),
+                            last_reminded_at: Date.now(),
+                            snoozed_until: 0,
+                          },
+                        });
+                      }}
+                    >
+                      {mins}m
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
+                <label className="floating-card-sub">
+                  Daily Goal (glasses)
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    className="floating-input"
+                    value={config.drink_reminder?.daily_goal_glasses ?? 8}
+                    onChange={(e) => {
+                      const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                      void onUpdateConfig({
+                        ...config,
+                        drink_reminder: {
+                          ...base,
+                          daily_goal_glasses: clampDrinkGoal(Number(e.target.value)),
+                        },
+                      });
+                    }}
+                  />
+                </label>
+                <label className="floating-card-sub">
+                  Snooze (min)
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    className="floating-input"
+                    value={config.drink_reminder?.snooze_minutes ?? 10}
+                    onChange={(e) => {
+                      const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                      void onUpdateConfig({
+                        ...config,
+                        drink_reminder: {
+                          ...base,
+                          snooze_minutes: clampDrinkSnoozeMinutes(Number(e.target.value)),
+                        },
+                      });
+                    }}
+                  />
+                </label>
+              </div>
+              <input
+                type="text"
+                className="floating-input"
+                style={{ marginTop: '6px' }}
+                placeholder="Custom drink reminder prompt..."
+                value={config.drink_reminder?.custom_message ?? ''}
+                onChange={(e) => {
+                  const base = normalizeDrinkReminderConfig(config.drink_reminder);
+                  void onUpdateConfig({
+                    ...config,
+                    drink_reminder: { ...base, custom_message: e.target.value },
+                  });
+                }}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                {onLogDrink && (
+                  <button type="button" className="floating-btn-primary" onClick={onLogDrink}>
+                    <Droplets size={13} />
+                    <span>+1 Drank Water</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="floating-btn-secondary"
+                  onClick={() => {
+                    playGentleWaterChime();
+                    onTriggerDrinkAlert?.();
+                  }}
+                >
+                  <span>Test Reminder</span>
+                </button>
+                {onOpenMusicPlayer && (
+                  <button type="button" className="floating-btn-secondary" onClick={onOpenMusicPlayer}>
+                    <Disc3 size={13} />
+                    <span>Music Player</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="floating-card-item">

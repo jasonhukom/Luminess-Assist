@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
@@ -7,6 +7,33 @@ import type { BotAngerTriggerSignal, Emotion, VisualEmotion } from './components
 import { ChatPanel } from './components/ChatPanel.tsx';
 import { FloatingHistoryBox } from './components/FloatingHistoryBox.tsx';
 import { FloatingSettingsBox, type SettingsTabId } from './components/FloatingSettingsBox.tsx';
+import { FloatingMusicBox } from './components/FloatingMusicBox.tsx';
+import {
+  DEFAULT_DRINK_MESSAGE,
+  formatCountdownMs,
+  getNextDrinkDueMs,
+  logDrinkGlass,
+  normalizeDrinkReminderConfig,
+  playGentleWaterChime,
+  shouldTriggerDrinkReminder,
+  snoozeDrinkReminder,
+  type DrinkReminderConfig,
+} from './lib/drinkReminder.ts';
+import {
+  AmbientSynthController,
+  BUILT_IN_AMBIENT_TRACKS,
+  buildUrlTrack,
+  mergeMusicPlaylist,
+  normalizeMusicPlayerConfig,
+  pickNextTrackIndex,
+  resolveLocalStreamUrl,
+  scanLocalMusicFromMachine,
+  type MusicCommandAction,
+  type MusicLoopMode,
+  type MusicPlayerConfig,
+  type MusicPlayerTrack,
+} from './lib/musicPlayer.ts';
+import { registerAssistantRuntimeHandlers } from './lib/assistantRuntime.ts';
 import {
   applyBotAppearanceCssVars,
   createDefaultBotCustomization,
@@ -104,6 +131,8 @@ import {
   TerminalSquare,
   Zap,
   HardDrive,
+  Droplets,
+  X,
 } from 'lucide-react';
 
 const PROVIDER_INFO: Record<
@@ -197,9 +226,10 @@ function App() {
   const [localServers, setLocalServers] = useState<LocalAiServerStatus[]>([]);
   const [isScanningLocalAi, setIsScanningLocalAi] = useState<boolean>(false);
 
-  // Two New Independent Floating UI Boxes (History Box & Storage/Settings Box)
+  // Three Independent Floating UI Boxes (History Box, Settings Box, Music Player) + Drink Reminder Alert
   const [historyBoxOpen, setHistoryBoxOpen] = useState<boolean>(false);
   const [settingsBoxOpen, setSettingsBoxOpen] = useState<boolean>(false);
+  const [musicBoxOpen, setMusicBoxOpen] = useState<boolean>(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('connectors');
   const [settingsTabSeq, setSettingsTabSeq] = useState<number>(0);
   const [historyBoxPos, setHistoryBoxPos] = useState<FloatingBoxPosition>(() => {
@@ -210,6 +240,21 @@ function App() {
     const cfg = getCachedAppConfig();
     return cfg.floating_positions?.settings || { x: 420, y: 80, width: 380, height: 500, visible: false };
   });
+  const [musicBoxPos, setMusicBoxPos] = useState<FloatingBoxPosition>(() => {
+    const cfg = getCachedAppConfig();
+    return cfg.floating_positions?.music || { x: 88, y: 116, width: 392, height: 496, visible: false };
+  });
+
+  const [drinkAlertVisible, setDrinkAlertVisible] = useState<boolean>(false);
+  const [drinkCountdownLabel, setDrinkCountdownLabel] = useState<string>('45m 00s');
+
+  const [localMusicTracks, setLocalMusicTracks] = useState<MusicPlayerTrack[]>([]);
+  const [resolvedMusicFolder, setResolvedMusicFolder] = useState<string>('');
+  const [isScanningMusic, setIsScanningMusic] = useState<boolean>(false);
+  const [musicIsPlaying, setMusicIsPlaying] = useState<boolean>(false);
+  const [musicCurrentTime, setMusicCurrentTime] = useState<number>(0);
+  const [musicDuration, setMusicDuration] = useState<number>(0);
+  const [musicPlayerError, setMusicPlayerError] = useState<string | null>(null);
 
   // Anchor coordinates for the Robot + Chatbox when full-screen floating workspace is active
   const [companionAnchor, setCompanionAnchor] = useState<{
@@ -252,6 +297,12 @@ function App() {
   const robotWrapRef = useRef<HTMLDivElement>(null);
   const historyBoxWrapRef = useRef<HTMLDivElement>(null);
   const settingsBoxWrapRef = useRef<HTMLDivElement>(null);
+  const musicBoxWrapRef = useRef<HTMLDivElement>(null);
+  const drinkAlertWrapRef = useRef<HTMLDivElement>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const synthRef = useRef<AmbientSynthController | null>(null);
+  const appConfigRef = useRef<AppConfigJson>(appConfig);
+  const drinkAlertVisibleRef = useRef<boolean>(false);
 
   const companionReadyRef = useRef<boolean>(false);
   const modalPlacedRef = useRef<boolean>(false);
@@ -380,9 +431,9 @@ function App() {
     };
   }, [chatOpen]);
 
-  // Whenever Chatbox opens/moves/resizes, ensure History Box and Settings Box automatically move away if touching
+  // Whenever Chatbox opens/moves/resizes, ensure History Box, Settings Box, and Music Player avoid overlap
   useEffect(() => {
-    if (!historyBoxOpen && !settingsBoxOpen) return;
+    if (!historyBoxOpen && !settingsBoxOpen && !musicBoxOpen) return;
     const timer = window.setTimeout(() => {
       const chatRect = getCurrentChatBoxScreenRect();
       if (!chatRect) return;
@@ -390,13 +441,11 @@ function App() {
 
       setHistoryBoxPos((prevHist) => {
         if (!historyBoxOpen) return prevHist;
-        const resolved = resolveFloatingBoxCollision(
-          prevHist,
-          chatRect,
-          settingsBoxOpen ? [settingsBoxPos] : [],
-          screenBounds,
-          18
-        );
+        const obstacles = [
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+        ];
+        const resolved = resolveFloatingBoxCollision(prevHist, chatRect, obstacles, screenBounds, 18);
         if (resolved.x !== prevHist.x || resolved.y !== prevHist.y) {
           return { ...prevHist, x: resolved.x, y: resolved.y };
         }
@@ -405,17 +454,28 @@ function App() {
 
       setSettingsBoxPos((prevSet) => {
         if (!settingsBoxOpen) return prevSet;
-        const resolved = resolveFloatingBoxCollision(
-          prevSet,
-          chatRect,
-          historyBoxOpen ? [historyBoxPos] : [],
-          screenBounds,
-          18
-        );
+        const obstacles = [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(musicBoxOpen ? [musicBoxPos] : []),
+        ];
+        const resolved = resolveFloatingBoxCollision(prevSet, chatRect, obstacles, screenBounds, 18);
         if (resolved.x !== prevSet.x || resolved.y !== prevSet.y) {
           return { ...prevSet, x: resolved.x, y: resolved.y };
         }
         return prevSet;
+      });
+
+      setMusicBoxPos((prevMusic) => {
+        if (!musicBoxOpen) return prevMusic;
+        const obstacles = [
+          ...(historyBoxOpen ? [historyBoxPos] : []),
+          ...(settingsBoxOpen ? [settingsBoxPos] : []),
+        ];
+        const resolved = resolveFloatingBoxCollision(prevMusic, chatRect, obstacles, screenBounds, 18);
+        if (resolved.x !== prevMusic.x || resolved.y !== prevMusic.y) {
+          return { ...prevMusic, x: resolved.x, y: resolved.y };
+        }
+        return prevMusic;
       });
     }, 30);
     return () => window.clearTimeout(timer);
@@ -427,6 +487,10 @@ function App() {
     companionAnchor,
     historyBoxOpen,
     settingsBoxOpen,
+    musicBoxOpen,
+    historyBoxPos,
+    settingsBoxPos,
+    musicBoxPos,
     getCurrentChatBoxScreenRect,
   ]);
 
@@ -437,7 +501,7 @@ function App() {
       const resolved = resolveFloatingBoxCollision(
         nextPos,
         chatRect,
-        settingsBoxOpen ? [settingsBoxPos] : [],
+        [...(settingsBoxOpen ? [settingsBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
         screenBounds,
         18
       );
@@ -455,7 +519,7 @@ function App() {
         return nextCfg;
       });
     },
-    [getCurrentChatBoxScreenRect, settingsBoxOpen, settingsBoxPos]
+    [getCurrentChatBoxScreenRect, settingsBoxOpen, settingsBoxPos, musicBoxOpen, musicBoxPos]
   );
 
   const handleMoveSettingsBox = useCallback(
@@ -465,7 +529,7 @@ function App() {
       const resolved = resolveFloatingBoxCollision(
         nextPos,
         chatRect,
-        historyBoxOpen ? [historyBoxPos] : [],
+        [...(historyBoxOpen ? [historyBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
         screenBounds,
         18
       );
@@ -483,7 +547,35 @@ function App() {
         return nextCfg;
       });
     },
-    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos]
+    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, musicBoxOpen, musicBoxPos]
+  );
+
+  const handleMoveMusicBox = useCallback(
+    (nextPos: FloatingBoxPosition) => {
+      const chatRect = getCurrentChatBoxScreenRect();
+      const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+      const resolved = resolveFloatingBoxCollision(
+        nextPos,
+        chatRect,
+        [...(historyBoxOpen ? [historyBoxPos] : []), ...(settingsBoxOpen ? [settingsBoxPos] : [])],
+        screenBounds,
+        18
+      );
+      const updated: FloatingBoxPosition = { ...nextPos, x: resolved.x, y: resolved.y };
+      setMusicBoxPos(updated);
+      setAppConfig((prev) => {
+        const nextCfg: AppConfigJson = {
+          ...prev,
+          floating_positions: {
+            ...prev.floating_positions,
+            music: updated,
+          },
+        };
+        void saveAppConfigToMachine(nextCfg);
+        return nextCfg;
+      });
+    },
+    [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, settingsBoxOpen, settingsBoxPos]
   );
 
   const handleToggleHistoryBox = useCallback(() => {
@@ -499,7 +591,7 @@ function App() {
               { width: cur.width, height: cur.height },
               { x: cur.x, y: cur.y },
               chatRect,
-              settingsBoxOpen ? [settingsBoxPos] : [],
+              [...(settingsBoxOpen ? [settingsBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
               screenBounds
             );
             return { ...cur, x: spawned.x, y: spawned.y, visible: true };
@@ -508,7 +600,14 @@ function App() {
       }
       return next;
     });
-  }, [getCurrentChatBoxScreenRect, refreshMemoryAndStorageData, settingsBoxOpen, settingsBoxPos]);
+  }, [
+    getCurrentChatBoxScreenRect,
+    refreshMemoryAndStorageData,
+    settingsBoxOpen,
+    settingsBoxPos,
+    musicBoxOpen,
+    musicBoxPos,
+  ]);
 
   const handleToggleSettingsBox = useCallback(() => {
     setSettingsBoxOpen((prev) => {
@@ -524,7 +623,7 @@ function App() {
               { width: cur.width, height: cur.height },
               { x: cur.x, y: cur.y },
               chatRect,
-              historyBoxOpen ? [historyBoxPos] : [],
+              [...(historyBoxOpen ? [historyBoxPos] : []), ...(musicBoxOpen ? [musicBoxPos] : [])],
               screenBounds
             );
             return { ...cur, x: spawned.x, y: spawned.y, visible: true };
@@ -539,7 +638,32 @@ function App() {
     refreshLocalAiStatus,
     historyBoxOpen,
     historyBoxPos,
+    musicBoxOpen,
+    musicBoxPos,
   ]);
+
+  const handleToggleMusicBox = useCallback(() => {
+    setMusicBoxOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          const chatRect = getCurrentChatBoxScreenRect();
+          const screenBounds = { width: window.innerWidth, height: window.innerHeight };
+          setMusicBoxPos((cur) => {
+            const spawned = spawnNonOverlappingBox(
+              { width: cur.width, height: cur.height },
+              { x: cur.x, y: cur.y },
+              chatRect,
+              [...(historyBoxOpen ? [historyBoxPos] : []), ...(settingsBoxOpen ? [settingsBoxPos] : [])],
+              screenBounds
+            );
+            return { ...cur, x: spawned.x, y: spawned.y, visible: true };
+          });
+        }, 50);
+      }
+      return next;
+    });
+  }, [getCurrentChatBoxScreenRect, historyBoxOpen, historyBoxPos, settingsBoxOpen, settingsBoxPos]);
 
   const handleScreenSideChange = useCallback(
     (botScreenSide: 'left' | 'right', botScreenVert: 'up' | 'down') => {
@@ -608,6 +732,14 @@ function App() {
         const r = settingsBoxWrapRef.current.getBoundingClientRect();
         rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
       }
+      if (musicBoxOpen && musicBoxWrapRef.current) {
+        const r = musicBoxWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
+      if (drinkAlertVisible && drinkAlertWrapRef.current) {
+        const r = drinkAlertWrapRef.current.getBoundingClientRect();
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
       if (robotWrapRef.current) {
         const r = robotWrapRef.current.getBoundingClientRect();
         const insetX = r.width * 0.12;
@@ -637,7 +769,17 @@ function App() {
       companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
       botCenter,
     }).catch(() => {});
-  }, [bootComplete, showApiModal, chatOpen, historyBoxOpen, settingsBoxOpen, isDraggingBot, brokenSeconds]);
+  }, [
+    bootComplete,
+    showApiModal,
+    chatOpen,
+    historyBoxOpen,
+    settingsBoxOpen,
+    musicBoxOpen,
+    drinkAlertVisible,
+    isDraggingBot,
+    brokenSeconds,
+  ]);
 
   useEffect(() => {
     syncInteractiveRegions();
@@ -647,9 +789,19 @@ function App() {
       window.clearInterval(timer);
       window.removeEventListener('resize', syncInteractiveRegions);
     };
-  }, [syncInteractiveRegions, panelSize, robotSize, chatSide, chatVert, historyBoxPos, settingsBoxPos]);
+  }, [
+    syncInteractiveRegions,
+    panelSize,
+    robotSize,
+    chatSide,
+    chatVert,
+    historyBoxPos,
+    settingsBoxPos,
+    musicBoxPos,
+  ]);
 
-  const floatingWorkspaceActive = !showApiModal && (historyBoxOpen || settingsBoxOpen);
+  const floatingWorkspaceActive =
+    !showApiModal && (historyBoxOpen || settingsBoxOpen || musicBoxOpen || drinkAlertVisible);
 
   useEffect(() => {
     const updateWindowGeometry = async () => {
@@ -1061,6 +1213,8 @@ function App() {
         setChatOpen(false);
         setHistoryBoxOpen(false);
         setSettingsBoxOpen(false);
+        setMusicBoxOpen(false);
+        setDrinkAlertVisible(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1483,6 +1637,440 @@ function App() {
     const st = await getMachineStorageStatus();
     setStorageStatus(st);
   };
+
+  useEffect(() => {
+    appConfigRef.current = appConfig;
+  }, [appConfig]);
+
+  useEffect(() => {
+    drinkAlertVisibleRef.current = drinkAlertVisible;
+  }, [drinkAlertVisible]);
+
+  const musicConfig = useMemo(
+    () => normalizeMusicPlayerConfig(appConfig.music_player),
+    [appConfig.music_player]
+  );
+
+  const musicPlaylist = useMemo(
+    () => mergeMusicPlaylist(localMusicTracks, musicConfig.custom_tracks),
+    [localMusicTracks, musicConfig.custom_tracks]
+  );
+
+  const activeMusicTrack = useMemo(
+    () =>
+      musicPlaylist.find((t) => t.id === musicConfig.active_track_id) ||
+      musicPlaylist[0] ||
+      BUILT_IN_AMBIENT_TRACKS[0],
+    [musicPlaylist, musicConfig.active_track_id]
+  );
+
+  const updateMusicConfigState = useCallback(
+    async (partial: Partial<MusicPlayerConfig>) => {
+      const merged = normalizeMusicPlayerConfig({
+        ...normalizeMusicPlayerConfig(appConfigRef.current.music_player),
+        ...partial,
+      });
+      const saved = await saveAppConfigToMachine({ music_player: merged });
+      setAppConfig(saved);
+      return saved.music_player;
+    },
+    []
+  );
+
+  const musicNextRef = useRef<() => void>(() => {});
+
+  const startPlayingTrack = useCallback(
+    async (track: MusicPlayerTrack, cfgOverride?: MusicPlayerConfig) => {
+      const cfg = cfgOverride || normalizeMusicPlayerConfig(appConfigRef.current.music_player);
+      setMusicPlayerError(null);
+      await updateMusicConfigState({ active_track_id: track.id });
+
+      if (track.source === 'ambient') {
+        if (audioElRef.current) {
+          audioElRef.current.pause();
+        }
+        if (!synthRef.current) {
+          synthRef.current = new AmbientSynthController();
+        }
+        synthRef.current.start(track.ambientPreset || 'lofi', cfg.volume, cfg.muted);
+        setMusicDuration(0);
+        setMusicCurrentTime(0);
+        setMusicIsPlaying(true);
+        return;
+      }
+
+      synthRef.current?.stop();
+      try {
+        const streamUrl =
+          track.source === 'local' ? await resolveLocalStreamUrl(track.uri) : track.uri;
+        if (!audioElRef.current) {
+          const el = new Audio();
+          el.preload = 'metadata';
+          el.ontimeupdate = () => setMusicCurrentTime(el.currentTime || 0);
+          el.onloadedmetadata = () =>
+            setMusicDuration(Number.isFinite(el.duration) ? el.duration : 0);
+          el.onended = () => {
+            const curCfg = normalizeMusicPlayerConfig(appConfigRef.current.music_player);
+            if (curCfg.loop_mode === 'one') {
+              el.currentTime = 0;
+              void el.play().catch(() => {});
+              return;
+            }
+            musicNextRef.current();
+          };
+          el.onerror = () => {
+            setMusicIsPlaying(false);
+            setMusicPlayerError(`Could not play "${track.title}". Check file path or stream URL.`);
+          };
+          audioElRef.current = el;
+        }
+        const el = audioElRef.current;
+        el.volume = cfg.muted ? 0 : cfg.volume;
+        el.src = streamUrl;
+        el.currentTime = 0;
+        await el.play();
+        setMusicIsPlaying(true);
+      } catch (err: unknown) {
+        setMusicIsPlaying(false);
+        setMusicPlayerError(err instanceof Error ? err.message : 'Unable to start audio playback.');
+      }
+    },
+    [updateMusicConfigState]
+  );
+
+  const handlePauseMusic = useCallback(() => {
+    audioElRef.current?.pause();
+    synthRef.current?.stop();
+    setMusicIsPlaying(false);
+  }, []);
+
+  const handlePlayPauseMusic = useCallback(() => {
+    if (musicIsPlaying) {
+      handlePauseMusic();
+      return;
+    }
+    if (
+      activeMusicTrack.source !== 'ambient' &&
+      audioElRef.current &&
+      audioElRef.current.src &&
+      audioElRef.current.paused
+    ) {
+      audioElRef.current.volume = musicConfig.muted ? 0 : musicConfig.volume;
+      void audioElRef.current
+        .play()
+        .then(() => setMusicIsPlaying(true))
+        .catch(() => {
+          void startPlayingTrack(activeMusicTrack, musicConfig);
+        });
+      return;
+    }
+    void startPlayingTrack(activeMusicTrack, musicConfig);
+  }, [
+    musicIsPlaying,
+    handlePauseMusic,
+    activeMusicTrack,
+    musicConfig,
+    startPlayingTrack,
+  ]);
+
+  const handleMusicNext = useCallback(() => {
+    const idx = pickNextTrackIndex(
+      musicPlaylist,
+      activeMusicTrack?.id || null,
+      1,
+      musicConfig.shuffle,
+      musicConfig.loop_mode === 'off' ? 'off' : 'all'
+    );
+    if (idx < 0 || !musicPlaylist[idx]) {
+      handlePauseMusic();
+      return;
+    }
+    void startPlayingTrack(musicPlaylist[idx], musicConfig);
+  }, [musicPlaylist, activeMusicTrack, musicConfig, handlePauseMusic, startPlayingTrack]);
+
+  useEffect(() => {
+    musicNextRef.current = handleMusicNext;
+  }, [handleMusicNext]);
+
+  const handleMusicPrev = useCallback(() => {
+    if (
+      activeMusicTrack.source !== 'ambient' &&
+      audioElRef.current &&
+      audioElRef.current.currentTime > 4
+    ) {
+      audioElRef.current.currentTime = 0;
+      setMusicCurrentTime(0);
+      return;
+    }
+    const idx = pickNextTrackIndex(
+      musicPlaylist,
+      activeMusicTrack?.id || null,
+      -1,
+      musicConfig.shuffle,
+      'all'
+    );
+    if (idx >= 0 && musicPlaylist[idx]) {
+      void startPlayingTrack(musicPlaylist[idx], musicConfig);
+    }
+  }, [musicPlaylist, activeMusicTrack, musicConfig, startPlayingTrack]);
+
+  const handleSeekMusic = useCallback((seconds: number) => {
+    if (audioElRef.current && Number.isFinite(seconds)) {
+      audioElRef.current.currentTime = seconds;
+      setMusicCurrentTime(seconds);
+    }
+  }, []);
+
+  const handleSetMusicVolume = useCallback(
+    (vol: number) => {
+      const clamped = Math.max(0, Math.min(1, vol));
+      const muted = clamped <= 0.005;
+      if (audioElRef.current) {
+        audioElRef.current.volume = muted ? 0 : clamped;
+      }
+      synthRef.current?.setVolume(clamped, muted);
+      void updateMusicConfigState({ volume: clamped, muted });
+    },
+    [updateMusicConfigState]
+  );
+
+  const handleToggleMusicMute = useCallback(() => {
+    const nextMuted = !musicConfig.muted;
+    if (audioElRef.current) {
+      audioElRef.current.volume = nextMuted ? 0 : musicConfig.volume;
+    }
+    synthRef.current?.setVolume(musicConfig.volume, nextMuted);
+    void updateMusicConfigState({ muted: nextMuted });
+  }, [musicConfig.muted, musicConfig.volume, updateMusicConfigState]);
+
+  const handleToggleMusicShuffle = useCallback(() => {
+    void updateMusicConfigState({ shuffle: !musicConfig.shuffle });
+  }, [musicConfig.shuffle, updateMusicConfigState]);
+
+  const handleCycleMusicLoop = useCallback(() => {
+    const order: MusicLoopMode[] = ['all', 'one', 'off'];
+    const next = order[(order.indexOf(musicConfig.loop_mode) + 1) % order.length];
+    void updateMusicConfigState({ loop_mode: next });
+  }, [musicConfig.loop_mode, updateMusicConfigState]);
+
+  const handleScanMusicFolder = useCallback(
+    async (folderOverride?: string) => {
+      setIsScanningMusic(true);
+      setMusicPlayerError(null);
+      try {
+        const res = await scanLocalMusicFromMachine(
+          folderOverride !== undefined ? folderOverride : musicConfig.music_folder || undefined
+        );
+        setLocalMusicTracks(res.tracks);
+        if (res.folder) setResolvedMusicFolder(res.folder);
+        if (folderOverride !== undefined) {
+          await updateMusicConfigState({ music_folder: folderOverride.trim() });
+        }
+        return res;
+      } finally {
+        setIsScanningMusic(false);
+      }
+    },
+    [musicConfig.music_folder, updateMusicConfigState]
+  );
+
+  const handleAddUrlMusicTrack = useCallback(
+    (url: string, title?: string): string | null => {
+      const built = buildUrlTrack(url, title);
+      if (!built) {
+        return 'Enter a valid http:// or https:// audio/stream URL.';
+      }
+      const nextCustom = [
+        built,
+        ...musicConfig.custom_tracks.filter((t) => t.id !== built.id),
+      ];
+      void updateMusicConfigState({ custom_tracks: nextCustom, active_track_id: built.id });
+      return null;
+    },
+    [musicConfig.custom_tracks, updateMusicConfigState]
+  );
+
+  const handleRemoveCustomMusicTrack = useCallback(
+    (trackId: string) => {
+      const nextCustom = musicConfig.custom_tracks.filter((t) => t.id !== trackId);
+      void updateMusicConfigState({ custom_tracks: nextCustom });
+    },
+    [musicConfig.custom_tracks, updateMusicConfigState]
+  );
+
+  const handleQuickLogDrink = useCallback(async () => {
+    const nowMs = Date.now();
+    const curDrink = normalizeDrinkReminderConfig(appConfigRef.current.drink_reminder, nowMs);
+    const updatedDrink = logDrinkGlass(curDrink, 1, nowMs);
+    if (updatedDrink.sound_enabled) {
+      playGentleWaterChime();
+    }
+    setDrinkAlertVisible(false);
+    setDrinkCountdownLabel(formatCountdownMs(getNextDrinkDueMs(updatedDrink, nowMs) - nowMs));
+    const saved = await saveAppConfigToMachine({ drink_reminder: updatedDrink });
+    setAppConfig(saved);
+    setEmotion('joy');
+  }, []);
+
+  const handleSnoozeDrink = useCallback(async () => {
+    const nowMs = Date.now();
+    const curDrink = normalizeDrinkReminderConfig(appConfigRef.current.drink_reminder, nowMs);
+    const snoozed = snoozeDrinkReminder(curDrink, curDrink.snooze_minutes, nowMs);
+    setDrinkAlertVisible(false);
+    setDrinkCountdownLabel(formatCountdownMs(getNextDrinkDueMs(snoozed, nowMs) - nowMs));
+    const saved = await saveAppConfigToMachine({ drink_reminder: snoozed });
+    setAppConfig(saved);
+  }, []);
+
+  const handleDismissDrinkAlert = useCallback(async () => {
+    const nowMs = Date.now();
+    const curDrink = normalizeDrinkReminderConfig(appConfigRef.current.drink_reminder, nowMs);
+    const resetTimer: DrinkReminderConfig = {
+      ...curDrink,
+      last_reminded_at: nowMs,
+      snoozed_until: 0,
+    };
+    setDrinkAlertVisible(false);
+    setDrinkCountdownLabel(formatCountdownMs(getNextDrinkDueMs(resetTimer, nowMs) - nowMs));
+    const saved = await saveAppConfigToMachine({ drink_reminder: resetTimer });
+    setAppConfig(saved);
+  }, []);
+
+  useEffect(() => {
+    void scanLocalMusicFromMachine(getCachedAppConfig().music_player?.music_folder).then((res) => {
+      if (res.folder) setResolvedMusicFolder(res.folder);
+      if (res.tracks.length > 0) setLocalMusicTracks(res.tracks);
+    });
+    return () => {
+      audioElRef.current?.pause();
+      synthRef.current?.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    const tickHydration = () => {
+      const nowMs = Date.now();
+      const drinkCfg = normalizeDrinkReminderConfig(appConfigRef.current.drink_reminder, nowMs);
+      if (!drinkCfg.enabled) {
+        setDrinkCountdownLabel('Paused');
+        return;
+      }
+      const remaining = getNextDrinkDueMs(drinkCfg, nowMs) - nowMs;
+      setDrinkCountdownLabel(formatCountdownMs(remaining));
+      if (shouldTriggerDrinkReminder(drinkCfg, nowMs) && !drinkAlertVisibleRef.current) {
+        if (drinkCfg.sound_enabled) {
+          playGentleWaterChime();
+        }
+        setDrinkAlertVisible(true);
+        setEmotion('joy');
+      }
+    };
+    tickHydration();
+    const intervalId = window.setInterval(tickHydration, 15_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    return registerAssistantRuntimeHandlers({
+      onDrinkConfigUpdated: (nextDrink) => {
+        const nowMs = Date.now();
+        setAppConfig((prev) => ({ ...prev, drink_reminder: nextDrink }));
+        setDrinkCountdownLabel(
+          nextDrink.enabled ? formatCountdownMs(getNextDrinkDueMs(nextDrink, nowMs) - nowMs) : 'Paused'
+        );
+      },
+      onMusicCommand: async (action: MusicCommandAction) => {
+        if (action.type === 'open') {
+          if (!musicBoxOpen) handleToggleMusicBox();
+          return { ok: true, summary: 'Opened the Luminess Music Player window.' };
+        }
+        if (action.type === 'close') {
+          setMusicBoxOpen(false);
+          return { ok: true, summary: 'Minimized the Music Player window (playback state kept).' };
+        }
+        if (action.type === 'scan') {
+          const res = await handleScanMusicFolder();
+          return {
+            ok: true,
+            folder: res.folder,
+            count: res.tracks.length,
+            summary: `Scanned ${res.folder || 'Music folder'}: found ${res.tracks.length} audio file(s).`,
+          };
+        }
+        if (action.type === 'pause') {
+          handlePauseMusic();
+          return { ok: true, isPlaying: false, summary: 'Paused music playback.' };
+        }
+        if (action.type === 'resume') {
+          if (!musicIsPlaying) {
+            await startPlayingTrack(activeMusicTrack, musicConfig);
+          }
+          return {
+            ok: true,
+            isPlaying: true,
+            track: activeMusicTrack.title,
+            summary: `Resumed "${activeMusicTrack.title}".`,
+          };
+        }
+        if (action.type === 'next') {
+          handleMusicNext();
+          return { ok: true, summary: 'Skipped to next track.' };
+        }
+        if (action.type === 'prev') {
+          handleMusicPrev();
+          return { ok: true, summary: 'Switched to previous track.' };
+        }
+        if (action.type === 'volume') {
+          handleSetMusicVolume(action.volume);
+          return {
+            ok: true,
+            volume: action.volume,
+            summary: `Music volume set to ${Math.round(action.volume * 100)}%.`,
+          };
+        }
+        if (action.type === 'play') {
+          let chosen = activeMusicTrack;
+          if (action.query) {
+            const q = action.query.toLowerCase();
+            const match = musicPlaylist.find(
+              (t) =>
+                t.title.toLowerCase().includes(q) ||
+                t.artist.toLowerCase().includes(q) ||
+                t.source.toLowerCase().includes(q)
+            );
+            if (match) chosen = match;
+          }
+          await startPlayingTrack(chosen, musicConfig);
+          return {
+            ok: true,
+            track: chosen.title,
+            artist: chosen.artist,
+            summary: `Now playing "${chosen.title}" (${chosen.artist}).`,
+          };
+        }
+        return {
+          ok: true,
+          isPlaying: musicIsPlaying,
+          track: activeMusicTrack.title,
+          artist: activeMusicTrack.artist,
+          summary: `${musicIsPlaying ? 'Playing' : 'Paused'}: "${activeMusicTrack.title}" by ${activeMusicTrack.artist}.`,
+        };
+      },
+    });
+  }, [
+    activeMusicTrack,
+    handleMusicNext,
+    handleMusicPrev,
+    handlePauseMusic,
+    handleScanMusicFolder,
+    handleSetMusicVolume,
+    handleToggleMusicBox,
+    musicBoxOpen,
+    musicConfig,
+    musicIsPlaying,
+    musicPlaylist,
+    startPlayingTrack,
+  ]);
 
   const handleUpdateConfig = async (nextCfg: AppConfigJson) => {
     const saved = await saveAppConfigToMachine(nextCfg);
@@ -2286,6 +2874,13 @@ function App() {
                   onToggleHistoryBox={handleToggleHistoryBox}
                   isSettingsBoxOpen={settingsBoxOpen}
                   onToggleSettingsBox={handleToggleSettingsBox}
+                  isMusicBoxOpen={musicBoxOpen}
+                  onToggleMusicBox={handleToggleMusicBox}
+                  isMusicPlaying={musicIsPlaying}
+                  drinkDailyGlasses={appConfig.drink_reminder?.daily_glasses ?? 0}
+                  drinkGoalGlasses={appConfig.drink_reminder?.daily_goal_glasses ?? 8}
+                  drinkEnabled={appConfig.drink_reminder?.enabled ?? true}
+                  onQuickLogDrink={() => void handleQuickLogDrink()}
                 />
               </div>
             )}
@@ -2372,8 +2967,105 @@ function App() {
                   setChatOpen(true);
                   void handleSendMessage(prompt);
                 }}
+                drinkCountdownLabel={drinkCountdownLabel}
+                onOpenMusicPlayer={() => {
+                  if (!musicBoxOpen) handleToggleMusicBox();
+                }}
+                onTriggerDrinkAlert={() => setDrinkAlertVisible(true)}
+                onLogDrink={() => void handleQuickLogDrink()}
                 onClose={() => setSettingsBoxOpen(false)}
               />
+            </div>
+          )}
+
+          {/* Floating Box 3: Built-In Music Player */}
+          {musicBoxOpen && (
+            <div ref={musicBoxWrapRef} style={{ display: 'contents' }}>
+              <FloatingMusicBox
+                position={musicBoxPos}
+                onChangePosition={handleMoveMusicBox}
+                emotion={visualEmotion}
+                config={musicConfig}
+                playlist={musicPlaylist}
+                activeTrack={activeMusicTrack}
+                isPlaying={musicIsPlaying}
+                currentTime={musicCurrentTime}
+                duration={musicDuration}
+                isScanning={isScanningMusic}
+                resolvedMusicFolder={resolvedMusicFolder}
+                playerError={musicPlayerError}
+                onPlayPause={handlePlayPauseMusic}
+                onSelectTrack={(track) => void startPlayingTrack(track, musicConfig)}
+                onNext={handleMusicNext}
+                onPrev={handleMusicPrev}
+                onSeek={handleSeekMusic}
+                onToggleShuffle={handleToggleMusicShuffle}
+                onCycleLoop={handleCycleMusicLoop}
+                onSetVolume={handleSetMusicVolume}
+                onToggleMute={handleToggleMusicMute}
+                onScanFolder={(folder) => void handleScanMusicFolder(folder)}
+                onAddUrlTrack={handleAddUrlMusicTrack}
+                onRemoveCustomTrack={handleRemoveCustomMusicTrack}
+                onClose={() => setMusicBoxOpen(false)}
+              />
+            </div>
+          )}
+
+          {/* Floating Hydration / Drink Water Reminder Pill */}
+          {drinkAlertVisible && (
+            <div ref={drinkAlertWrapRef} style={{ display: 'contents' }}>
+              <div
+                className="drink-reminder-pill"
+                style={{
+                  left: `${Math.max(16, Math.min(window.innerWidth - 310, companionAnchor.left + 20))}px`,
+                  top: `${Math.max(16, companionAnchor.top - 120)}px`,
+                }}
+              >
+                <div className="floating-card-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Droplets size={16} style={{ color: '#38bdf8' }} />
+                    <span className="floating-card-title" style={{ fontSize: 13 }}>
+                      Drink Water Reminder
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => void handleDismissDrinkAlert()}
+                    title="Dismiss reminder"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <div className="floating-card-sub" style={{ color: '#e2e8f0', fontSize: 12 }}>
+                  {appConfig.drink_reminder?.custom_message || DEFAULT_DRINK_MESSAGE}
+                </div>
+                <div className="floating-card-row" style={{ marginTop: 2 }}>
+                  <span style={{ fontSize: 10.5, color: '#7dd3fc', fontWeight: 600 }}>
+                    Today: {appConfig.drink_reminder?.daily_glasses ?? 0}/
+                    {appConfig.drink_reminder?.daily_goal_glasses ?? 8} glasses
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="floating-btn-secondary"
+                      onClick={() => void handleSnoozeDrink()}
+                      style={{ padding: '5px 8px', fontSize: 11 }}
+                    >
+                      Snooze {appConfig.drink_reminder?.snooze_minutes ?? 10}m
+                    </button>
+                    <button
+                      type="button"
+                      className="floating-btn-primary"
+                      onClick={() => void handleQuickLogDrink()}
+                      style={{ padding: '5px 10px', fontSize: 11 }}
+                    >
+                      <Droplets size={12} />
+                      <span>I drank (+1)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </>

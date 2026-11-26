@@ -16,6 +16,9 @@ import {
   performWebSearchAndStore,
 } from './memoryAndStorage.ts';
 import { getPersonalityPromptContext } from './personality.ts';
+import { parseDrinkReminderCommand } from './drinkReminder.ts';
+import { parseMusicPlayerCommand } from './musicPlayer.ts';
+import { executeDrinkToolAction, executeMusicToolAction } from './assistantRuntime.ts';
 
 /**
  * Safely evaluates simple mathematical expressions like "25 * 4", "100 / 5", "12 + 38".
@@ -461,6 +464,40 @@ export async function runOfflineAgent(
       role: 'assistant',
       content: `Take a deep breath and give your eyes a short break from the screen${rememberedName ? `, ${rememberedName}` : ''}. I'm right here with you on your desktop!`,
       emotion: 'love',
+    };
+  }
+
+  // 12B. Hydration / Drink Reminder Commands
+  const drinkAction = parseDrinkReminderCommand(userText);
+  if (drinkAction) {
+    const res = await executeDrinkToolAction({
+      action: drinkAction.type,
+      interval_minutes: drinkAction.type === 'enable' ? drinkAction.intervalMinutes : undefined,
+      glasses: drinkAction.type === 'log' ? drinkAction.glasses : undefined,
+      goal_glasses: drinkAction.type === 'set_goal' ? drinkAction.goal : undefined,
+      snooze_minutes: drinkAction.type === 'snooze' ? drinkAction.minutes : undefined,
+    });
+    executedActions.push(`Drink Reminder: ${String(res.summary || drinkAction.type)}`);
+    onEmotion('joy');
+    return {
+      role: 'assistant',
+      content: `💧 ${String(res.summary || 'Updated drink reminder.')}`,
+      emotion: 'joy',
+      toolActions: executedActions,
+    };
+  }
+
+  // 12C. Built-in Music Player Commands
+  const musicAction = parseMusicPlayerCommand(userText);
+  if (musicAction) {
+    const res = await executeMusicToolAction(musicAction);
+    executedActions.push(`Music Player: ${String(res.summary || musicAction.type)}`);
+    onEmotion('joy');
+    return {
+      role: 'assistant',
+      content: `🎵 ${String(res.summary || 'Updated Music Player.')}`,
+      emotion: 'joy',
+      toolActions: executedActions,
     };
   }
 
