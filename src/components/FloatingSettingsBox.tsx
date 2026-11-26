@@ -31,6 +31,10 @@ import {
   Droplets,
   Disc3,
   Activity,
+  Brain,
+  Lock,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import {
   clampDrinkGoal,
@@ -49,6 +53,7 @@ import {
   type FloatingBoxPosition,
   type StorageStatus,
   type StorageTierId,
+  type UserMemoryItem,
 } from '../lib/memoryAndStorage.ts';
 import {
   COLOR_PALETTE_PRESETS,
@@ -106,6 +111,11 @@ interface FloatingSettingsBoxProps {
   onOpenWellbeingBox?: () => void;
   onTriggerDrinkAlert?: () => void;
   onLogDrink?: () => void;
+  memories: UserMemoryItem[];
+  onAddMemory: (category: UserMemoryItem['category'], key: string, value: string) => void;
+  onDeleteMemory: (memoryId: string) => void;
+  onClearMemories: () => void;
+  onToggleWindowsStartup?: (enabled: boolean) => Promise<void>;
   onClose: () => void;
 }
 
@@ -162,6 +172,11 @@ export function FloatingSettingsBox({
   onOpenWellbeingBox,
   onTriggerDrinkAlert,
   onLogDrink,
+  memories,
+  onAddMemory,
+  onDeleteMemory,
+  onClearMemories,
+  onToggleWindowsStartup,
   onClose,
 }: FloatingSettingsBoxProps) {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
@@ -228,6 +243,9 @@ export function FloatingSettingsBox({
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
+  const [newMemKey, setNewMemKey] = useState('');
+  const [newMemValue, setNewMemValue] = useState('');
+  const [newMemCategory, setNewMemCategory] = useState<UserMemoryItem['category']>('fact');
 
   // Fork Sync & Platform Pairing state
   const botCustom: BotCustomizationManifest =
@@ -1468,10 +1486,19 @@ export function FloatingSettingsBox({
             </div>
 
             <div className="floating-card-item">
-              <div className="floating-card-title">Bot Name & Personality Prompt</div>
+              <div className="floating-card-row">
+                <span className="floating-card-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  <Lock size={12} />
+                  <span>Who Luminess Is (Settings-Only)</span>
+                </span>
+                <span style={{ fontSize: '9.5px', color: '#94a3b8' }}>Locked from chat edits</span>
+              </div>
+              <div className="floating-card-sub">
+                Who Luminess is can only be changed here in Settings — chat messages cannot rewrite Luminess&apos;s core identity.
+              </div>
               <div className="floating-color-grid" style={{ marginTop: '4px' }}>
                 <label style={{ fontSize: '10.5px', color: '#cbd5e1' }}>
-                  Bot Name:
+                  Bot Name (Who Luminess Is):
                   <input
                     type="text"
                     className="floating-input"
@@ -1486,12 +1513,12 @@ export function FloatingSettingsBox({
                   />
                 </label>
                 <label style={{ fontSize: '10.5px', color: '#cbd5e1' }}>
-                  Call You:
+                  Call You (Your Name):
                   <input
                     type="text"
                     className="floating-input"
                     style={{ marginTop: '2px' }}
-                    placeholder="Boss / Commander..."
+                    placeholder="What should Luminess call you?"
                     value={botCustom.userName}
                     onChange={(e) =>
                       void updateBotCustomization((prev) => ({
@@ -1499,15 +1526,21 @@ export function FloatingSettingsBox({
                         userName: e.target.value,
                       }))
                     }
+                    onBlur={(e) => {
+                      const trimmed = e.target.value.trim();
+                      if (trimmed) {
+                        onAddMemory('identity', 'preferred_name', trimmed);
+                      }
+                    }}
                   />
                 </label>
               </div>
               <label style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '5px' }}>
-                Custom Personality Prompt:
+                Who Luminess Is (Personality & Behavior Instructions):
                 <textarea
                   className="config-json-textarea"
-                  style={{ minHeight: '72px', marginTop: '3px' }}
-                  placeholder="Describe how your bot talks, reacts, or acts..."
+                  style={{ minHeight: '66px', marginTop: '3px' }}
+                  placeholder="Describe who Luminess is and how they act (only editable in Settings)..."
                   value={botCustom.personality.customPrompt}
                   onChange={(e) =>
                     void updateBotCustomization((prev) => ({
@@ -1517,6 +1550,159 @@ export function FloatingSettingsBox({
                   }
                 />
               </label>
+              <label style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '5px' }}>
+                What Would You Like Luminess to Know About You? (Bio):
+                <textarea
+                  className="config-json-textarea"
+                  style={{ minHeight: '56px', marginTop: '3px' }}
+                  placeholder="Your work, hobbies, goals, preferences, timezone, or projects..."
+                  value={botCustom.userBio || ''}
+                  onChange={(e) =>
+                    void updateBotCustomization((prev) => ({
+                      ...prev,
+                      userBio: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="floating-card-item">
+              <div className="floating-card-row">
+                <span className="floating-card-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  <Brain size={12} />
+                  <span>Saved Memory (ChatGPT-Style)</span>
+                </span>
+                {memories.length > 0 && (
+                  <button
+                    type="button"
+                    className="floating-btn-secondary"
+                    style={{ padding: '2px 7px', fontSize: '9.5px' }}
+                    onClick={onClearMemories}
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+              <label className="floating-toggle-row" style={{ marginTop: '2px' }}>
+                <span>Reference & Keep Saved Memories Across Sessions</span>
+                <input
+                  type="checkbox"
+                  checked={config.memory_sync_enabled}
+                  onChange={(e) =>
+                    void onUpdateConfig({ ...config, memory_sync_enabled: e.target.checked })
+                  }
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '4px', marginTop: '5px', flexWrap: 'wrap' }}>
+                <select
+                  className="floating-input"
+                  style={{ width: '92px', flex: '0 0 auto', padding: '4px 6px', fontSize: '10.5px' }}
+                  value={newMemCategory}
+                  onChange={(e) =>
+                    setNewMemCategory(e.target.value as UserMemoryItem['category'])
+                  }
+                >
+                  <option value="fact">Fact</option>
+                  <option value="identity">Identity</option>
+                  <option value="preference">Pref</option>
+                  <option value="project">Project</option>
+                </select>
+                <input
+                  type="text"
+                  className="floating-input"
+                  style={{ flex: '1 1 85px', padding: '4px 6px', fontSize: '10.5px' }}
+                  placeholder="Key (e.g. stack)"
+                  value={newMemKey}
+                  onChange={(e) => setNewMemKey(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="floating-input"
+                  style={{ flex: '2 1 130px', padding: '4px 6px', fontSize: '10.5px' }}
+                  placeholder="What to remember..."
+                  value={newMemValue}
+                  onChange={(e) => setNewMemValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newMemValue.trim()) {
+                      e.preventDefault();
+                      onAddMemory(
+                        newMemCategory,
+                        (newMemKey || 'note').trim(),
+                        newMemValue.trim()
+                      );
+                      setNewMemKey('');
+                      setNewMemValue('');
+                      flashNotice('Saved to Luminess memory');
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="floating-btn-secondary"
+                  style={{ padding: '4px 8px', fontSize: '10.5px' }}
+                  onClick={() => {
+                    if (!newMemValue.trim()) return;
+                    onAddMemory(
+                      newMemCategory,
+                      (newMemKey || 'note').trim(),
+                      newMemValue.trim()
+                    );
+                    setNewMemKey('');
+                    setNewMemValue('');
+                    flashNotice('Saved to Luminess memory');
+                  }}
+                >
+                  <Plus size={11} />
+                  <span>Add</span>
+                </button>
+              </div>
+              {memories.length === 0 ? (
+                <div className="floating-card-sub" style={{ marginTop: '4px' }}>
+                  No saved memories yet. Tell Luminess &quot;remember that...&quot; or add one above.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: '6px',
+                    maxHeight: '132px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  {memories.slice(0, 24).map((m) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '6px',
+                        padding: '4px 7px',
+                        borderRadius: '6px',
+                        background: 'rgba(15, 23, 42, 0.55)',
+                        border: '1px solid rgba(148, 163, 184, 0.16)',
+                        fontSize: '10.5px',
+                      }}
+                    >
+                      <span style={{ color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <strong style={{ color: '#38bdf8' }}>{m.key}</strong>: {m.value}
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        style={{ padding: '2px', flexShrink: 0 }}
+                        title="Delete memory"
+                        onClick={() => onDeleteMemory(m.id)}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1909,9 +2095,24 @@ export function FloatingSettingsBox({
               <div className="floating-card-row">
                 <span className="floating-card-title">
                   <ShieldCheck size={13} style={{ display: 'inline', marginRight: '5px' }} />
-                  Permissions & Search
+                  Permissions, Startup & Search
                 </span>
               </div>
+              <label className="floating-toggle-row" style={{ marginTop: '4px' }}>
+                <span>Launch Automatically When Windows Starts</span>
+                <input
+                  type="checkbox"
+                  checked={config.auto_start_windows ?? true}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    if (onToggleWindowsStartup) {
+                      void onToggleWindowsStartup(enabled);
+                    } else {
+                      void onUpdateConfig({ ...config, auto_start_windows: enabled });
+                    }
+                  }}
+                />
+              </label>
               <label className="floating-toggle-row" style={{ marginTop: '4px' }}>
                 <span>Auto-Approve PC Tool Execution</span>
                 <input

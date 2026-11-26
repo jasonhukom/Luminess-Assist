@@ -21,7 +21,7 @@ if (-not $Version -or $Version -eq "latest") {
         $LatestReleaseJson = Invoke-RestMethod -Uri "https://api.github.com/repos/jasonhukom/Luminess-Assist/releases/latest" -Headers @{ "User-Agent" = "Luminess-Installer" } -UseBasicParsing -ErrorAction Stop
         $Version = ($LatestReleaseJson.tag_name -replace "^v", "").Trim()
     } catch {
-        $Version = "1.3.1"
+        $Version = "1.3.4"
     }
 }
 

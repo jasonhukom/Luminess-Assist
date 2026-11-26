@@ -44,30 +44,66 @@ async function checkCliAgentStatus(
   label: string,
   installPackage: string
 ): Promise<OpenCodeStatus> {
-  for (const bin of candidates) {
-    try {
-      const res: any = await invoke('execute_pc_command', {
-        command: `${bin} --version`,
-        cwd: null,
-      });
+  try {
+    const fastRes = await invoke<{
+      opencode: { installed: boolean; command: string; resolved_path: string; notes: string };
+      kilocode: { installed: boolean; command: string; resolved_path: string; notes: string };
+    }>('check_local_cli_agents');
 
-      if (res && res.exit_code === 0 && res.stdout) {
+    if (fastRes) {
+      const entry = candidates.includes('opencode') ? fastRes.opencode : fastRes.kilocode;
+      if (entry) {
         return {
-          installed: true,
-          version: String(res.stdout).trim(),
-          command: bin,
-          notes: `${label} CLI (${bin}) is installed and ready for local autonomous agent tasks.`,
+          installed: entry.installed,
+          command: entry.command,
+          version: entry.installed ? 'installed' : undefined,
+          notes: entry.notes,
         };
       }
-    } catch {
-      // Try next binary alias
     }
+  } catch {
+    // Fallback outside Tauri
   }
 
   return {
     installed: false,
     notes: `${label} is not detected on PATH. Install with: npm install -g ${installPackage}`,
   };
+}
+
+export async function checkLocalAgentsStatus(): Promise<{
+  opencode: OpenCodeStatus;
+  kilocode: OpenCodeStatus;
+}> {
+  try {
+    const fastRes = await invoke<{
+      opencode: { installed: boolean; command: string; resolved_path: string; notes: string };
+      kilocode: { installed: boolean; command: string; resolved_path: string; notes: string };
+    }>('check_local_cli_agents');
+    if (fastRes) {
+      return {
+        opencode: {
+          installed: fastRes.opencode.installed,
+          command: fastRes.opencode.command,
+          version: fastRes.opencode.installed ? 'installed' : undefined,
+          notes: fastRes.opencode.notes,
+        },
+        kilocode: {
+          installed: fastRes.kilocode.installed,
+          command: fastRes.kilocode.command,
+          version: fastRes.kilocode.installed ? 'installed' : undefined,
+          notes: fastRes.kilocode.notes,
+        },
+      };
+    }
+  } catch {
+    // Fallback outside Tauri
+  }
+  const [opencode, kilocode] = await Promise.all([
+    checkOpenCodeStatus(),
+    checkKiloCodeStatus(),
+  ]);
+  return { opencode, kilocode };
 }
 
 /**
@@ -82,17 +118,6 @@ export async function checkOpenCodeStatus(): Promise<OpenCodeStatus> {
  */
 export async function checkKiloCodeStatus(): Promise<OpenCodeStatus> {
   return checkCliAgentStatus(['kilocode', 'kilo'], 'KiloCode', '@kilocode/cli');
-}
-
-export async function checkLocalAgentsStatus(): Promise<{
-  opencode: OpenCodeStatus;
-  kilocode: OpenCodeStatus;
-}> {
-  const [opencode, kilocode] = await Promise.all([
-    checkOpenCodeStatus(),
-    checkKiloCodeStatus(),
-  ]);
-  return { opencode, kilocode };
 }
 
 /**
@@ -222,66 +247,45 @@ export async function executeCliAgentPrompt(
   const cleanAgent = (agent || 'opencode').trim();
   const isKilo = cleanAgent === 'kilocode' || cleanAgent === 'kilo';
   const label = isKilo ? 'KiloCode' : cleanAgent === 'opencode' ? 'OpenCode' : cleanAgent;
-  const candidateBins = isKilo ? ['kilocode', 'kilo'] : [cleanAgent];
 
   onToolStart?.(`${label} Agent: Running prompt locally...`);
 
   try {
-    const utf8Bytes = new TextEncoder().encode(prompt);
-    let binary = '';
-    for (let i = 0; i < utf8Bytes.length; i++) {
-      binary += String.fromCharCode(utf8Bytes[i]);
-    }
-    const b64 = btoa(binary);
     const modelArg =
       options?.model &&
       !['opencode-default', 'kilocode-default', 'luminess-local-v2', ''].includes(
         options.model.trim()
       )
         ? options.model.trim()
-        : '';
+        : null;
 
-    const binsLiteral = candidateBins.map((b) => `'${b.replace(/'/g, "''")}'`).join(', ');
-    const modelLiteral = modelArg.replace(/'/g, "''");
-
-    const psScript = [
-      `$bytes = [System.Convert]::FromBase64String('${b64}')`,
-      '$promptText = [System.Text.Encoding]::UTF8.GetString($bytes)',
-      `$bins = @(${binsLiteral})`,
-      '$selectedBin = $null',
-      'foreach ($b in $bins) { if (Get-Command $b -ErrorAction SilentlyContinue) { $selectedBin = $b; break } }',
-      'if (-not $selectedBin) { Write-Output "__LUMINESS_CLI_MISSING__"; exit 0 }',
-      `$modelArg = '${modelLiteral}'`,
-      '$job = Start-Job -ScriptBlock { param($bin, $p, $m) Set-Location $env:TEMP; if ($m) { & $bin run --auto --model $m $p 2>&1 } else { & $bin run --auto $p 2>&1 } } -ArgumentList $selectedBin, $promptText, $modelArg',
-      'if (Wait-Job $job -Timeout 20) { Receive-Job $job } else { Stop-Job $job; Remove-Job $job -Force; Write-Output "" }',
-    ].join('\n');
-
-    const result: any = await invoke('execute_pc_command', {
-      command: psScript,
+    const nativeRes = await invoke<{
+      success: boolean;
+      output: string;
+      error?: string | null;
+      exit_code: number;
+      elapsed_ms: number;
+    }>('run_local_cli_agent', {
+      agent: cleanAgent,
+      prompt,
+      model: modelArg,
       cwd: options?.cwd || null,
+      timeoutSecs: 28,
     });
 
-    const raw =
-      typeof result === 'string'
-        ? result.trim()
-        : (result?.stdout || '').trim();
-    if (
-      raw &&
-      raw !== '__LUMINESS_CLI_MISSING__' &&
-      !raw.includes('Unknown flag') &&
-      !raw.includes('command not found') &&
-      !raw.includes('is not recognized') &&
-      !raw.includes('ECONNREFUSED')
-    ) {
+    if (nativeRes && nativeRes.success && nativeRes.output.trim()) {
+      const clean = nativeRes.output.trim();
       const formattedOutput =
-        raw === 'ok'
+        clean === 'ok'
           ? `**${label} Local AI Agent** executed your prompt:\n\n> ${prompt}`
-          : raw;
+          : clean;
       return {
         output: formattedOutput,
         success: true,
         toolActions: [
-          `${label} Agent executed prompt: "${prompt.slice(0, 45)}${prompt.length > 45 ? '...' : ''}"`,
+          `${label} Agent executed in ${nativeRes.elapsed_ms}ms: "${prompt.slice(0, 45)}${
+            prompt.length > 45 ? '...' : ''
+          }"`,
         ],
       };
     }
@@ -289,7 +293,7 @@ export async function executeCliAgentPrompt(
     return {
       output: '',
       success: false,
-      error: raw === '__LUMINESS_CLI_MISSING__' ? `${label} CLI not found on PATH.` : undefined,
+      error: nativeRes?.error || `${label} did not return a response.`,
     };
   } catch (err: any) {
     return {

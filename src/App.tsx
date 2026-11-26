@@ -12,16 +12,21 @@ import {
   FloatingWellbeingBox,
   type WellbeingTabId,
 } from './components/FloatingWellbeingBox.tsx';
+import { StartupCheckinModal } from './components/StartupCheckinModal.tsx';
 import {
+  buildRecentRealAppsList,
   buildWellbeingRangeReport,
   clearWellbeingHistoryOnMachine,
   createEmptyWellbeingHistory,
   fetchForegroundAppSample,
+  fetchInstalledRealAppsFromMachine,
   fetchTaskManagerSnapshot,
   loadWellbeingHistoryFromMachine,
   recordForegroundUsageSample,
   resolveAppProfile,
   saveWellbeingHistoryToMachine,
+  type InstalledRealApp,
+  type RecentRealAppItem,
   type TaskManagerSnapshot,
   type WellbeingCommandAction,
   type WellbeingHistoryStore,
@@ -275,6 +280,8 @@ function App() {
   const [wellbeingHistory, setWellbeingHistory] = useState<WellbeingHistoryStore>(() =>
     createEmptyWellbeingHistory()
   );
+  const [installedRealApps, setInstalledRealApps] = useState<InstalledRealApp[]>([]);
+  const [startupCheckinOpen, setStartupCheckinOpen] = useState<boolean>(true);
   const [activeForegroundApp, setActiveForegroundApp] = useState<string | null>(null);
   const [taskSnapshot, setTaskSnapshot] = useState<TaskManagerSnapshot | null>(null);
   const [isPollingTasks, setIsPollingTasks] = useState<boolean>(true);
@@ -341,6 +348,7 @@ function App() {
   const wellbeingHistoryRef = useRef<WellbeingHistoryStore>(wellbeingHistory);
 
   const companionReadyRef = useRef<boolean>(false);
+  const companionCenteredDoneRef = useRef<boolean>(false);
   const modalPlacedRef = useRef<boolean>(false);
   const manualSideOverrideRef = useRef<boolean>(false);
   const manualVertOverrideRef = useRef<boolean>(false);
@@ -388,12 +396,14 @@ function App() {
   // Load DPAPI Machine Vault, config.json, database.json, and Local AI status on startup
   useEffect(() => {
     const initMachineData = async () => {
-      const [creds, cfg] = await Promise.all([
+      const [creds, cfg, , installedApps] = await Promise.all([
         loadMachineCredentialsOnStartup(),
         loadAppConfigFromMachine(),
         loadDatabaseFromMachine(),
+        fetchInstalledRealAppsFromMachine(),
       ]);
 
+      setInstalledRealApps(installedApps);
       setProviderKeys(creds.keys);
       setSelectedProviderState(getSelectedProvider());
       setAppConfig(cfg);
@@ -424,6 +434,22 @@ function App() {
         (creds.googleSession || hasAnyProviderKey())
       ) {
         setShowApiModal(false);
+      }
+
+      if (cfg.auto_start_windows ?? true) {
+        try {
+          const ensured = await invoke<boolean>('ensure_windows_startup');
+          if (ensured && !cfg.startup_registered_once) {
+            const updatedCfg = await saveAppConfigToMachine({
+              ...cfg,
+              auto_start_windows: true,
+              startup_registered_once: true,
+            });
+            setAppConfig(updatedCfg);
+          }
+        } catch {
+          // Ignore when outside Windows desktop runtime
+        }
       }
 
       const status = await getMachineStorageStatus();
@@ -909,6 +935,8 @@ function App() {
       } else {
         rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
       }
+    } else if (startupCheckinOpen) {
+      rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
     } else {
       if (chatOpen && chatWrapRef.current) {
         const r = chatWrapRef.current.getBoundingClientRect();
@@ -959,13 +987,20 @@ function App() {
 
     void invoke('set_interactive_regions', {
       rects,
-      forceInteractive: !bootComplete || showApiModal || isDraggingBot,
-      companionActive: bootComplete && !showApiModal && companionReadyRef.current && brokenSeconds <= 0,
+      forceInteractive:
+        !bootComplete || showApiModal || startupCheckinOpen || isDraggingBot,
+      companionActive:
+        bootComplete &&
+        !showApiModal &&
+        !startupCheckinOpen &&
+        companionReadyRef.current &&
+        brokenSeconds <= 0,
       botCenter,
     }).catch(() => {});
   }, [
     bootComplete,
     showApiModal,
+    startupCheckinOpen,
     chatOpen,
     historyBoxOpen,
     settingsBoxOpen,
@@ -996,9 +1031,21 @@ function App() {
     wellbeingBoxPos,
   ]);
 
+  const startupCheckinActive = bootComplete && !showApiModal && startupCheckinOpen;
+
   const floatingWorkspaceActive =
     !showApiModal &&
-    (historyBoxOpen || settingsBoxOpen || musicBoxOpen || wellbeingBoxOpen || drinkAlertVisible);
+    (startupCheckinActive ||
+      historyBoxOpen ||
+      settingsBoxOpen ||
+      musicBoxOpen ||
+      wellbeingBoxOpen ||
+      drinkAlertVisible);
+
+  const recentRealApps = useMemo<RecentRealAppItem[]>(
+    () => buildRecentRealAppsList(wellbeingHistory, installedRealApps, 5),
+    [wellbeingHistory, installedRealApps]
+  );
 
   useEffect(() => {
     const updateWindowGeometry = async () => {
@@ -1037,8 +1084,14 @@ function App() {
         // to the full monitor while anchoring the Robot + Chatbox at their exact screen coordinates
         if (floatingWorkspaceActive) {
           if (!prevFloatingWorkspaceRef.current) {
-            const relLeft = Math.round((bounds.x - bounds.monitor_x) / dpr);
-            const relTop = Math.round((bounds.y - bounds.monitor_y) / dpr);
+            const shouldCenterCompanion = !companionCenteredDoneRef.current;
+            const relLeft = shouldCenterCompanion
+              ? Math.max(0, Math.round((bounds.monitor_width / dpr - targetCssW) / 2))
+              : Math.round((bounds.x - bounds.monitor_x) / dpr);
+            const relTop = shouldCenterCompanion
+              ? Math.max(0, Math.round((bounds.monitor_height / dpr - targetCssH) / 2))
+              : Math.round((bounds.y - bounds.monitor_y) / dpr);
+            companionCenteredDoneRef.current = true;
             setCompanionAnchor({
               left: relLeft,
               top: relTop,
@@ -1087,8 +1140,11 @@ function App() {
           return;
         }
 
-        if (showApiModal || (prev.showApiModal && !showApiModal)) {
+        if (showApiModal || (prev.showApiModal && !showApiModal) || !companionCenteredDoneRef.current) {
           modalPlacedRef.current = showApiModal;
+          if (!showApiModal) {
+            companionCenteredDoneRef.current = true;
+          }
           prevModeRef.current = { showApiModal, chatOpen, chatSide, chatVert, robotSize };
           companionReadyRef.current = false;
           const centerX = bounds.monitor_x + Math.round((bounds.monitor_width - targetW) / 2);
@@ -2363,7 +2419,9 @@ function App() {
             summary:
               action.tab === 'taskmanager'
                 ? 'Opened the read-only Windows Task Manager viewer.'
-                : 'Opened the Digital Wellbeing circle view & usage explainer.',
+                : action.tab === 'recent'
+                  ? 'Opened your 5 recent apps tab in Digital Wellbeing.'
+                  : 'Opened the Digital Wellbeing circle view & usage explainer.',
           };
         }
 
@@ -2727,6 +2785,24 @@ function App() {
   const handleClearSearchHistory = useCallback(() => {
     clearSearchHistory();
     setSearchHistory([]);
+  }, []);
+
+  const handleLaunchRecentApp = useCallback((app: RecentRealAppItem) => {
+    void invoke('open_item', { target: app.launch_target || app.display_name }).catch(() => {});
+  }, []);
+
+  const handleToggleWindowsStartup = useCallback(async (enabled: boolean) => {
+    try {
+      await invoke('set_windows_startup_enabled', { enabled });
+    } catch {
+      // Ignore if outside Windows runtime
+    }
+    const saved = await saveAppConfigToMachine({
+      ...appConfigRef.current,
+      auto_start_windows: enabled,
+      startup_registered_once: enabled ? true : appConfigRef.current.startup_registered_once,
+    });
+    setAppConfig(saved);
   }, []);
 
   const handleOpenExternalUrl = useCallback((url: string) => {
@@ -3147,6 +3223,31 @@ function App() {
             </div>
           </div>
         </div>
+      ) : startupCheckinActive ? (
+        <StartupCheckinModal
+          botName={appConfig.bot_customization?.botName || 'Luminess'}
+          userName={appConfig.bot_customization?.userName || googleUser?.name || ''}
+          emotion={emotion}
+          visualEmotion={visualEmotion}
+          customization={appConfig.bot_customization}
+          drinkDailyGlasses={appConfig.drink_reminder?.daily_glasses ?? 0}
+          drinkGoalGlasses={appConfig.drink_reminder?.daily_goal_glasses ?? 8}
+          recentApps={recentRealApps}
+          onLogDrink={() => void handleQuickLogDrink()}
+          onLaunchApp={handleLaunchRecentApp}
+          onSubmitActivity={(activityText) => {
+            setStartupCheckinOpen(false);
+            setChatOpen(true);
+            void handleSendMessage(activityText);
+          }}
+          onOpenRecentTabInWellbeing={() => {
+            setStartupCheckinOpen(false);
+            setWellbeingTab('recent');
+            setWellbeingTabSeq((s) => s + 1);
+            if (!wellbeingBoxOpen) handleToggleWellbeingBox();
+          }}
+          onSkip={() => setStartupCheckinOpen(false)}
+        />
       ) : (
         <>
           <div
@@ -3308,6 +3409,11 @@ function App() {
                 }}
                 onTriggerDrinkAlert={() => setDrinkAlertVisible(true)}
                 onLogDrink={() => void handleQuickLogDrink()}
+                memories={memories}
+                onAddMemory={handleAddMemory}
+                onDeleteMemory={handleDeleteMemory}
+                onClearMemories={handleClearMemories}
+                onToggleWindowsStartup={handleToggleWindowsStartup}
                 onClose={() => setSettingsBoxOpen(false)}
               />
             </div>
@@ -3368,6 +3474,8 @@ function App() {
                     setWellbeingHistory(cleared);
                   });
                 }}
+                recentApps={recentRealApps}
+                onLaunchApp={handleLaunchRecentApp}
                 onClose={() => setWellbeingBoxOpen(false)}
               />
             </div>

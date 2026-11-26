@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((cmd: string, _args?: any) => {
+  invoke: vi.fn((cmd: string, args?: any) => {
     if (cmd === 'open_item') return Promise.resolve(true);
     if (cmd === 'get_pc_context') {
       return Promise.resolve({
@@ -9,6 +9,22 @@ vi.mock('@tauri-apps/api/core', () => ({
         username: 'TestUser',
         desktop: 'C:\\Users\\TestUser\\Desktop',
         drives: ['C:', 'D:'],
+      });
+    }
+    if (cmd === 'check_local_cli_agents') {
+      return Promise.resolve({
+        opencode: { installed: true, command: 'opencode', resolved_path: 'opencode.exe', notes: 'ready' },
+        kilocode: { installed: true, command: 'kilo', resolved_path: 'kilo.cmd', notes: 'ready' },
+      });
+    }
+    if (cmd === 'run_local_cli_agent') {
+      const label = args?.agent === 'kilocode' ? 'KiloCode' : 'OpenCode';
+      return Promise.resolve({
+        success: true,
+        output: `${label} completed local task.`,
+        error: null,
+        exit_code: 0,
+        elapsed_ms: 14,
       });
     }
     return Promise.resolve('ok');

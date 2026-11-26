@@ -1,6 +1,7 @@
 use crate::services::{get_app_data_dir, now_unix_ms};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -11,11 +12,21 @@ pub const WELLBEING_RETENTION_DAYS: i64 = 90;
 pub struct ForegroundAppSample {
     pub pid: u32,
     pub exe_name: String,
+    pub exe_path: String,
     pub process_name: String,
     pub window_title: String,
     pub is_idle: bool,
     pub idle_seconds: u64,
     pub sampled_at_ms: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InstalledRealApp {
+    pub app_key: String,
+    pub name: String,
+    pub exe_name: String,
+    pub launch_target: String,
+    pub window_title: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -55,6 +66,7 @@ pub struct WellbeingAppUsageEntry {
     pub category: String,
     pub seconds: u64,
     pub last_title: String,
+    pub exe_path: String,
     pub last_seen_ms: u64,
 }
 
@@ -347,6 +359,119 @@ mod win32_monitor {
         ) -> BOOL;
     }
 
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn RegOpenKeyExW(
+            h_key: isize,
+            lp_sub_key: *const u16,
+            ul_options: DWORD,
+            sam_desired: DWORD,
+            phk_result: *mut isize,
+        ) -> i32;
+        fn RegQueryValueExW(
+            h_key: isize,
+            lp_value_name: *const u16,
+            lp_reserved: *mut DWORD,
+            lp_type: *mut DWORD,
+            lp_data: *mut u8,
+            lpcb_data: *mut DWORD,
+        ) -> i32;
+        fn RegSetValueExW(
+            h_key: isize,
+            lp_value_name: *const u16,
+            reserved: DWORD,
+            dw_type: DWORD,
+            lp_data: *const u8,
+            cb_data: DWORD,
+        ) -> i32;
+        fn RegDeleteValueW(h_key: isize, lp_value_name: *const u16) -> i32;
+        fn RegCloseKey(h_key: isize) -> i32;
+    }
+
+    const HKEY_CURRENT_USER: isize = -2147483647isize;
+    const KEY_READ: DWORD = 0x20019;
+    const KEY_WRITE: DWORD = 0x20006;
+    const REG_SZ: DWORD = 1;
+    const RUN_KEY_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const STARTUP_VAL_NAME: &str = "LuminessAssist";
+
+    fn to_wide_z(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    pub fn is_startup_registered() -> bool {
+        let sub_key = to_wide_z(RUN_KEY_PATH);
+        let val_name = to_wide_z(STARTUP_VAL_NAME);
+        let mut hkey: isize = 0;
+        let open_rc = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, sub_key.as_ptr(), 0, KEY_READ, &mut hkey) };
+        if open_rc != 0 {
+            return false;
+        }
+        let query_rc = unsafe {
+            RegQueryValueExW(
+                hkey,
+                val_name.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        unsafe { RegCloseKey(hkey) };
+        query_rc == 0
+    }
+
+    pub fn set_startup_registered(enabled: bool) -> Result<bool, String> {
+        let sub_key = to_wide_z(RUN_KEY_PATH);
+        let val_name = to_wide_z(STARTUP_VAL_NAME);
+        let mut hkey: isize = 0;
+        let open_rc = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, sub_key.as_ptr(), 0, KEY_WRITE, &mut hkey) };
+        if open_rc != 0 {
+            return Err(format!("Failed to open Windows Startup registry key (code {})", open_rc));
+        }
+
+        if enabled {
+            let exe_path = env::current_exe()
+                .map_err(|e| format!("Failed to locate executable path: {}", e))?;
+            let quoted = format!("\"{}\"", exe_path.to_string_lossy());
+            let data = to_wide_z(&quoted);
+            let byte_len = (data.len() * std::mem::size_of::<u16>()) as DWORD;
+            let rc = unsafe {
+                RegSetValueExW(
+                    hkey,
+                    val_name.as_ptr(),
+                    0,
+                    REG_SZ,
+                    data.as_ptr() as *const u8,
+                    byte_len,
+                )
+            };
+            unsafe { RegCloseKey(hkey) };
+            if rc != 0 {
+                return Err(format!("Failed to register startup entry (code {})", rc));
+            }
+            Ok(true)
+        } else {
+            let _ = unsafe { RegDeleteValueW(hkey, val_name.as_ptr()) };
+            unsafe { RegCloseKey(hkey) };
+            Ok(false)
+        }
+    }
+
+    pub fn ensure_startup_registered_if_missing() -> Result<bool, String> {
+        if is_startup_registered() {
+            return Ok(true);
+        }
+        if let Ok(exe_path) = env::current_exe() {
+            let s = exe_path.to_string_lossy().to_ascii_lowercase();
+            // Do not pollute startup during automated `cargo test` unit test binaries
+            if s.contains("\\target\\debug\\deps\\") || s.contains("\\target\\release\\deps\\") {
+                return Ok(false);
+            }
+        }
+        set_startup_registered(true)
+    }
+
     pub fn local_date_epoch_days() -> Option<i64> {
         let mut st = SYSTEMTIME {
             w_year: 0,
@@ -382,7 +507,7 @@ mod win32_monitor {
         String::from_utf16_lossy(&buf[..len as usize]).trim().to_string()
     }
 
-    fn query_exe_name_for_pid(pid: u32) -> Option<String> {
+    fn query_exe_info_for_pid(pid: u32) -> Option<(String, String)> {
         if pid == 0 {
             return None;
         }
@@ -398,10 +523,11 @@ mod win32_monitor {
             return None;
         }
         let full = String::from_utf16_lossy(&buf[..size as usize]);
-        Path::new(&full)
+        let name = Path::new(&full)
             .file_name()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
+            .map(|s| s.to_string())?;
+        Some((name, full))
     }
 
     fn get_idle_ms() -> u64 {
@@ -426,11 +552,11 @@ mod win32_monitor {
             unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
         }
         let window_title = read_window_title(hwnd);
-        let exe_name = query_exe_name_for_pid(pid).unwrap_or_else(|| {
+        let (exe_name, exe_path) = query_exe_info_for_pid(pid).unwrap_or_else(|| {
             if pid == 0 {
-                "Idle.exe".to_string()
+                ("Idle.exe".to_string(), String::new())
             } else {
-                format!("process-{}.exe", pid)
+                (format!("process-{}.exe", pid), String::new())
             }
         });
         let process_name = Path::new(&exe_name)
@@ -442,6 +568,7 @@ mod win32_monitor {
         ForegroundAppSample {
             pid,
             exe_name,
+            exe_path,
             process_name,
             window_title,
             is_idle: idle_ms >= IDLE_THRESHOLD_MS,
@@ -721,6 +848,166 @@ mod win32_monitor {
             processes,
         }
     }
+
+    fn is_excluded_system_app(exe_name: &str, exe_path: &str) -> bool {
+        let lower_exe = exe_name.trim().to_ascii_lowercase();
+        let lower_path = exe_path.trim().to_ascii_lowercase();
+        const EXCLUDED_EXES: &[&str] = &[
+            "",
+            "idle.exe",
+            "system",
+            "registry",
+            "explorer.exe",
+            "svchost.exe",
+            "dwm.exe",
+            "csrss.exe",
+            "smss.exe",
+            "wininit.exe",
+            "winlogon.exe",
+            "services.exe",
+            "lsass.exe",
+            "conhost.exe",
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "taskmgr.exe",
+            "taskhostw.exe",
+            "sihost.exe",
+            "fontdrvhost.exe",
+            "ctfmon.exe",
+            "runtimebroker.exe",
+            "searchhost.exe",
+            "searchapp.exe",
+            "searchui.exe",
+            "startmenuexperiencehost.exe",
+            "shellexperiencehost.exe",
+            "textinputhost.exe",
+            "applicationframehost.exe",
+            "systemsettings.exe",
+            "lockapp.exe",
+            "securityhealthsystray.exe",
+            "smartscreen.exe",
+            "dllhost.exe",
+            "rundll32.exe",
+            "msiexec.exe",
+            "msedgewebview2.exe",
+            "luminess assist.exe",
+            "luminess-assist.exe",
+            "app.exe",
+        ];
+        if EXCLUDED_EXES.contains(&lower_exe.as_str()) {
+            return true;
+        }
+        if lower_path.contains("\\windows\\system32\\")
+            || lower_path.contains("\\windows\\syswow64\\")
+            || lower_path.contains("\\windows\\systemapps\\")
+            || lower_path.contains("\\windows\\immersivecontrolpanel\\")
+            || lower_path.contains("\\windows\\winsxs\\")
+        {
+            return true;
+        }
+        false
+    }
+
+    fn scan_shortcut_dir(dir: &Path, depth: u8, seen: &mut HashSet<String>, out: &mut Vec<InstalledRealApp>) {
+        if depth > 2 || out.len() >= 20 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if out.len() >= 20 {
+                break;
+            }
+            let p = entry.path();
+            if p.is_dir() {
+                scan_shortcut_dir(&p, depth + 1, seen, out);
+            } else if p
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("lnk"))
+                .unwrap_or(false)
+            {
+                let stem = p
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let lower = stem.to_ascii_lowercase();
+                if stem.is_empty()
+                    || lower.contains("uninstall")
+                    || lower.contains("readme")
+                    || lower.contains("manual")
+                    || lower.contains("license")
+                    || lower.contains("help")
+                    || lower.contains("website")
+                    || lower.contains("luminess")
+                    || lower.contains("command prompt")
+                    || lower.contains("powershell")
+                    || lower.contains("windows ")
+                    || lower.contains("update")
+                {
+                    continue;
+                }
+                let dedupe_key = format!("lnk:{}", lower);
+                if seen.insert(dedupe_key) {
+                    out.push(InstalledRealApp {
+                        app_key: format!("{}.exe", lower.replace(' ', "")),
+                        name: stem,
+                        exe_name: p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string(),
+                        launch_target: p.to_string_lossy().to_string(),
+                        window_title: String::new(),
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn discover_real_user_apps() -> Vec<InstalledRealApp> {
+        let mut out: Vec<InstalledRealApp> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+
+        // 1. Currently open real desktop apps (visible window + non-system executable)
+        let visible_windows = collect_visible_window_titles();
+        for (pid, title) in visible_windows {
+            let Some((exe_name, exe_path)) = query_exe_info_for_pid(pid) else {
+                continue;
+            };
+            if is_excluded_system_app(&exe_name, &exe_path) {
+                continue;
+            }
+            let lower_key = exe_name.to_ascii_lowercase();
+            if seen.insert(lower_key.clone()) {
+                let stem = Path::new(&exe_name)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&exe_name)
+                    .to_string();
+                out.push(InstalledRealApp {
+                    app_key: lower_key,
+                    name: stem,
+                    exe_name,
+                    launch_target: exe_path,
+                    window_title: title,
+                });
+            }
+        }
+
+        // 2. Supplement with real installed user apps from Start Menu shortcuts
+        if let Ok(appdata) = env::var("APPDATA") {
+            let p = Path::new(&appdata).join("Microsoft\\Windows\\Start Menu\\Programs");
+            scan_shortcut_dir(&p, 0, &mut seen, &mut out);
+        }
+        if let Ok(progdata) = env::var("ProgramData") {
+            let p = Path::new(&progdata).join("Microsoft\\Windows\\Start Menu\\Programs");
+            scan_shortcut_dir(&p, 0, &mut seen, &mut out);
+        }
+
+        out.truncate(20);
+        out
+    }
 }
 
 #[tauri::command]
@@ -734,12 +1021,62 @@ pub fn get_foreground_app_usage_sample() -> ForegroundAppSample {
         ForegroundAppSample {
             pid: 0,
             exe_name: "luminess.exe".to_string(),
+            exe_path: String::new(),
             process_name: "Luminess".to_string(),
             window_title: "Desktop Companion".to_string(),
             is_idle: false,
             idle_seconds: 0,
             sampled_at_ms: now_unix_ms(),
         }
+    }
+}
+
+#[tauri::command]
+pub fn get_windows_startup_enabled() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return win32_monitor::is_startup_registered();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+pub fn set_windows_startup_enabled(enabled: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return win32_monitor::set_startup_registered(enabled);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = enabled;
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub fn ensure_windows_startup() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return win32_monitor::ensure_startup_registered_if_missing();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub fn get_installed_real_apps() -> Vec<InstalledRealApp> {
+    #[cfg(target_os = "windows")]
+    {
+        return win32_monitor::discover_real_user_apps();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
     }
 }
 

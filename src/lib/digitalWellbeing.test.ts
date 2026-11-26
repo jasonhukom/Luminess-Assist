@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildRecentRealAppsList,
   buildWellbeingRangeReport,
   createEmptyWellbeingHistory,
   formatBytesMem,
   formatWellbeingDuration,
+  isRealUserApplication,
   parseWellbeingCommand,
   pruneWellbeingHistory90Days,
   recordForegroundUsageSample,
@@ -150,5 +152,82 @@ describe('digitalWellbeing', () => {
       type: 'summary',
       range: 'week',
     });
+  });
+
+  it('filters out system processes and returns up to 5 real recent apps', () => {
+    expect(isRealUserApplication('svchost.exe', 'C:\\Windows\\System32\\svchost.exe')).toBe(false);
+    expect(isRealUserApplication('RuntimeBroker.exe', 'C:\\Windows\\System32\\RuntimeBroker.exe')).toBe(false);
+    expect(isRealUserApplication('explorer.exe', 'C:\\Windows\\explorer.exe')).toBe(false);
+    expect(isRealUserApplication('Luminess Assist.exe', 'C:\\Program Files\\Luminess\\Luminess Assist.exe')).toBe(false);
+    expect(isRealUserApplication('Code.exe', 'C:\\Program Files\\Microsoft VS Code\\Code.exe')).toBe(true);
+
+    const today = new Date(2026, 10, 26, 14, 0, 0).getTime();
+    let store = createEmptyWellbeingHistory(today);
+    // System noise entry that should be excluded from Recent Apps
+    store = recordForegroundUsageSample(
+      store,
+      {
+        pid: 1,
+        exe_name: 'SearchHost.exe',
+        exe_path: 'C:\\Windows\\SystemApps\\SearchHost.exe',
+        process_name: 'SearchHost',
+        window_title: 'Search',
+        is_idle: false,
+        idle_seconds: 0,
+        sampled_at_ms: today,
+      },
+      25,
+      today
+    );
+    // Real apps
+    for (const [idx, exe] of ['Code.exe', 'chrome.exe', 'Discord.exe'].entries()) {
+      store = recordForegroundUsageSample(
+        store,
+        {
+          pid: 100 + idx,
+          exe_name: exe,
+          exe_path: `C:\\Apps\\${exe}`,
+          process_name: exe.replace('.exe', ''),
+          window_title: exe,
+          is_idle: false,
+          idle_seconds: 0,
+          sampled_at_ms: today + idx * 1000,
+        },
+        30,
+        today
+      );
+    }
+
+    const recent = buildRecentRealAppsList(
+      store,
+      [
+        {
+          app_key: 'spotify.exe',
+          name: 'Spotify',
+          exe_name: 'Spotify.exe',
+          launch_target: 'C:\\Apps\\Spotify.lnk',
+          window_title: '',
+        },
+        {
+          app_key: 'obsidian.exe',
+          name: 'Obsidian',
+          exe_name: 'Obsidian.exe',
+          launch_target: 'C:\\Apps\\Obsidian.lnk',
+          window_title: '',
+        },
+        {
+          app_key: 'figma.exe',
+          name: 'Figma',
+          exe_name: 'Figma.exe',
+          launch_target: 'C:\\Apps\\Figma.lnk',
+          window_title: '',
+        },
+      ],
+      5
+    );
+
+    expect(recent).toHaveLength(5);
+    expect(recent.map((r) => r.app_key)).not.toContain('searchhost.exe');
+    expect(recent[0].app_key).toBe('discord.exe');
   });
 });

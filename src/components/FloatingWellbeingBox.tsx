@@ -3,10 +3,12 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import './FloatingBoxes.css';
 import {
   Activity,
+  AppWindow,
   ArrowDown,
   ArrowUp,
   Clock,
   Cpu,
+  ExternalLink,
   Info,
   Layers,
   Move,
@@ -26,12 +28,13 @@ import {
   buildWellbeingRangeReport,
   formatBytesMem,
   formatWellbeingDuration,
+  type RecentRealAppItem,
   type TaskManagerSnapshot,
   type WellbeingHistoryStore,
   type WellbeingRange,
 } from '../lib/digitalWellbeing.ts';
 
-type WellbeingTabId = 'wellbeing' | 'taskmanager';
+type WellbeingTabId = 'wellbeing' | 'recent' | 'taskmanager';
 export type { WellbeingTabId };
 type ProcessFilter = 'all' | 'app' | 'background';
 type SortColumn = 'name' | 'status' | 'cpu' | 'memory' | 'pid';
@@ -61,11 +64,13 @@ interface FloatingWellbeingBoxProps {
   externalTabSeq?: number;
   initialRange?: WellbeingRange;
   historyStore: WellbeingHistoryStore;
+  recentApps: RecentRealAppItem[];
   activeForegroundApp?: string | null;
   taskSnapshot: TaskManagerSnapshot | null;
   isPollingTasks: boolean;
   onTogglePollingTasks: () => void;
   onRefreshTasksNow: () => void;
+  onLaunchApp: (app: RecentRealAppItem) => void;
   onClearHistory: () => void;
   onClose: () => void;
 }
@@ -78,11 +83,13 @@ export function FloatingWellbeingBox({
   externalTabSeq = 0,
   initialRange = 'day',
   historyStore,
+  recentApps,
   activeForegroundApp,
   taskSnapshot,
   isPollingTasks,
   onTogglePollingTasks,
   onRefreshTasksNow,
+  onLaunchApp,
   onClearHistory,
   onClose,
 }: FloatingWellbeingBoxProps) {
@@ -314,7 +321,15 @@ export function FloatingWellbeingBox({
           onClick={() => setActiveTab('wellbeing')}
         >
           <PieChart size={13} />
-          <span>Digital Wellbeing (Circle View)</span>
+          <span>Circle View</span>
+        </button>
+        <button
+          type="button"
+          className={`floating-tab-btn ${activeTab === 'recent' ? 'active' : ''}`}
+          onClick={() => setActiveTab('recent')}
+        >
+          <AppWindow size={13} />
+          <span>Recent Apps ({recentApps.length})</span>
         </button>
         <button
           type="button"
@@ -325,7 +340,7 @@ export function FloatingWellbeingBox({
           }}
         >
           <Cpu size={13} />
-          <span>Task Manager (Read-Only)</span>
+          <span>Task Manager</span>
         </button>
       </div>
 
@@ -609,6 +624,70 @@ export function FloatingWellbeingBox({
                 ))}
               </div>
             )}
+          </>
+        ) : activeTab === 'recent' ? (
+          <>
+            <div className="floating-card-item">
+              <div className="floating-card-row">
+                <span className="floating-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AppWindow size={14} className="text-glow" />
+                  <span>Top 5 Recent Real Applications</span>
+                </span>
+                <span style={{ fontSize: 10, color: '#7dd3fc', fontWeight: 600 }}>
+                  System Processes Filtered Out
+                </span>
+              </div>
+              <div className="floating-card-sub">
+                Quickly relaunch your most recently used desktop programs (excludes background/Windows system hosts).
+              </div>
+            </div>
+            <div className="music-track-list">
+              {recentApps.length === 0 ? (
+                <div className="floating-card-item">
+                  <div className="floating-card-sub">
+                    No desktop app activity tracked yet — keep working in your favorite apps and they will appear here automatically.
+                  </div>
+                </div>
+              ) : (
+                recentApps.map((app, idx) => (
+                  <div key={app.app_key} className="music-track-row">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="floating-card-title" style={{ fontSize: 12.5 }}>
+                        {idx + 1}. {app.display_name}
+                      </div>
+                      <div className="floating-card-sub" style={{ fontSize: 10.5 }}>
+                        {app.category}
+                        {app.total_seconds > 0
+                          ? ` • ${formatWellbeingDuration(app.total_seconds)} tracked`
+                          : ' • Launchable desktop app'}
+                      </div>
+                      {app.window_title && (
+                        <div
+                          className="floating-card-sub"
+                          style={{
+                            fontSize: 9.5,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {app.window_title}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="floating-btn-primary"
+                      style={{ padding: '5px 10px', fontSize: 11, flexShrink: 0 }}
+                      onClick={() => onLaunchApp(app)}
+                    >
+                      <ExternalLink size={12} />
+                      <span>Open</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </>
         ) : (
           <>

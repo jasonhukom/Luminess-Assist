@@ -17,11 +17,30 @@ export type WellbeingCategory =
 export interface ForegroundAppSample {
   pid: number;
   exe_name: string;
+  exe_path?: string;
   process_name: string;
   window_title: string;
   is_idle: boolean;
   idle_seconds: number;
   sampled_at_ms: number;
+}
+
+export interface InstalledRealApp {
+  app_key: string;
+  name: string;
+  exe_name: string;
+  launch_target: string;
+  window_title: string;
+}
+
+export interface RecentRealAppItem {
+  app_key: string;
+  display_name: string;
+  category: WellbeingCategory;
+  launch_target: string;
+  total_seconds: number;
+  last_seen_ms: number;
+  window_title: string;
 }
 
 export interface TaskManagerProcessRow {
@@ -57,6 +76,7 @@ export interface WellbeingAppUsageEntry {
   category: WellbeingCategory;
   seconds: number;
   last_title: string;
+  exe_path?: string;
   last_seen_ms: number;
 }
 
@@ -112,7 +132,7 @@ export interface WellbeingRangeReport {
 }
 
 export type WellbeingCommandAction =
-  | { type: 'open'; tab?: 'wellbeing' | 'taskmanager'; range?: WellbeingRange }
+  | { type: 'open'; tab?: 'wellbeing' | 'recent' | 'taskmanager'; range?: WellbeingRange }
   | { type: 'summary'; range: WellbeingRange };
 
 const WELLBEING_LOCAL_FALLBACK_KEY = 'luminess_wellbeing_history_v1';
@@ -303,6 +323,7 @@ export function recordForegroundUsageSample(
     category: profile.category,
     seconds: (existingApp?.seconds || 0) + delta,
     last_title: (sample.window_title || existingApp?.last_title || '').slice(0, 120),
+    exe_path: (sample.exe_path || existingApp?.exe_path || '').trim(),
     last_seen_ms: sample.sampled_at_ms || nowMs,
   };
 
@@ -598,10 +619,163 @@ export async function fetchTaskManagerSnapshot(): Promise<TaskManagerSnapshot | 
   }
 }
 
+export async function fetchInstalledRealAppsFromMachine(): Promise<InstalledRealApp[]> {
+  try {
+    const res = await invoke<InstalledRealApp[]>('get_installed_real_apps');
+    return Array.isArray(res) ? res : [];
+  } catch {
+    return [];
+  }
+}
+
+const EXCLUDED_SYSTEM_EXES = new Set([
+  '',
+  'idle.exe',
+  'system',
+  'registry',
+  'explorer.exe',
+  'svchost.exe',
+  'dwm.exe',
+  'csrss.exe',
+  'smss.exe',
+  'wininit.exe',
+  'winlogon.exe',
+  'services.exe',
+  'lsass.exe',
+  'conhost.exe',
+  'cmd.exe',
+  'powershell.exe',
+  'pwsh.exe',
+  'taskmgr.exe',
+  'taskhostw.exe',
+  'sihost.exe',
+  'fontdrvhost.exe',
+  'ctfmon.exe',
+  'runtimebroker.exe',
+  'searchhost.exe',
+  'searchapp.exe',
+  'searchui.exe',
+  'startmenuexperiencehost.exe',
+  'shellexperiencehost.exe',
+  'textinputhost.exe',
+  'applicationframehost.exe',
+  'systemsettings.exe',
+  'lockapp.exe',
+  'securityhealthsystray.exe',
+  'smartscreen.exe',
+  'dllhost.exe',
+  'rundll32.exe',
+  'msiexec.exe',
+  'msedgewebview2.exe',
+  'luminess assist.exe',
+  'luminess-assist.exe',
+  'app.exe',
+  'luminess.exe',
+]);
+
+export function isRealUserApplication(
+  exeName: string,
+  exePath?: string,
+  displayName?: string
+): boolean {
+  const lowerExe = (exeName || '').trim().toLowerCase();
+  const lowerPath = (exePath || '').trim().toLowerCase();
+  const lowerName = (displayName || '').trim().toLowerCase();
+
+  if (EXCLUDED_SYSTEM_EXES.has(lowerExe)) return false;
+  if (/^process-\d+\.exe$/.test(lowerExe)) return false;
+  if (lowerName === 'luminess assist' || lowerName === 'windows explorer') return false;
+  if (
+    lowerPath.includes('\\windows\\system32\\') ||
+    lowerPath.includes('\\windows\\syswow64\\') ||
+    lowerPath.includes('\\windows\\systemapps\\') ||
+    lowerPath.includes('\\windows\\immersivecontrolpanel\\') ||
+    lowerPath.includes('\\windows\\winsxs\\')
+  ) {
+    return false;
+  }
+  return Boolean(lowerExe || lowerName);
+}
+
+export function buildRecentRealAppsList(
+  store: WellbeingHistoryStore,
+  installedApps: InstalledRealApp[] = [],
+  limit: number = 5
+): RecentRealAppItem[] {
+  const installedByKey = new Map<string, InstalledRealApp>();
+  for (const inst of installedApps) {
+    if (!isRealUserApplication(inst.exe_name || inst.app_key, inst.launch_target, inst.name)) {
+      continue;
+    }
+    installedByKey.set(inst.app_key.toLowerCase(), inst);
+  }
+
+  const aggregated = new Map<string, RecentRealAppItem>();
+  for (const day of Object.values(store.days || {})) {
+    for (const entry of Object.values(day.apps || {})) {
+      const key = entry.app_key.toLowerCase();
+      if (!isRealUserApplication(key, entry.exe_path, entry.display_name)) continue;
+
+      const installed = installedByKey.get(key);
+      const launchTarget =
+        (entry.exe_path && entry.exe_path.trim()) ||
+        installed?.launch_target ||
+        entry.app_key;
+
+      const cur = aggregated.get(key);
+      if (cur) {
+        cur.total_seconds += entry.seconds;
+        if (entry.last_seen_ms > cur.last_seen_ms) {
+          cur.last_seen_ms = entry.last_seen_ms;
+          cur.window_title = entry.last_title || cur.window_title;
+          if (entry.exe_path) cur.launch_target = entry.exe_path;
+        }
+      } else {
+        aggregated.set(key, {
+          app_key: key,
+          display_name: entry.display_name,
+          category: entry.category,
+          launch_target: launchTarget,
+          total_seconds: entry.seconds,
+          last_seen_ms: entry.last_seen_ms,
+          window_title: entry.last_title || installed?.window_title || '',
+        });
+      }
+    }
+  }
+
+  const ranked = Array.from(aggregated.values()).sort(
+    (a, b) => b.last_seen_ms - a.last_seen_ms || b.total_seconds - a.total_seconds
+  );
+
+  for (const inst of installedByKey.values()) {
+    if (ranked.length >= limit) break;
+    const key = inst.app_key.toLowerCase();
+    if (aggregated.has(key)) continue;
+    const profile = resolveAppProfile(inst.exe_name || inst.app_key, inst.name);
+    ranked.push({
+      app_key: key,
+      display_name: profile.displayName || inst.name,
+      category: profile.category,
+      launch_target: inst.launch_target || inst.name,
+      total_seconds: 0,
+      last_seen_ms: 0,
+      window_title: inst.window_title || '',
+    });
+  }
+
+  return ranked.slice(0, Math.max(1, limit));
+}
+
 export function parseWellbeingCommand(input: string): WellbeingCommandAction | null {
   const text = input.trim();
   if (!text) return null;
   const lower = text.toLowerCase();
+
+  const mentionsRecentApps = /\b(recent apps?|top apps?|launch recent|open recent)\b/i.test(lower);
+  if (mentionsRecentApps) {
+    return { type: 'open', tab: 'recent' };
+  }
 
   const mentionsTaskMgr = /\b(task manager|processes|cpu usage|ram usage|running apps|running processes)\b/i.test(
     lower

@@ -197,6 +197,8 @@ export interface AppConfigJson {
   auto_approve_tools: boolean;
   search_engine_enabled: boolean;
   memory_sync_enabled: boolean;
+  auto_start_windows: boolean;
+  startup_registered_once: boolean;
   google_account_email: string | null;
   floating_positions: {
     history: FloatingBoxPosition;
@@ -263,7 +265,7 @@ function writeFallbackStorage(key: string, value: string): void {
 
 export function createDefaultAppConfig(): AppConfigJson {
   return {
-    version: '1.3.1',
+    version: '1.3.4',
     selected_provider: 'gemini',
     gemini_model: 'gemini-2.5-flash',
     claude_model: 'claude-sonnet-4-20250514',
@@ -283,6 +285,8 @@ export function createDefaultAppConfig(): AppConfigJson {
     auto_approve_tools: false,
     search_engine_enabled: true,
     memory_sync_enabled: true,
+    auto_start_windows: true,
+    startup_registered_once: false,
     google_account_email: null,
     floating_positions: {
       history: { x: 48, y: 72, width: 350, height: 460 },
@@ -525,13 +529,31 @@ export async function loadDatabaseFromMachine(): Promise<LuminessDatabaseSchema>
     if (raw && raw.trim().length > 0) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
+        const diskMemories: UserMemoryItem[] = Array.isArray(parsed.memories) ? parsed.memories : [];
+        const memById = new Map<string, UserMemoryItem>();
+        for (const m of [...cachedDb.memories, ...diskMemories]) {
+          if (!m || !m.key) continue;
+          const dedupeKey = `${(m.accountEmail || 'local_user').toLowerCase()}:${m.key}`;
+          const prev = memById.get(dedupeKey);
+          if (!prev || (m.updatedAt || 0) >= (prev.updatedAt || 0)) {
+            memById.set(dedupeKey, m);
+          }
+        }
+        const mergedMemories = Array.from(memById.values()).sort(
+          (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+        );
+        const diskSearches: SearchHistoryEntry[] = Array.isArray(parsed.searchHistory)
+          ? parsed.searchHistory
+          : [];
+        const diskSessions: ChatSession[] = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+
         cachedDb = {
           version: 1,
-          updatedAt: parsed.updatedAt || Date.now(),
-          accountEmail: parsed.accountEmail || cachedConfig.google_account_email || null,
-          memories: Array.isArray(parsed.memories) ? parsed.memories : [],
-          searchHistory: Array.isArray(parsed.searchHistory) ? parsed.searchHistory : [],
-          sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+          updatedAt: Math.max(parsed.updatedAt || 0, cachedDb.updatedAt || 0) || Date.now(),
+          accountEmail: parsed.accountEmail || cachedDb.accountEmail || cachedConfig.google_account_email || null,
+          memories: mergedMemories,
+          searchHistory: diskSearches.length >= cachedDb.searchHistory.length ? diskSearches : cachedDb.searchHistory,
+          sessions: diskSessions.length >= cachedDb.sessions.length ? diskSessions : cachedDb.sessions,
         };
         writeFallbackStorage(LOCAL_DB_FALLBACK_KEY, JSON.stringify(cachedDb));
       }
@@ -577,6 +599,7 @@ export function extractAndSaveUserMemoriesFromText(
   userText: string,
   accountEmail?: string | null
 ): UserMemoryItem[] {
+  if (!cachedConfig.memory_sync_enabled) return [];
   const clean = userText.trim();
   if (!clean) return [];
 
@@ -831,21 +854,39 @@ export async function syncMemoriesWithGoogleAccount(
  * Formats relevant persistent memories and recent searches for injection into the AI system prompt.
  */
 export function getPersistentMemoryPromptContext(accountEmail?: string | null): string {
-  const memories = getUserMemories(accountEmail);
-  const lines: string[] = [
-    'PERSISTENT USER MEMORY & ACCOUNT PROFILE (Saved across conversations; associated with the user account):',
-  ];
+  const botCustom = cachedConfig.bot_customization;
+  const userName = (botCustom?.userName || '').trim();
+  const userBio = (botCustom?.userBio || '').trim();
 
-  if (accountEmail) {
-    lines.push(`- Authenticated Google Account: ${accountEmail}`);
+  if (!cachedConfig.memory_sync_enabled) {
+    const lines = [
+      'PERSISTENT MEMORY REFERENCE: Paused by user settings. Do not recall old memories unless mentioned now.',
+    ];
+    if (userName) lines.push(`- Address the user as: "${userName}"`);
+    return lines.join('\n');
   }
 
-  if (memories.length === 0) {
+  const memories = getUserMemories(accountEmail);
+  const lines: string[] = [
+    'PERSISTENT USER MEMORY & CHATGPT-STYLE PERSONALIZATION (Kept across restarts):',
+  ];
+
+  if (userName) {
+    lines.push(`- Preferred User Name (What to call the user): "${userName}"`);
+  }
+  if (userBio) {
+    lines.push(`- Custom Instructions About User: ${userBio}`);
+  }
+  if (accountEmail) {
+    lines.push(`- Authenticated Account: ${accountEmail}`);
+  }
+
+  if (memories.length === 0 && !userName && !userBio) {
     lines.push(
       '- No saved facts about the user yet. Pay attention to when the user introduces themselves or shares preferences, and use `remember_user_fact` to remember who they are.'
     );
   } else {
-    for (const mem of memories.slice(0, 25)) {
+    for (const mem of memories.slice(0, 30)) {
       lines.push(`- [${mem.category.toUpperCase()}] ${mem.key}: ${mem.value}`);
     }
   }

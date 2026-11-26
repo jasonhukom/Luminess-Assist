@@ -1125,74 +1125,79 @@ fn fs_copy_or_move(source: String, destination: String, is_move: bool) -> Result
 }
 
 #[tauri::command]
-fn execute_pc_command(command: String, cwd: Option<String>) -> Result<CommandOutput, String> {
-    let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-Command", &command]);
-        #[cfg(target_os = "windows")]
-        c.creation_flags(CREATE_NO_WINDOW);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.args(["-c", &command]);
-        c
-    };
+async fn execute_pc_command(command: String, cwd: Option<String>) -> Result<CommandOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = if cfg!(target_os = "windows") {
+            let mut c = Command::new("powershell");
+            c.args(["-NoProfile", "-NonInteractive", "-Command", &command]);
+            #[cfg(target_os = "windows")]
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args(["-c", &command]);
+            c
+        };
 
-    if let Some(dir) = cwd {
-        if !dir.trim().is_empty() {
-            let expanded = expand_path(&dir);
-            if expanded.exists() {
-                cmd.current_dir(expanded);
+        if let Some(dir) = cwd {
+            if !dir.trim().is_empty() {
+                let expanded = expand_path(&dir);
+                if expanded.exists() {
+                    cmd.current_dir(expanded);
+                }
             }
         }
-    }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to execute command: {}", e))?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to execute command: {}", e))?;
 
-    Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+        })
     })
+    .await
+    .map_err(|e| format!("PC command worker failed: {}", e))?
 }
 
 #[tauri::command]
-fn open_item(target: String) -> Result<String, String> {
-    let trimmed = target.trim();
-    if trimmed.is_empty() {
-        return Err("Target path or application name cannot be empty".to_string());
-    }
-
-    if cfg!(target_os = "windows") {
-        let is_url = trimmed.starts_with("http://")
-            || trimmed.starts_with("https://")
-            || trimmed.starts_with("mailto:")
-            || trimmed.starts_with("file://");
-
-        let path_obj = Path::new(trimmed);
-        if is_url || path_obj.exists() {
-            let mut cmd = Command::new("cmd");
-            cmd.args(["/C", "start", "", trimmed]);
-            #[cfg(target_os = "windows")]
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.spawn()
-                .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
-            return Ok(format!("Opened '{}'", trimmed));
+async fn open_item(target: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let trimmed = target.trim();
+        if trimmed.is_empty() {
+            return Err("Target path or application name cannot be empty".to_string());
         }
 
-        if trimmed.starts_with("shell:") {
-            let mut cmd = Command::new("explorer.exe");
-            cmd.arg(trimmed);
-            #[cfg(target_os = "windows")]
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            cmd.spawn()
-                .map_err(|e| format!("Failed to open shell item '{}': {}", trimmed, e))?;
-            return Ok(format!("Opened '{}'", trimmed));
-        }
+        if cfg!(target_os = "windows") {
+            let is_url = trimmed.starts_with("http://")
+                || trimmed.starts_with("https://")
+                || trimmed.starts_with("mailto:")
+                || trimmed.starts_with("file://");
 
-        let ps_script = r#"
+            let path_obj = Path::new(trimmed);
+            if is_url || path_obj.exists() {
+                let mut cmd = Command::new("cmd");
+                cmd.args(["/C", "start", "", trimmed]);
+                #[cfg(target_os = "windows")]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                cmd.spawn()
+                    .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
+                return Ok(format!("Opened '{}'", trimmed));
+            }
+
+            if trimmed.starts_with("shell:") {
+                let mut cmd = Command::new("explorer.exe");
+                cmd.arg(trimmed);
+                #[cfg(target_os = "windows")]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                cmd.spawn()
+                    .map_err(|e| format!("Failed to open shell item '{}': {}", trimmed, e))?;
+                return Ok(format!("Opened '{}'", trimmed));
+            }
+
+            let ps_script = r#"
 $target = $args[0]
 if ([string]::IsNullOrWhiteSpace($target)) { exit 1 }
 $target = $target.Trim()
@@ -1212,7 +1217,7 @@ try {
 } catch {}
 
 # 3. Protocol handler (e.g. spotify:, discord:, slack:, etc.)
-if ($target -notmatch '[:/\]') {
+if ($target -notmatch '[:/\\]') {
     try {
         Start-Process -FilePath ($target + ':') -ErrorAction Stop
         Write-Output "Successfully opened $target via protocol"
@@ -1222,13 +1227,13 @@ if ($target -notmatch '[:/\]') {
 
 # 4. Search Get-StartApps (Windows Store / UWP & modern Win32 installed apps)
 try {
-    $clean = $target -replace '[^ws-]', ''
+    $clean = $target -replace '[^\w\s-]', ''
     $app = Get-StartApps | Where-Object {
         $_.Name -like "*$clean*" -or $_.AppID -like "*$clean*"
     } | Select-Object -First 1
 
     if ($app) {
-        Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder$($app.AppID)" -ErrorAction Stop
+        Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder\$($app.AppID)" -ErrorAction Stop
         Write-Output "Successfully opened $($app.Name)"
         exit 0
     }
@@ -1237,10 +1242,10 @@ try {
 # 5. Search Start Menu shortcuts (.lnk files)
 try {
     $shortcutDirs = @(
-        "$env:ProgramDataMicrosoftWindowsStart MenuPrograms",
-        "$env:APPDATAMicrosoftWindowsStart MenuPrograms"
+        (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"),
+        (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs")
     )
-    $clean = $target -replace '[^ws-]', ''
+    $clean = $target -replace '[^\w\s-]', ''
     $lnk = Get-ChildItem -Path $shortcutDirs -Recurse -Filter "*$clean*.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($lnk) {
         Start-Process -FilePath $lnk.FullName -ErrorAction Stop
@@ -1275,7 +1280,7 @@ try {
         "$env:LOCALAPPDATA\Programs",
         "$env:LOCALAPPDATA"
     )
-    $clean = $target -replace '[^ws-]', ''
+    $clean = $target -replace '[^\w\s-]', ''
     $foundExe = Get-ChildItem -Path $localDirs -Recurse -Depth 3 -Filter "*$clean*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($foundExe) {
         Start-Process -FilePath $foundExe.FullName -ErrorAction Stop
@@ -1288,38 +1293,41 @@ Write-Error "Application '$target' was not found on this computer."
 exit 1
 "#;
 
-        let mut cmd = Command::new("powershell");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps_script, trimmed]);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps_script, trimmed]);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let output = cmd
-            .output()
-            .map_err(|e| format!("Failed to run app launcher: {}", e))?;
+            let output = cmd
+                .output()
+                .map_err(|e| format!("Failed to run app launcher: {}", e))?;
 
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            Ok(if stdout.is_empty() {
-                format!("Opened '{}'", trimmed)
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                Ok(if stdout.is_empty() {
+                    format!("Opened '{}'", trimmed)
+                } else {
+                    stdout
+                })
             } else {
-                stdout
-            })
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let msg = if stderr.is_empty() {
+                    format!("Application '{}' was not found on this computer or failed to open.", trimmed)
+                } else {
+                    stderr
+                };
+                Err(format!("Could not open '{}': {}", trimmed, msg))
+            }
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let msg = if stderr.is_empty() {
-                format!("Application '{}' was not found on this computer or failed to open.", trimmed)
-            } else {
-                stderr
-            };
-            Err(format!("Could not open '{}': {}", trimmed, msg))
+            Command::new("xdg-open")
+                .arg(trimmed)
+                .spawn()
+                .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
+            Ok(format!("Opened '{}'", trimmed))
         }
-    } else {
-        Command::new("xdg-open")
-            .arg(trimmed)
-            .spawn()
-            .map_err(|e| format!("Failed to open '{}': {}", trimmed, e))?;
-        Ok(format!("Opened '{}'", trimmed))
-    }
+    })
+    .await
+    .map_err(|e| format!("App launcher worker failed: {}", e))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1792,7 +1800,13 @@ pub fn run() {
             get_task_manager_snapshot,
             load_wellbeing_history,
             save_wellbeing_history,
-            clear_wellbeing_history
+            clear_wellbeing_history,
+            check_local_cli_agents,
+            run_local_cli_agent,
+            get_windows_startup_enabled,
+            set_windows_startup_enabled,
+            ensure_windows_startup,
+            get_installed_real_apps
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -1,13 +1,12 @@
 <div align="center">
 
 > [!CAUTION]
-> <strong>⚠️ LUMINESS ASSIST IS STILL VERY UNSTABLE.</strong><br />
-> Expect bugs, crashes, and unexpected behavior. Use at your own risk, back up important files, and review commands before running them.
+> <strong>⚠️ LUMINESS ASSIST IS UNSTABLE.</strong>
 
 </div>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/public/robot-icon.svg" width="112" alt="Luminess Assist robot" />
+  <img src="https://raw.githubusercontent.com/jasonhukom/Luminess-Assist/main/src-tauri/icons/icon.png" width="112" alt="Luminess Assist" />
 </p>
 
 <h1 align="center">Luminess Assist</h1>
@@ -252,5 +251,5 @@ Bug reports, ideas, and improvements are welcome. Before opening an issue, check
 ---
 
 <p align="center">
-  Built with care by <a href="https://github.com/jasonhukom">Jason Hukom</a> · <a href="https://github.com/jasonhukom/Luminess-Assist">Source code</a>
+  Built with care by <a href="https://github.com/jasonhukom">Jason Hukom</a> · <a href="https://github.com/jasonhukom/Luminess-Assist">Source code</a> · <a href="https://github.com/jasonhukom/Luminess-Assist/blob/main/LICENSE">MIT License</a>
 </p>

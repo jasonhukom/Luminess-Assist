@@ -324,6 +324,8 @@ pub struct AppConfigJson {
     pub auto_approve_tools: bool,
     pub search_engine_enabled: bool,
     pub memory_sync_enabled: bool,
+    pub auto_start_windows: bool,
+    pub startup_registered_once: bool,
     pub google_account_email: Option<String>,
     pub floating_positions: serde_json::Value,
     pub bot_customization: serde_json::Value,
@@ -335,7 +337,7 @@ pub struct AppConfigJson {
 impl Default for AppConfigJson {
     fn default() -> Self {
         Self {
-            version: "1.3.1".to_string(),
+            version: "1.3.4".to_string(),
             selected_provider: "gemini".to_string(),
             gemini_model: "gemini-2.5-flash".to_string(),
             claude_model: "claude-sonnet-4-20250514".to_string(),
@@ -355,6 +357,8 @@ impl Default for AppConfigJson {
             auto_approve_tools: false,
             search_engine_enabled: true,
             memory_sync_enabled: true,
+            auto_start_windows: true,
+            startup_registered_once: false,
             google_account_email: None,
             floating_positions: serde_json::json!({
                 "history": { "x": 64, "y": 80, "width": 360, "height": 470 },
@@ -1820,5 +1824,423 @@ pub fn scan_local_music(directory: Option<String>) -> Result<ScanLocalMusicResul
         folder: target.to_string_lossy().to_string(),
         tracks,
     })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LocalCliStatusEntry {
+    pub installed: bool,
+    pub command: String,
+    pub resolved_path: String,
+    pub notes: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LocalCliAgentsStatus {
+    pub opencode: LocalCliStatusEntry,
+    pub kilocode: LocalCliStatusEntry,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LocalCliRunResult {
+    pub success: bool,
+    pub output: String,
+    pub error: Option<String>,
+    pub exit_code: i32,
+    pub elapsed_ms: u64,
+}
+
+fn find_npm_global_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(appdata) = env::var("APPDATA") {
+        dirs.push(Path::new(&appdata).join("npm"));
+    }
+    if let Ok(local) = env::var("LOCALAPPDATA") {
+        dirs.push(Path::new(&local).join("Programs").join("nodejs"));
+    }
+    if let Ok(pf) = env::var("ProgramFiles") {
+        dirs.push(Path::new(&pf).join("nodejs"));
+    }
+    if let Ok(path_env) = env::var("PATH") {
+        for part in env::split_paths(&path_env) {
+            if !part.as_os_str().is_empty() && !dirs.iter().any(|d| d == &part) {
+                dirs.push(part);
+            }
+        }
+    }
+    dirs
+}
+
+fn resolve_opencode_binary() -> Option<PathBuf> {
+    if let Ok(appdata) = env::var("APPDATA") {
+        let direct_exe = Path::new(&appdata)
+            .join("npm")
+            .join("node_modules")
+            .join("opencode-ai")
+            .join("bin")
+            .join("opencode.exe");
+        if direct_exe.is_file() {
+            return Some(direct_exe);
+        }
+    }
+    for dir in find_npm_global_dirs() {
+        for name in ["opencode.exe", "opencode.cmd", "opencode"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn resolve_kilocode_binary() -> Option<(PathBuf, bool)> {
+    if let Ok(appdata) = env::var("APPDATA") {
+        let js_bin = Path::new(&appdata)
+            .join("npm")
+            .join("node_modules")
+            .join("@kilocode")
+            .join("cli")
+            .join("bin")
+            .join("kilo");
+        if js_bin.is_file() {
+            return Some((js_bin, true));
+        }
+    }
+    for dir in find_npm_global_dirs() {
+        for name in ["kilocode.exe", "kilo.exe", "kilocode.cmd", "kilo.cmd", "kilocode", "kilo"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some((candidate, false));
+            }
+        }
+    }
+    None
+}
+
+fn resolve_custom_cli_binary(bin_name: &str) -> Option<PathBuf> {
+    let trimmed = bin_name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let direct = Path::new(trimmed);
+    if direct.is_file() {
+        return Some(direct.to_path_buf());
+    }
+    for dir in find_npm_global_dirs() {
+        for candidate_name in [
+            trimmed.to_string(),
+            format!("{}.exe", trimmed),
+            format!("{}.cmd", trimmed),
+        ] {
+            let cand = dir.join(candidate_name);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if let Some(&next) = chars.peek() {
+                if next == '[' {
+                    chars.next();
+                    while let Some(nc) = chars.next() {
+                        if ('@'..='~').contains(&nc) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+#[tauri::command]
+pub fn check_local_cli_agents() -> LocalCliAgentsStatus {
+    let opencode = match resolve_opencode_binary() {
+        Some(path) => LocalCliStatusEntry {
+            installed: true,
+            command: "opencode".to_string(),
+            resolved_path: path.to_string_lossy().to_string(),
+            notes: "OpenCode CLI native binary detected (fast direct execution ready).".to_string(),
+        },
+        None => LocalCliStatusEntry {
+            installed: false,
+            command: "opencode".to_string(),
+            resolved_path: String::new(),
+            notes: "OpenCode CLI not detected on PATH. Install with: npm install -g opencode-ai".to_string(),
+        },
+    };
+
+    let kilocode = match resolve_kilocode_binary() {
+        Some((path, _)) => LocalCliStatusEntry {
+            installed: true,
+            command: "kilocode".to_string(),
+            resolved_path: path.to_string_lossy().to_string(),
+            notes: "KiloCode CLI detected and ready for local autonomous tasks.".to_string(),
+        },
+        None => LocalCliStatusEntry {
+            installed: false,
+            command: "kilocode".to_string(),
+            resolved_path: String::new(),
+            notes: "KiloCode CLI not detected on PATH. Install with: npm install -g @kilocode/cli".to_string(),
+        },
+    };
+
+    LocalCliAgentsStatus { opencode, kilocode }
+}
+
+#[tauri::command]
+pub async fn run_local_cli_agent(
+    agent: String,
+    prompt: String,
+    model: Option<String>,
+    cwd: Option<String>,
+    timeout_secs: Option<u64>,
+) -> Result<LocalCliRunResult, String> {
+    let started_ms = now_unix_ms();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        use std::process::Stdio;
+        let clean_agent = agent.trim().to_ascii_lowercase();
+        let is_kilo = clean_agent == "kilocode" || clean_agent == "kilo";
+
+        let work_dir = cwd
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| {
+                let scratch = get_app_data_dir().join("agent-workspace");
+                let _ = fs::create_dir_all(&scratch);
+                scratch
+            });
+
+        let clean_model = model
+            .map(|m| m.trim().to_string())
+            .filter(|m| {
+                !m.is_empty()
+                    && !matches!(
+                        m.as_str(),
+                        "opencode-default" | "kilocode-default" | "luminess-local-v2"
+                    )
+            });
+
+        let mut cmd = if clean_agent == "opencode" {
+            let Some(bin_path) = resolve_opencode_binary() else {
+                return LocalCliRunResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("OpenCode CLI not found on PATH.".to_string()),
+                    exit_code: -1,
+                    elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+                };
+            };
+            let is_cmd = bin_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+                .unwrap_or(false);
+            let mut c = if is_cmd && cfg!(target_os = "windows") {
+                let mut w = Command::new("cmd");
+                w.arg("/C").arg(&bin_path);
+                w
+            } else {
+                Command::new(&bin_path)
+            };
+            // Use --pure + direct directory so OpenCode skips heavy plugin & temp folder scans
+            c.arg("run").arg("--pure").arg("--dir").arg(&work_dir);
+            if let Some(m) = &clean_model {
+                c.arg("--model").arg(m);
+            }
+            c.arg(&prompt);
+            c
+        } else if is_kilo {
+            let Some((bin_path, _is_node_script)) = resolve_kilocode_binary() else {
+                return LocalCliRunResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("KiloCode CLI not found on PATH.".to_string()),
+                    exit_code: -1,
+                    elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+                };
+            };
+            let is_cmd_or_script = bin_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+                .unwrap_or(false)
+                || bin_path.extension().is_none();
+
+            let mut c = if bin_path.extension().is_none() {
+                let node_path = find_npm_global_dirs()
+                    .into_iter()
+                    .map(|d| d.join("node.exe"))
+                    .find(|p| p.is_file())
+                    .unwrap_or_else(|| PathBuf::from("node"));
+                let mut n = Command::new(node_path);
+                n.arg(&bin_path);
+                n
+            } else if is_cmd_or_script && cfg!(target_os = "windows") {
+                let mut w = Command::new("cmd");
+                w.arg("/C").arg(&bin_path);
+                w
+            } else {
+                Command::new(&bin_path)
+            };
+            c.arg("run");
+            if let Some(m) = &clean_model {
+                c.arg("--model").arg(m);
+            }
+            c.arg(&prompt);
+            c
+        } else {
+            let Some(bin_path) = resolve_custom_cli_binary(&clean_agent) else {
+                return LocalCliRunResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("CLI agent '{}' not found on PATH.", agent)),
+                    exit_code: -1,
+                    elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+                };
+            };
+            let is_cmd = bin_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+                .unwrap_or(false);
+            let mut c = if is_cmd && cfg!(target_os = "windows") {
+                let mut w = Command::new("cmd");
+                w.arg("/C").arg(&bin_path);
+                w
+            } else {
+                Command::new(&bin_path)
+            };
+            c.arg("run").arg("--auto");
+            if let Some(m) = &clean_model {
+                c.arg("--model").arg(m);
+            }
+            c.arg(&prompt);
+            c
+        };
+
+        cmd.current_dir(&work_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb");
+
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = match cmd.spawn() {
+            Ok(ch) => ch,
+            Err(e) => {
+                return LocalCliRunResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to launch {}: {}", agent, e)),
+                    exit_code: -1,
+                    elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+                };
+            }
+        };
+
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
+
+        let out_handle = thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut r) = stdout_pipe {
+                let _ = r.read_to_string(&mut buf);
+            }
+            buf
+        });
+        let err_handle = thread::spawn(move || {
+            let mut buf = String::new();
+            if let Some(mut r) = stderr_pipe {
+                let _ = r.read_to_string(&mut buf);
+            }
+            buf
+        });
+
+        let max_wait = Duration::from_secs(timeout_secs.unwrap_or(28).clamp(5, 90));
+        let start_inst = std::time::Instant::now();
+        let mut timed_out = false;
+        let mut exit_code: i32 = -1;
+
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    exit_code = status.code().unwrap_or(-1);
+                    break;
+                }
+                Ok(None) => {
+                    if start_inst.elapsed() >= max_wait {
+                        timed_out = true;
+                        let pid = child.id();
+                        let _ = child.kill();
+                        #[cfg(target_os = "windows")]
+                        {
+                            let mut tk = Command::new("taskkill");
+                            tk.args(["/F", "/T", "/PID", &pid.to_string()]);
+                            tk.creation_flags(CREATE_NO_WINDOW);
+                            let _ = tk.output();
+                        }
+                        let _ = child.wait();
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => break,
+            }
+        }
+
+        let stdout_raw = out_handle.join().unwrap_or_default();
+        let stderr_raw = err_handle.join().unwrap_or_default();
+        let clean_out = strip_ansi_codes(&stdout_raw).trim().to_string();
+        let clean_err = strip_ansi_codes(&stderr_raw).trim().to_string();
+
+        if timed_out && clean_out.is_empty() {
+            return LocalCliRunResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("{} timed out after {}s.", agent, max_wait.as_secs())),
+                exit_code: -1,
+                elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+            };
+        }
+
+        let valid_out = !clean_out.is_empty()
+            && !clean_out.contains("Unknown flag")
+            && !clean_out.contains("is not recognized");
+
+        LocalCliRunResult {
+            success: valid_out,
+            output: if valid_out { clean_out } else { String::new() },
+            error: if valid_out {
+                None
+            } else if !clean_err.is_empty() {
+                Some(clean_err.chars().take(280).collect())
+            } else {
+                Some(format!("{} produced no response.", agent))
+            },
+            exit_code,
+            elapsed_ms: now_unix_ms().saturating_sub(started_ms),
+        }
+    })
+    .await
+    .map_err(|e| format!("CLI task worker failed: {}", e))?;
+
+    Ok(result)
 }
 

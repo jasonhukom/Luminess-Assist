@@ -100,6 +100,7 @@ export interface BotCustomizationManifest {
   botName: string;
   tagline: string;
   userName: string;
+  userBio?: string;
   repo: string;
   upstreamRepo: string;
   branch: string;
@@ -275,10 +276,11 @@ export const COLOR_PALETTE_PRESETS: Array<{
 
 export function createDefaultBotCustomization(): BotCustomizationManifest {
   return {
-    schemaVersion: '1.3.1',
+    schemaVersion: '1.3.4',
     botName: 'Luminess',
     tagline: 'Living Desktop AI Companion',
     userName: '',
+    userBio: '',
     repo: 'jasonhukom/Luminess-Assist',
     upstreamRepo: 'jasonhukom/Luminess-Assist',
     branch: 'main',
@@ -445,6 +447,12 @@ export function mergeBotCustomization(
         : typeof personalityIn.userName === 'string'
           ? personalityIn.userName
           : base.userName,
+    userBio:
+      typeof src.userBio === 'string'
+        ? src.userBio
+        : typeof personalityIn.userBio === 'string'
+          ? personalityIn.userBio
+          : base.userBio || '',
     repo: rawRepo,
     upstreamRepo: typeof src.upstreamRepo === 'string' ? src.upstreamRepo : base.upstreamRepo,
     branch: typeof src.branch === 'string' && src.branch.trim() ? src.branch.trim() : base.branch,
