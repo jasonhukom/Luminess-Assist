@@ -32,7 +32,6 @@ import {
   Disc3,
   Activity,
   Brain,
-  Cpu,
   Lock,
   Maximize2,
   Minimize2,

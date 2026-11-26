@@ -487,18 +487,25 @@ export function solveSmartBoxLayout(
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
+  const areaSorted = [...ordered].sort(
+    (a, b) => b.minWidth * b.minHeight - a.minWidth * a.minHeight
+  );
+  const reversed = [...ordered].reverse();
+
   let best: { result: Record<FloatingBoxId, SolvedBoxRect>; collisions: number; totalPenalty: number } | null = null;
   for (const cap of SCALE_STEPS) {
-    const pass = packBoxesWithScaleCap(ordered, vw, vh, gap, margin, input.obstacles, cap);
-    if (pass.collisions === 0) {
-      return pass.result;
-    }
-    if (
-      !best ||
-      pass.collisions < best.collisions ||
-      (pass.collisions === best.collisions && pass.totalPenalty < best.totalPenalty)
-    ) {
-      best = pass;
+    for (const passOrder of [ordered, areaSorted, reversed]) {
+      const pass = packBoxesWithScaleCap(passOrder, vw, vh, gap, margin, input.obstacles, cap);
+      if (pass.collisions === 0) {
+        return pass.result;
+      }
+      if (
+        !best ||
+        pass.collisions < best.collisions ||
+        (pass.collisions === best.collisions && pass.totalPenalty < best.totalPenalty)
+      ) {
+        best = pass;
+      }
     }
   }
 

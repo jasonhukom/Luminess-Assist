@@ -260,16 +260,28 @@ pub fn solve_smart_box_layout_internal(input: SmartBoxLayoutInput) -> HashMap<St
             .unwrap_or(usize::MAX)
     });
 
+    let mut area_sorted = ordered.clone();
+    area_sorted.sort_by(|a, b| {
+        let aa = a.min_width * a.min_height;
+        let ba = b.min_width * b.min_height;
+        ba.partial_cmp(&aa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut reversed = ordered.clone();
+    reversed.reverse();
+
     let mut best_result: Option<(usize, f64, HashMap<String, SolvedBoxRect>)> = None;
     for &cap in &SCALE_STEPS {
-        let (solved, collisions, penalty) =
-            pack_boxes_with_scale_cap(&ordered, vw, vh, gap, margin, &input.obstacles, cap);
-        if collisions == 0 {
-            return solved;
-        }
-        match &best_result {
-            Some((best_c, best_p, _)) if collisions > *best_c || (collisions == *best_c && penalty >= *best_p) => {}
-            _ => best_result = Some((collisions, penalty, solved)),
+        for pass_order in [&ordered, &area_sorted, &reversed] {
+            let (solved, collisions, penalty) =
+                pack_boxes_with_scale_cap(pass_order, vw, vh, gap, margin, &input.obstacles, cap);
+            if collisions == 0 {
+                return solved;
+            }
+            match &best_result {
+                Some((best_c, best_p, _))
+                    if collisions > *best_c || (collisions == *best_c && penalty >= *best_p) => {}
+                _ => best_result = Some((collisions, penalty, solved)),
+            }
         }
     }
 

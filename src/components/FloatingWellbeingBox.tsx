@@ -576,7 +576,7 @@ export function FloatingWellbeingBox({
               </div>
             )}
           </>
-        ) : activeTab === 'recent' ? (
+        ) : (
           <>
             <div className="floating-card-item">
               <div className="floating-card-row">
