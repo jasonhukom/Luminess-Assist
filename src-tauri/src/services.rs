@@ -325,6 +325,8 @@ pub struct AppConfigJson {
     pub google_account_email: Option<String>,
     pub floating_positions: serde_json::Value,
     pub bot_customization: serde_json::Value,
+    pub drink_reminder: serde_json::Value,
+    pub music_player: serde_json::Value,
     pub updated_at: u64,
 }
 
@@ -354,9 +356,28 @@ impl Default for AppConfigJson {
             google_account_email: None,
             floating_positions: serde_json::json!({
                 "history": { "x": 64, "y": 80, "width": 360, "height": 470 },
-                "settings": { "x": 448, "y": 80, "width": 430, "height": 560 }
+                "settings": { "x": 448, "y": 80, "width": 430, "height": 560 },
+                "music": { "x": 88, "y": 116, "width": 392, "height": 496 }
             }),
             bot_customization: serde_json::json!({}),
+            drink_reminder: serde_json::json!({
+                "enabled": true,
+                "interval_minutes": 45,
+                "snooze_minutes": 10,
+                "daily_goal_glasses": 8,
+                "daily_glasses": 0,
+                "sound_enabled": true,
+                "custom_message": "Time to drink some water! Take a sip to stay hydrated."
+            }),
+            music_player: serde_json::json!({
+                "volume": 0.55,
+                "muted": false,
+                "shuffle": false,
+                "loop_mode": "all",
+                "active_track_id": "ambient:lofi",
+                "music_folder": "",
+                "custom_tracks": []
+            }),
             updated_at: now_unix_ms(),
         }
     }

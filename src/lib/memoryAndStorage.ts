@@ -6,6 +6,80 @@ import {
   type BotCustomizationManifest,
   type CustomApiFormat,
 } from './botCustomization.ts';
+import {
+  createDefaultDrinkReminder,
+  normalizeDrinkReminderConfig,
+  type DrinkReminderConfig,
+} from './drinkReminder.ts';
+
+export type MusicLoopMode = 'off' | 'all' | 'one';
+
+export interface MusicPlayerTrack {
+  id: string;
+  title: string;
+  artist: string;
+  source: 'ambient' | 'local' | 'url';
+  uri: string;
+  ambientPreset?: 'lofi' | 'space' | 'chimes' | 'brown';
+  durationSec?: number;
+}
+
+export interface MusicPlayerConfig {
+  volume: number;
+  muted: boolean;
+  shuffle: boolean;
+  loop_mode: MusicLoopMode;
+  active_track_id: string | null;
+  music_folder: string;
+  custom_tracks: MusicPlayerTrack[];
+}
+
+export function createDefaultMusicPlayerConfig(): MusicPlayerConfig {
+  return {
+    volume: 0.55,
+    muted: false,
+    shuffle: false,
+    loop_mode: 'all',
+    active_track_id: 'ambient:lofi',
+    music_folder: '',
+    custom_tracks: [],
+  };
+}
+
+export function normalizeMusicPlayerConfig(
+  raw?: Partial<MusicPlayerConfig> | null
+): MusicPlayerConfig {
+  const defaults = createDefaultMusicPlayerConfig();
+  if (!raw) return defaults;
+  const loopMode: MusicLoopMode =
+    raw.loop_mode === 'off' || raw.loop_mode === 'all' || raw.loop_mode === 'one'
+      ? raw.loop_mode
+      : defaults.loop_mode;
+  const vol =
+    typeof raw.volume === 'number' && Number.isFinite(raw.volume)
+      ? Math.min(1, Math.max(0, raw.volume))
+      : defaults.volume;
+
+  const customTracks = Array.isArray(raw.custom_tracks)
+    ? raw.custom_tracks.filter(
+        (t): t is MusicPlayerTrack =>
+          Boolean(t && typeof t.id === 'string' && typeof t.title === 'string' && typeof t.uri === 'string')
+      )
+    : [];
+
+  return {
+    volume: vol,
+    muted: typeof raw.muted === 'boolean' ? raw.muted : defaults.muted,
+    shuffle: typeof raw.shuffle === 'boolean' ? raw.shuffle : defaults.shuffle,
+    loop_mode: loopMode,
+    active_track_id:
+      typeof raw.active_track_id === 'string' || raw.active_track_id === null
+        ? raw.active_track_id
+        : defaults.active_track_id,
+    music_folder: typeof raw.music_folder === 'string' ? raw.music_folder.trim() : '',
+    custom_tracks: customTracks,
+  };
+}
 
 export type StorageTierId = 'lightweight' | 'recommended' | 'extended' | 'large' | 'unlimited';
 
@@ -127,8 +201,11 @@ export interface AppConfigJson {
   floating_positions: {
     history: FloatingBoxPosition;
     settings: FloatingBoxPosition;
+    music: FloatingBoxPosition;
   };
   bot_customization: BotCustomizationManifest;
+  drink_reminder: DrinkReminderConfig;
+  music_player: MusicPlayerConfig;
   updated_at: number;
 }
 
@@ -209,8 +286,11 @@ export function createDefaultAppConfig(): AppConfigJson {
     floating_positions: {
       history: { x: 48, y: 72, width: 350, height: 460 },
       settings: { x: 420, y: 72, width: 430, height: 560 },
+      music: { x: 88, y: 116, width: 392, height: 496 },
     },
     bot_customization: createDefaultBotCustomization(),
+    drink_reminder: createDefaultDrinkReminder(),
+    music_player: createDefaultMusicPlayerConfig(),
     updated_at: Date.now(),
   };
 }
@@ -224,10 +304,16 @@ let cachedConfig: AppConfigJson = (() => {
       return {
         ...defaults,
         ...parsed,
+        floating_positions: {
+          ...defaults.floating_positions,
+          ...(parsed.floating_positions || {}),
+        },
         bot_customization: mergeBotCustomization(
           defaults.bot_customization,
           parsed.bot_customization
         ),
+        drink_reminder: normalizeDrinkReminderConfig(parsed.drink_reminder),
+        music_player: normalizeMusicPlayerConfig(parsed.music_player),
       };
     } catch {
       // ignore
@@ -298,6 +384,8 @@ export async function loadAppConfigFromMachine(): Promise<AppConfigJson> {
           defaults.bot_customization,
           cfg.bot_customization
         ),
+        drink_reminder: normalizeDrinkReminderConfig(cfg.drink_reminder),
+        music_player: normalizeMusicPlayerConfig(cfg.music_player),
       };
       writeFallbackStorage(LOCAL_CONFIG_FALLBACK_KEY, JSON.stringify(cachedConfig));
       return cachedConfig;
@@ -321,10 +409,26 @@ export async function saveAppConfigToMachine(partial: Partial<AppConfigJson>): P
       )
     : cachedConfig.bot_customization || defaults.bot_customization;
 
+  const nextDrinkReminder = partial.drink_reminder
+    ? normalizeDrinkReminderConfig({
+        ...(cachedConfig.drink_reminder || defaults.drink_reminder),
+        ...partial.drink_reminder,
+      })
+    : normalizeDrinkReminderConfig(cachedConfig.drink_reminder);
+
+  const nextMusicPlayer = partial.music_player
+    ? normalizeMusicPlayerConfig({
+        ...(cachedConfig.music_player || defaults.music_player),
+        ...partial.music_player,
+      })
+    : normalizeMusicPlayerConfig(cachedConfig.music_player);
+
   const next: AppConfigJson = {
     ...cachedConfig,
     ...partial,
     bot_customization: nextBotCustomization,
+    drink_reminder: nextDrinkReminder,
+    music_player: nextMusicPlayer,
     updated_at: Date.now(),
   };
   if (partial.storage_tier) {
@@ -339,6 +443,14 @@ export async function saveAppConfigToMachine(partial: Partial<AppConfigJson>): P
         ...next,
         ...saved,
         bot_customization: mergeBotCustomization(nextBotCustomization, saved.bot_customization),
+        drink_reminder: normalizeDrinkReminderConfig({
+          ...nextDrinkReminder,
+          ...(saved.drink_reminder || {}),
+        }),
+        music_player: normalizeMusicPlayerConfig({
+          ...nextMusicPlayer,
+          ...(saved.music_player || {}),
+        }),
       };
       writeFallbackStorage(LOCAL_CONFIG_FALLBACK_KEY, JSON.stringify(cachedConfig));
     }
