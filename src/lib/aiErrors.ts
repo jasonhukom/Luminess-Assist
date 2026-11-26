@@ -47,8 +47,8 @@ export function sanitizeErrorMessage(raw: string): string {
     .replace(/AIza[0-9A-Za-z-_]{35}/g, '[REDACTED_API_KEY]')
     // Redact Anthropic keys (sk-ant-...)
     .replace(/sk-ant-[0-9a-zA-Z\-_]{20,}/g, '[REDACTED_API_KEY]')
-    // Redact OpenAI keys (sk-...)
-    .replace(/sk-[a-zA-Z0-9\-_]{20,}/g, '[REDACTED_API_KEY]')
+    // Redact OpenAI / OpenRouter / Groq / DeepSeek keys (sk-... / gsk_...)
+    .replace(/(?:sk|gsk)_[a-zA-Z0-9\-_]{20,}|sk-[a-zA-Z0-9\-_]{20,}/g, '[REDACTED_API_KEY]')
     // Redact Vertex / Express keys
     .replace(/AQ\.[A-Za-z0-9_-]{30,}/g, '[REDACTED_KEY]')
     // Redact Bearer tokens

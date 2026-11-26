@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { invoke } from '@tauri-apps/api/core';
 import type { Emotion } from '../components/Robot.tsx';
+import type { CustomApiFormat } from './botCustomization.ts';
 import { getPersonalityPromptContext } from './personality.ts';
 import { runOfflineAgent } from './offlineAi.ts';
 import {
@@ -60,6 +61,7 @@ export interface MachineCredentialsVault {
   gemini_api_key: string;
   claude_api_key: string;
   codex_api_key: string;
+  custom_api_key?: string;
   search_api_key: string;
   google_oauth_session_json: string;
   updated_at: number;
@@ -137,11 +139,19 @@ async function getOAuthClientConfig(): Promise<OAuthClientConfig> {
   };
 }
 
-export type AIProvider = 'gemini' | 'claude' | 'codex' | 'offline';
+export type AIProvider = 'gemini' | 'claude' | 'codex' | 'custom' | 'offline';
+
+export interface ProviderConnectionOptions {
+  baseUrl?: string;
+  model?: string;
+  apiFormat?: CustomApiFormat;
+  customHeadersJson?: string;
+}
 
 const LEGACY_PROVIDER_KEY_STORAGE: Record<Exclude<AIProvider, 'gemini' | 'offline'>, string> = {
   claude: 'LUMINESS_CLAUDE_API_KEY',
   codex: 'LUMINESS_CODEX_API_KEY',
+  custom: 'LUMINESS_CUSTOM_API_KEY',
 };
 const SELECTED_PROVIDER_STORAGE_KEY = 'LUMINESS_SELECTED_PROVIDER';
 
@@ -150,6 +160,7 @@ const machineKeysCache: Record<Exclude<AIProvider, 'offline'>, string> = {
   gemini: '',
   claude: '',
   codex: '',
+  custom: '',
 };
 
 let googleSession: GoogleUserSession | null = null;
@@ -169,6 +180,10 @@ function initLegacyFallbackState(): void {
     const legCodex = localStorage.getItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
     if (legCodex && !machineKeysCache.codex) {
       machineKeysCache.codex = legCodex.trim();
+    }
+    const legCustom = localStorage.getItem(LEGACY_PROVIDER_KEY_STORAGE.custom);
+    if (legCustom && !machineKeysCache.custom) {
+      machineKeysCache.custom = legCustom.trim();
     }
     const legOAuth = localStorage.getItem(LEGACY_GOOGLE_AUTH_STORAGE_KEY);
     if (legOAuth && !googleSession) {
@@ -190,6 +205,7 @@ function persistVaultToMachineAsync(): void {
     geminiApiKey: machineKeysCache.gemini,
     claudeApiKey: machineKeysCache.claude,
     codexApiKey: machineKeysCache.codex,
+    customApiKey: machineKeysCache.custom,
     searchApiKey: null,
     googleOauthSessionJson: oauthJson,
   })
@@ -200,6 +216,7 @@ function persistVaultToMachineAsync(): void {
           localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
           localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
           localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+          localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.custom);
         }
       } catch {
         // ignore
@@ -211,7 +228,7 @@ function persistVaultToMachineAsync(): void {
 }
 
 /**
- * Loads all three provider API keys and the Google OAuth session from the Windows DPAPI machine vault
+ * Loads all provider API keys and the Google OAuth session from the Windows DPAPI machine vault
  * on application startup, and migrates any legacy keys into the machine vault.
  */
 export async function loadMachineCredentialsOnStartup(): Promise<{
@@ -241,6 +258,12 @@ export async function loadMachineCredentialsOnStartup(): Promise<{
         needsMigrationSave = true;
       }
 
+      if (vault.custom_api_key) {
+        machineKeysCache.custom = vault.custom_api_key.trim();
+      } else if (machineKeysCache.custom) {
+        needsMigrationSave = true;
+      }
+
       if (vault.google_oauth_session_json) {
         try {
           const parsed = JSON.parse(vault.google_oauth_session_json);
@@ -263,6 +286,7 @@ export async function loadMachineCredentialsOnStartup(): Promise<{
             localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
             localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
             localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+            localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.custom);
           }
         } catch {
           // ignore
@@ -278,6 +302,7 @@ export async function loadMachineCredentialsOnStartup(): Promise<{
       gemini: machineKeysCache.gemini,
       claude: machineKeysCache.claude,
       codex: machineKeysCache.codex,
+      custom: machineKeysCache.custom,
       offline: 'offline-local',
     },
     googleSession,
@@ -335,6 +360,7 @@ export async function saveAllProviderKeysToMachine(
   if (keys.gemini !== undefined) machineKeysCache.gemini = keys.gemini.trim();
   if (keys.claude !== undefined) machineKeysCache.claude = keys.claude.trim();
   if (keys.codex !== undefined) machineKeysCache.codex = keys.codex.trim();
+  if (keys.custom !== undefined) machineKeysCache.custom = keys.custom.trim();
 
   const oauthJson = googleSession ? JSON.stringify(googleSession) : '';
   try {
@@ -342,6 +368,7 @@ export async function saveAllProviderKeysToMachine(
       geminiApiKey: machineKeysCache.gemini,
       claudeApiKey: machineKeysCache.claude,
       codexApiKey: machineKeysCache.codex,
+      customApiKey: machineKeysCache.custom,
       searchApiKey: null,
       googleOauthSessionJson: oauthJson,
     });
@@ -349,6 +376,7 @@ export async function saveAllProviderKeysToMachine(
       localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
       localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.claude);
       localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.codex);
+      localStorage.removeItem(LEGACY_PROVIDER_KEY_STORAGE.custom);
     }
   } catch {
     // Fallback outside Tauri runtime
@@ -356,9 +384,14 @@ export async function saveAllProviderKeysToMachine(
 }
 
 export function getSelectedProvider(): AIProvider {
-  if (typeof localStorage === 'undefined') return 'gemini';
-  const saved = localStorage.getItem(SELECTED_PROVIDER_STORAGE_KEY);
-  return saved === 'gemini' || saved === 'claude' || saved === 'codex' || saved === 'offline' ? saved : 'gemini';
+  const valid = (v: string | null | undefined): v is AIProvider =>
+    v === 'gemini' || v === 'claude' || v === 'codex' || v === 'custom' || v === 'offline';
+  if (typeof localStorage !== 'undefined') {
+    const saved = localStorage.getItem(SELECTED_PROVIDER_STORAGE_KEY);
+    if (valid(saved)) return saved;
+  }
+  const cfgProv = getCachedAppConfig().selected_provider;
+  return valid(cfgProv) ? cfgProv : 'gemini';
 }
 
 export function setSelectedProvider(provider: AIProvider): void {
@@ -373,17 +406,191 @@ export function setSelectedProvider(provider: AIProvider): void {
 }
 
 export function hasAnyProviderKey(): boolean {
-  if (getSelectedProvider() === 'offline') return true;
+  const sel = getSelectedProvider();
+  if (sel === 'offline') return true;
+  const cfg = getCachedAppConfig();
   return Boolean(
     googleSession ||
       getProviderApiKey('gemini') ||
       getProviderApiKey('claude') ||
-      getProviderApiKey('codex')
+      getProviderApiKey('codex') ||
+      getProviderApiKey('custom') ||
+      (sel === 'custom' && cfg.custom_api_endpoint?.trim())
   );
 }
 
 export function hasAnyConfiguredProvider(): boolean {
   return hasAnyProviderKey();
+}
+
+export function parseCustomHeadersJson(raw?: string): Record<string, string> {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Custom headers must be a JSON object of header key/value strings.');
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (k.trim() && v !== undefined && v !== null) {
+      out[k.trim()] = String(v);
+    }
+  }
+  return out;
+}
+
+export function normalizeCustomEndpointUrl(
+  baseUrl: string,
+  apiFormat: CustomApiFormat,
+  mode: 'chat' | 'models',
+  model?: string,
+  apiKey?: string
+): string {
+  let clean = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!clean) {
+    clean =
+      apiFormat === 'anthropic'
+        ? 'https://api.anthropic.com/v1'
+        : apiFormat === 'gemini'
+          ? 'https://generativelanguage.googleapis.com/v1beta'
+          : 'https://api.openai.com/v1';
+  }
+
+  if (mode === 'models') {
+    const stripped = clean
+      .replace(/\/chat\/completions$/i, '')
+      .replace(/\/responses$/i, '')
+      .replace(/\/messages$/i, '')
+      .replace(/\/models\/[^/]+:(generateContent|streamGenerateContent)$/i, '');
+    try {
+      const parsed = new URL(stripped);
+      if (!parsed.pathname || parsed.pathname === '/') {
+        return `${stripped}/v1/models`;
+      }
+    } catch {
+      // ignore URL parse error and append below
+    }
+    return stripped.endsWith('/models') ? stripped : `${stripped}/models`;
+  }
+
+  if (apiFormat === 'openai-chat') {
+    if (/\/chat\/completions$/i.test(clean)) return clean;
+    try {
+      const parsed = new URL(clean);
+      if (!parsed.pathname || parsed.pathname === '/') {
+        return `${clean}/v1/chat/completions`;
+      }
+    } catch {
+      // ignore
+    }
+    return `${clean}/chat/completions`;
+  }
+
+  if (apiFormat === 'openai-responses') {
+    if (/\/responses$/i.test(clean)) return clean;
+    try {
+      const parsed = new URL(clean);
+      if (!parsed.pathname || parsed.pathname === '/') {
+        return `${clean}/v1/responses`;
+      }
+    } catch {
+      // ignore
+    }
+    return `${clean}/responses`;
+  }
+
+  if (apiFormat === 'anthropic') {
+    if (/\/messages$/i.test(clean)) return clean;
+    try {
+      const parsed = new URL(clean);
+      if (!parsed.pathname || parsed.pathname === '/') {
+        return `${clean}/v1/messages`;
+      }
+    } catch {
+      // ignore
+    }
+    return `${clean}/messages`;
+  }
+
+  // Gemini REST API
+  if (/:generateContent/i.test(clean)) {
+    return apiKey && !/[?&]key=/i.test(clean)
+      ? `${clean}${clean.includes('?') ? '&' : '?'}key=${encodeURIComponent(apiKey)}`
+      : clean;
+  }
+  const activeModel = encodeURIComponent((model || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash');
+  let basePrefix = clean;
+  try {
+    const parsed = new URL(clean);
+    if (!parsed.pathname || parsed.pathname === '/') {
+      basePrefix = `${clean}/v1beta`;
+    }
+  } catch {
+    // ignore
+  }
+  const full = `${basePrefix}/models/${activeModel}:generateContent`;
+  return apiKey ? `${full}?key=${encodeURIComponent(apiKey)}` : full;
+}
+
+export interface SmartHttpResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: () => Promise<string>;
+  json: () => Promise<any>;
+}
+
+export async function smartHttpRequest(
+  url: string,
+  init: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    timeoutSecs?: number;
+  } = {}
+): Promise<SmartHttpResponse> {
+  const method = (init.method || 'GET').toUpperCase();
+  const headers = init.headers || {};
+
+  try {
+    const resp = await fetch(url, {
+      method,
+      headers,
+      body: init.body,
+    });
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      statusText: resp.statusText,
+      text: () => resp.text(),
+      json: () => resp.json(),
+    };
+  } catch (fetchErr) {
+    // Transparent Rust Tauri proxy fallback prevents CORS failures on third-party/custom APIs
+    try {
+      const proxyRes = await invoke<{
+        ok: boolean;
+        status: number;
+        status_text: string;
+        body: string;
+      }>('http_proxy_request', {
+        url,
+        method,
+        headers,
+        body: init.body ?? null,
+        timeoutSecs: init.timeoutSecs ?? 60,
+      });
+      return {
+        ok: proxyRes.ok,
+        status: proxyRes.status,
+        statusText: proxyRes.status_text || '',
+        text: async () => proxyRes.body,
+        json: async () => JSON.parse(proxyRes.body),
+      };
+    } catch {
+      throw fetchErr;
+    }
+  }
 }
 
 function extractProjectId(val: any): string | undefined {
@@ -532,23 +739,225 @@ export async function checkAntigravityCliStatus(): Promise<AntigravityCliStatus>
 }
 
 /**
- * Actively verifies whether the given AI provider and credentials can successfully
- * communicate with the AI model service.
+ * Actively verifies whether the given AI provider and credentials (or custom no-preset endpoint)
+ * can successfully communicate with the AI model service.
  */
 export async function verifyProviderConnection(
   provider: AIProvider,
-  keyOverride?: string
-): Promise<{ success: boolean; error?: NormalizedAIError }> {
+  keyOverride?: string,
+  options?: ProviderConnectionOptions
+): Promise<{ success: boolean; error?: NormalizedAIError; resolvedInfo?: string }> {
   if (provider === 'offline') {
-    return { success: true };
+    return { success: true, resolvedInfo: 'Local / Offline agent mode active' };
   }
+
+  const cfg = getCachedAppConfig();
   const key = (keyOverride !== undefined ? keyOverride : getProviderApiKey(provider)).trim();
 
+  let extraHeaders: Record<string, string> = {};
+  const headersRaw = options?.customHeadersJson ?? cfg.custom_api_headers;
+  if (headersRaw?.trim()) {
+    try {
+      extraHeaders = parseCustomHeadersJson(headersRaw);
+    } catch (hdrErr: any) {
+      return {
+        success: false,
+        error: normalizeAIError(hdrErr, provider),
+      };
+    }
+  }
+
+  if (provider === 'custom') {
+    const baseUrl = (options?.baseUrl ?? cfg.custom_api_endpoint ?? '').trim();
+    const apiFormat: CustomApiFormat = options?.apiFormat ?? cfg.custom_api_format ?? 'openai-chat';
+    const model = (options?.model ?? cfg.custom_api_model ?? '').trim();
+
+    if (!baseUrl || !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
+      return {
+        success: false,
+        error: normalizeAIError(
+          new Error('Valid http:// or https:// Custom API Base URL is required.'),
+          'custom'
+        ),
+      };
+    }
+
+    try {
+      if (apiFormat === 'gemini') {
+        const activeModel = model || 'gemini-2.5-flash';
+        const url = normalizeCustomEndpointUrl(baseUrl, 'gemini', 'chat', activeModel, key);
+        const resp = await smartHttpRequest(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...extraHeaders },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'ping' }] }],
+            generationConfig: { maxOutputTokens: 1 },
+          }),
+        });
+        if (resp.ok) {
+          return { success: true, resolvedInfo: `${activeModel} via custom Gemini endpoint` };
+        }
+        const data = await resp.json().catch(() => ({}));
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message: data?.error?.message || `HTTP ${resp.status} ${resp.statusText}`,
+              status: resp.status,
+              error: data?.error,
+            },
+            'custom'
+          ),
+        };
+      }
+
+      if (apiFormat === 'anthropic') {
+        const activeModel = model || 'claude-sonnet-4-20250514';
+        const url = normalizeCustomEndpointUrl(baseUrl, 'anthropic', 'chat', activeModel);
+        const headers: Record<string, string> = {
+          'content-type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+          ...extraHeaders,
+        };
+        if (key && !headers['x-api-key'] && !headers['Authorization'] && !headers['authorization']) {
+          headers['x-api-key'] = key;
+        }
+        const resp = await smartHttpRequest(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: activeModel,
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'ping' }],
+          }),
+        });
+        if (resp.ok) {
+          return { success: true, resolvedInfo: `${activeModel} via custom Anthropic endpoint` };
+        }
+        const data = await resp.json().catch(() => ({}));
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message: data?.error?.message || `HTTP ${resp.status} ${resp.statusText}`,
+              status: resp.status,
+              error: data?.error,
+            },
+            'custom'
+          ),
+        };
+      }
+
+      // OpenAI Chat Completions or Responses API compatible (no preset required!)
+      const authHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+        ...extraHeaders,
+      };
+      if (key && !authHeaders.authorization && !authHeaders.Authorization && !authHeaders['x-api-key']) {
+        authHeaders.authorization = `Bearer ${key}`;
+      }
+
+      if (!model) {
+        const modelsUrl = normalizeCustomEndpointUrl(baseUrl, apiFormat, 'models');
+        const modelsResp = await smartHttpRequest(modelsUrl, {
+          method: 'GET',
+          headers: authHeaders,
+        });
+        if (modelsResp.ok) {
+          const modelsJson = await modelsResp.json().catch(() => ({}));
+          const firstModel = modelsJson?.data?.[0]?.id;
+          return {
+            success: true,
+            resolvedInfo: firstModel ? `Connected (found model: ${firstModel})` : 'Endpoint reachable',
+          };
+        }
+        const data = await modelsResp.json().catch(() => ({}));
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              message:
+                data?.error?.message ||
+                `HTTP ${modelsResp.status}. Enter a Model ID if /models is disabled on this endpoint.`,
+              status: modelsResp.status,
+              error: data?.error,
+            },
+            'custom'
+          ),
+        };
+      }
+
+      const targetUrl = normalizeCustomEndpointUrl(baseUrl, apiFormat, 'chat', model);
+      const sendProbe = async (useMaxCompletionTokens: boolean) => {
+        const payload =
+          apiFormat === 'openai-responses'
+            ? { model, input: 'ping', max_output_tokens: 16 }
+            : useMaxCompletionTokens
+              ? { model, messages: [{ role: 'user', content: 'ping' }], max_completion_tokens: 16 }
+              : { model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 };
+        return await smartHttpRequest(targetUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+      };
+
+      let resp = await sendProbe(false);
+      let data = await resp.json().catch(() => ({}));
+      const rawErr = String(data?.error?.message || '').toLowerCase();
+      if (!resp.ok && resp.status === 400 && rawErr.includes('max_completion_tokens')) {
+        resp = await sendProbe(true);
+        data = await resp.json().catch(() => ({}));
+      }
+      if (resp.ok) {
+        return { success: true, resolvedInfo: `${model} connected` };
+      }
+
+      return {
+        success: false,
+        error: normalizeAIError(
+          {
+            message: extractProviderError(data, `HTTP ${resp.status} ${resp.statusText}`),
+            status: resp.status,
+            error: data?.error,
+          },
+          'custom'
+        ),
+      };
+    } catch (err: any) {
+      return { success: false, error: normalizeAIError(err, 'custom') };
+    }
+  }
+
   if (provider === 'gemini') {
+    const model = (options?.model || cfg.gemini_model || 'gemini-2.5-flash').trim();
+    const customBase = (options?.baseUrl || '').trim();
+
     if (!key) {
-      if (googleSession && googleSession.accessToken) {
-        // Signed-in Google OAuth session is active!
-        return { success: true };
+      const refreshedSession = await ensureValidGoogleSession();
+      if (refreshedSession && refreshedSession.accessToken) {
+        const ping = await generateWithGoogleOAuth(
+          refreshedSession,
+          model,
+          [{ role: 'user', parts: [{ text: 'ping' }] }],
+          'Reply with ok.',
+          []
+        );
+        if (ping !== null) {
+          return { success: true, resolvedInfo: `Google OAuth (${model})` };
+        }
+        return {
+          success: false,
+          error: normalizeAIError(
+            {
+              status: 403,
+              message:
+                'PERMISSION_DENIED: Google OAuth signed in, but no active Gemini Code Assist or GCP project was enabled for this account. Paste a Gemini AI Studio API key or choose another provider/local agent.',
+            },
+            'gemini'
+          ),
+        };
       }
       return {
         success: false,
@@ -557,11 +966,26 @@ export async function verifyProviderConnection(
     }
 
     try {
-      const model = getCachedAppConfig().gemini_model || 'gemini-2.5-flash';
-      const probeUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-      const resp = await fetch(probeUrl, {
+      if (isVertexExpressKey(key) && !customBase) {
+        const ai = createGenAIClient(key, true);
+        await ai.models.generateContent({
+          model,
+          contents: 'ping',
+          config: { maxOutputTokens: 1 },
+        });
+        return { success: true, resolvedInfo: `${model} (Vertex Express)` };
+      }
+
+      const probeUrl = normalizeCustomEndpointUrl(
+        customBase || 'https://generativelanguage.googleapis.com/v1beta',
+        'gemini',
+        'chat',
+        model,
+        key
+      );
+      const resp = await smartHttpRequest(probeUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...extraHeaders },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'ping' }] }],
           generationConfig: { maxOutputTokens: 1 },
@@ -584,7 +1008,7 @@ export async function verifyProviderConnection(
         };
       }
 
-      return { success: true };
+      return { success: true, resolvedInfo: `${model} connected` };
     } catch (err: any) {
       return { success: false, error: normalizeAIError(err, 'gemini') };
     }
@@ -601,22 +1025,27 @@ export async function verifyProviderConnection(
       };
     }
 
-    const candidateModels = [
-      getCachedAppConfig().claude_model || 'claude-sonnet-4-20250514',
-      'claude-3-5-sonnet-latest',
-      'claude-3-haiku-20240307',
-    ];
+    const chosenModel = (options?.model || cfg.claude_model || '').trim();
+    const candidateModels = chosenModel
+      ? [chosenModel]
+      : ['claude-sonnet-4-20250514', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest'];
+    const endpointUrl = normalizeCustomEndpointUrl(
+      options?.baseUrl || cfg.custom_api_endpoint || 'https://api.anthropic.com/v1',
+      'anthropic',
+      'chat'
+    );
 
     let lastErr: any = null;
     for (const model of candidateModels) {
       try {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        const resp = await smartHttpRequest(endpointUrl, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-api-key': key,
             'anthropic-version': '2023-06-01',
             'anthropic-dangerous-direct-browser-access': 'true',
+            ...extraHeaders,
           },
           body: JSON.stringify({
             model,
@@ -626,7 +1055,7 @@ export async function verifyProviderConnection(
         });
 
         if (resp.ok) {
-          return { success: true };
+          return { success: true, resolvedInfo: `${model} connected` };
         }
         const body = await resp.json().catch(() => ({}));
         const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
@@ -661,31 +1090,65 @@ export async function verifyProviderConnection(
       };
     }
 
-    try {
-      const resp = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: {
-          authorization: `Bearer ${key}`,
-        },
-      });
+    const baseUrl = (options?.baseUrl || cfg.custom_api_endpoint || 'https://api.openai.com/v1').trim();
+    const model = (options?.model || cfg.codex_model || 'gpt-4o').trim();
 
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
-        return {
-          success: false,
-          error: normalizeAIError(
-            {
-              message: errMsg,
-              status: resp.status,
-              error: body?.error,
-            },
-            'codex'
+    try {
+      // Probe chat completion directly so restricted keys (without /models scope) AND typos in custom model names verify cleanly
+      const chatUrl = normalizeCustomEndpointUrl(baseUrl, 'openai-chat', 'chat', model);
+      const sendOpenAIProbe = async (useMaxCompletionTokens: boolean) =>
+        await smartHttpRequest(chatUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${key}`,
+            ...extraHeaders,
+          },
+          body: JSON.stringify(
+            useMaxCompletionTokens
+              ? { model, messages: [{ role: 'user', content: 'ping' }], max_completion_tokens: 16 }
+              : { model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
           ),
-        };
+        });
+
+      let resp = await sendOpenAIProbe(false);
+      let body: any = await resp.json().catch(() => ({}));
+      const lowerMsg = String(body?.error?.message || '').toLowerCase();
+      if (!resp.ok && resp.status === 400 && lowerMsg.includes('max_completion_tokens')) {
+        resp = await sendOpenAIProbe(true);
+        body = await resp.json().catch(() => ({}));
       }
 
-      return { success: true };
+      if (resp.ok) {
+        return { success: true, resolvedInfo: `${model} connected` };
+      }
+
+      // If 404 on default model, double-check GET /models to give an accurate error vs valid key
+      if (resp.status !== 401 && resp.status !== 403 && resp.status !== 429) {
+        const modelsResp = await smartHttpRequest(
+          normalizeCustomEndpointUrl(baseUrl, 'openai-chat', 'models'),
+          {
+            method: 'GET',
+            headers: { authorization: `Bearer ${key}`, ...extraHeaders },
+          }
+        );
+        if (modelsResp.ok && !options?.model) {
+          return { success: true, resolvedInfo: 'OpenAI API key verified' };
+        }
+      }
+
+      const errMsg = body?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
+      return {
+        success: false,
+        error: normalizeAIError(
+          {
+            message: errMsg,
+            status: resp.status,
+            error: body?.error,
+          },
+          'codex'
+        ),
+      };
     } catch (err: any) {
       return { success: false, error: normalizeAIError(err, 'codex') };
     }
@@ -1197,8 +1660,46 @@ async function runAlternativeProviderAgent(
     }
   };
 
+  const cfg = getCachedAppConfig();
+  let extraHeaders: Record<string, string> = {};
+  if (cfg.custom_api_headers?.trim()) {
+    extraHeaders = parseCustomHeadersJson(cfg.custom_api_headers);
+  }
+
+  const effectiveFormat: CustomApiFormat =
+    provider === 'claude'
+      ? 'anthropic'
+      : provider === 'codex'
+        ? 'openai-chat'
+        : cfg.custom_api_format || 'openai-chat';
+
+  const baseUrl =
+    provider === 'custom'
+      ? cfg.custom_api_endpoint || ''
+      : provider === 'claude'
+        ? cfg.custom_api_endpoint || 'https://api.anthropic.com/v1'
+        : cfg.custom_api_endpoint || 'https://api.openai.com/v1';
+
+  const activeModel =
+    provider === 'custom'
+      ? (cfg.custom_api_model || '').trim() ||
+        (effectiveFormat === 'anthropic'
+          ? 'claude-sonnet-4-20250514'
+          : effectiveFormat === 'gemini'
+            ? 'gemini-2.5-flash'
+            : 'gpt-4o')
+      : provider === 'claude'
+        ? (cfg.claude_model || 'claude-sonnet-4-20250514').trim()
+        : (cfg.codex_model || 'gpt-4o').trim();
+
+  const temperature =
+    typeof cfg.bot_customization?.apiConfig?.temperature === 'number'
+      ? cfg.bot_customization.apiConfig.temperature
+      : 0.6;
+
   try {
-    if (provider === 'claude') {
+    if (effectiveFormat === 'anthropic') {
+      const endpointUrl = normalizeCustomEndpointUrl(baseUrl, 'anthropic', 'chat', activeModel);
       const messages: any[] = history.map((item) => ({
         role: item.role === 'assistant' ? 'assistant' : 'user',
         content: item.content,
@@ -1208,58 +1709,60 @@ async function runAlternativeProviderAgent(
         description: tool.description,
         input_schema: tool.parameters,
       }));
-
-      const claudeModel = getCachedAppConfig().claude_model || 'claude-sonnet-4-20250514';
+      let sendWithTools = true;
 
       for (let turn = 0; turn < maxTurns; turn++) {
-        onToolStart(turn === 0 ? 'Connecting to Claude…' : 'Claude is continuing the task…');
-        let response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': key,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: claudeModel,
+        onToolStart(
+          turn === 0 ? `Connecting to ${activeModel}…` : `${activeModel} is continuing the task…`
+        );
+        const headers: Record<string, string> = {
+          'content-type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+          ...extraHeaders,
+        };
+        if (key && !headers['x-api-key'] && !headers.authorization && !headers.Authorization) {
+          headers['x-api-key'] = key;
+        }
+
+        const buildBody = (withTools: boolean) =>
+          JSON.stringify({
+            model: activeModel,
             max_tokens: 4096,
             system: systemInstruction,
             messages,
-            tools: providerTools,
-          }),
+            ...(withTools ? { tools: providerTools } : {}),
+          });
+
+        let response = await smartHttpRequest(endpointUrl, {
+          method: 'POST',
+          headers,
+          body: buildBody(sendWithTools),
         });
 
-        // Automatic fallback if model alias differs on the user's Anthropic tier
-        if (response.status === 404 && claudeModel !== 'claude-3-5-sonnet-latest') {
-          response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-api-key': key,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model: 'claude-3-5-sonnet-latest',
-              max_tokens: 4096,
-              system: systemInstruction,
-              messages,
-              tools: providerTools,
-            }),
-          });
+        let data: any = await response.json().catch(() => ({}));
+        if (!response.ok && response.status === 400 && sendWithTools) {
+          const msgLower = extractProviderError(data, '').toLowerCase();
+          if (msgLower.includes('tool') || msgLower.includes('function')) {
+            sendWithTools = false;
+            response = await smartHttpRequest(endpointUrl, {
+              method: 'POST',
+              headers,
+              body: buildBody(false),
+            });
+            data = await response.json().catch(() => ({}));
+          }
         }
 
-        const data: any = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const errMsg = extractProviderError(data, `Claude API error (${response.status})`);
+          const errMsg = extractProviderError(data, `API error (${response.status})`);
           throw normalizeAIError(
             {
               message: errMsg,
               status: response.status,
               error: data?.error,
             },
-            'claude'
+            provider
           );
         }
 
@@ -1296,8 +1799,191 @@ async function runAlternativeProviderAgent(
         }
         messages.push({ role: 'user', content: results });
       }
+    } else if (effectiveFormat === 'gemini') {
+      const endpointUrl = normalizeCustomEndpointUrl(baseUrl, 'gemini', 'chat', activeModel, key);
+      const geminiContents: any[] = history.map((item) => ({
+        role: item.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: item.content }],
+      }));
+      const geminiTools = [{ functionDeclarations: declarations }];
+      let includeTools = true;
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        onToolStart(
+          turn === 0 ? `Connecting to ${activeModel}…` : `${activeModel} is continuing the task…`
+        );
+        const buildBody = (withTools: boolean) =>
+          JSON.stringify({
+            contents: geminiContents,
+            systemInstruction: { role: 'user', parts: [{ text: systemInstruction }] },
+            ...(withTools && declarations.length > 0 ? { tools: geminiTools } : {}),
+            generationConfig: { temperature },
+          });
+
+        let response = await smartHttpRequest(endpointUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...extraHeaders },
+          body: buildBody(includeTools),
+        });
+        let data: any = await response.json().catch(() => ({}));
+        if (!response.ok && response.status === 400 && includeTools) {
+          const msgLower = extractProviderError(data, '').toLowerCase();
+          if (msgLower.includes('tool') || msgLower.includes('function')) {
+            includeTools = false;
+            response = await smartHttpRequest(endpointUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...extraHeaders },
+              body: buildBody(false),
+            });
+            data = await response.json().catch(() => ({}));
+          }
+        }
+        if (!response.ok) {
+          throw normalizeAIError(
+            {
+              message: extractProviderError(data, `API error (${response.status})`),
+              status: response.status,
+              error: data?.error,
+            },
+            provider
+          );
+        }
+
+        const candidateContent = data?.candidates?.[0]?.content;
+        const parts: any[] = Array.isArray(candidateContent?.parts) ? candidateContent.parts : [];
+        const functionCalls = parts
+          .filter((p) => p && typeof p === 'object' && p.functionCall)
+          .map((p) => p.functionCall);
+        if (functionCalls.length === 0) {
+          const rawText = parts
+            .filter((p) => typeof p?.text === 'string' && !p.thought)
+            .map((p) => p.text)
+            .join('\n')
+            .trim();
+          const parsed = parseAssistantOutput(rawText);
+          onEmotion(parsed.emotion);
+          return {
+            role: 'assistant',
+            content: parsed.content,
+            emotion: parsed.emotion,
+            toolActions: executedActions.length ? executedActions : undefined,
+          };
+        }
+
+        geminiContents.push(
+          candidateContent || {
+            role: 'model',
+            parts: functionCalls.map((fc: any) => ({ functionCall: fc })),
+          }
+        );
+        const responseParts: any[] = [];
+        for (const call of functionCalls) {
+          const args = call?.args && typeof call.args === 'object' ? call.args : {};
+          const result = await runTool(String(call?.name || ''), args);
+          responseParts.push({
+            functionResponse: {
+              name: String(call?.name || ''),
+              response: result,
+            },
+          });
+        }
+        geminiContents.push({ role: 'user', parts: responseParts });
+      }
+    } else if (effectiveFormat === 'openai-responses') {
+      const endpointUrl = normalizeCustomEndpointUrl(baseUrl, 'openai-responses', 'chat', activeModel);
+      const authHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+        ...extraHeaders,
+      };
+      if (key && !authHeaders.authorization && !authHeaders.Authorization && !authHeaders['x-api-key']) {
+        authHeaders.authorization = `Bearer ${key}`;
+      }
+      const inputItems: any[] = history.map((item) => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: item.content,
+      }));
+      const respTools = normalizedDeclarations.map((tool) => ({
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }));
+
+      for (let turn = 0; turn < maxTurns; turn++) {
+        onToolStart(
+          turn === 0 ? `Connecting to ${activeModel}…` : `${activeModel} is continuing the task…`
+        );
+        const response = await smartHttpRequest(endpointUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            model: activeModel,
+            instructions: systemInstruction,
+            input: inputItems,
+            tools: respTools,
+          }),
+        });
+        const data: any = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw normalizeAIError(
+            {
+              message: extractProviderError(data, `Responses API error (${response.status})`),
+              status: response.status,
+              error: data?.error,
+            },
+            provider
+          );
+        }
+
+        const outItems: any[] = Array.isArray(data?.output) ? data.output : [];
+        const fnCalls = outItems.filter((item) => item?.type === 'function_call');
+        if (fnCalls.length === 0) {
+          const textParts = outItems
+            .filter((item) => item?.type === 'message')
+            .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
+            .map((part) => part?.text || '')
+            .join('\n')
+            .trim();
+          const rawText = textParts || String(data?.output_text || '').trim();
+          const parsed = parseAssistantOutput(rawText);
+          onEmotion(parsed.emotion);
+          return {
+            role: 'assistant',
+            content: parsed.content,
+            emotion: parsed.emotion,
+            toolActions: executedActions.length ? executedActions : undefined,
+          };
+        }
+
+        for (const call of fnCalls) {
+          inputItems.push(call);
+          let args: Record<string, any> = {};
+          try {
+            const decoded =
+              typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
+            if (decoded && typeof decoded === 'object') args = decoded;
+          } catch {
+            args = {};
+          }
+          const result = await runTool(String(call.name || ''), args);
+          inputItems.push({
+            type: 'function_call_output',
+            call_id: call.call_id || call.id,
+            output: JSON.stringify(result),
+          });
+        }
+      }
     } else {
-      // OpenAI (Codex) via standard /v1/chat/completions
+      // OpenAI Chat Completions compatible (Codex, OpenAI, OpenRouter, Groq, DeepSeek, arbitrary proxies)
+      const endpointUrl = normalizeCustomEndpointUrl(baseUrl, 'openai-chat', 'chat', activeModel);
+      const authHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+        ...extraHeaders,
+      };
+      if (key && !authHeaders.authorization && !authHeaders.Authorization && !authHeaders['x-api-key']) {
+        authHeaders.authorization = `Bearer ${key}`;
+      }
+
       const chatMessages: any[] = [
         { role: 'system', content: systemInstruction },
         ...history.map((item) => ({
@@ -1313,33 +1999,63 @@ async function runAlternativeProviderAgent(
           parameters: tool.parameters,
         },
       }));
-      const codexModel = getCachedAppConfig().codex_model || 'gpt-4o';
+      let includeTools = providerTools.length > 0;
+      let includeTemp = true;
 
       for (let turn = 0; turn < maxTurns; turn++) {
-        onToolStart(turn === 0 ? 'Connecting to OpenAI…' : 'OpenAI is continuing the task…');
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: codexModel,
+        onToolStart(
+          turn === 0
+            ? `Connecting to ${activeModel || provider}…`
+            : `${activeModel || provider} is continuing the task…`
+        );
+        const makePayload = () =>
+          JSON.stringify({
+            ...(activeModel ? { model: activeModel } : {}),
             messages: chatMessages,
-            tools: providerTools,
-            temperature: 0.6,
-          }),
+            ...(includeTools ? { tools: providerTools } : {}),
+            ...(includeTemp ? { temperature } : {}),
+          });
+
+        let response = await smartHttpRequest(endpointUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: makePayload(),
         });
-        const data: any = await response.json().catch(() => ({}));
+        let data: any = await response.json().catch(() => ({}));
+
+        // Gracefully adapt if the custom endpoint or reasoning model rejects `temperature` or `tools`
+        if (!response.ok && response.status === 400) {
+          const errLower = extractProviderError(data, '').toLowerCase();
+          if (includeTemp && errLower.includes('temperature')) {
+            includeTemp = false;
+            response = await smartHttpRequest(endpointUrl, {
+              method: 'POST',
+              headers: authHeaders,
+              body: makePayload(),
+            });
+            data = await response.json().catch(() => ({}));
+          }
+          const errLower2 = extractProviderError(data, '').toLowerCase();
+          if (!response.ok && includeTools && (errLower2.includes('tool') || errLower2.includes('function'))) {
+            includeTools = false;
+            response = await smartHttpRequest(endpointUrl, {
+              method: 'POST',
+              headers: authHeaders,
+              body: makePayload(),
+            });
+            data = await response.json().catch(() => ({}));
+          }
+        }
+
         if (!response.ok) {
-          const errMsg = extractProviderError(data, `OpenAI API error (${response.status})`);
+          const errMsg = extractProviderError(data, `API error (${response.status})`);
           throw normalizeAIError(
             {
               message: errMsg,
               status: response.status,
               error: data?.error,
             },
-            'codex'
+            provider
           );
         }
 
@@ -1427,8 +2143,21 @@ export async function runAgent(
   }
 
   const selectedProviderKey = getProviderApiKey(selectedProvider);
+  const currentCfg = getCachedAppConfig();
 
-  if (selectedProvider !== 'gemini' && !selectedProviderKey) {
+  if (selectedProvider === 'custom' && !currentCfg.custom_api_endpoint?.trim()) {
+    const normErr = normalizeAIError(
+      new Error('Custom API Base URL is missing.'),
+      'custom'
+    );
+    return {
+      role: 'assistant',
+      content: `⚠️ **Custom API Endpoint Required**\n\nSet your Custom API Base URL (e.g. \`https://openrouter.ai/api/v1\` or your proxy URL) in Settings & Connectors to continue.\n\n*Action: ${normErr.actionLabel}*`,
+      emotion: 'confusion',
+    };
+  }
+
+  if (selectedProvider !== 'gemini' && selectedProvider !== 'custom' && !selectedProviderKey) {
     const normErr = normalizeAIError(
       new Error(`Missing API key for ${selectedProvider}`),
       selectedProvider
@@ -1664,11 +2393,37 @@ Current PC Environment:
     },
   ];
 
-  const activeEmail = googleSession?.email || getCachedAppConfig().google_account_email;
+  const activeCfg = getCachedAppConfig();
+  const activeEmail = googleSession?.email || activeCfg.google_account_email;
   const memoryPrompt = getPersistentMemoryPromptContext(activeEmail);
+  const botCustom = activeCfg.bot_customization;
+  const activePreset = botCustom?.agentPresets?.find(
+    (p) => p.id === activeCfg.active_agent_preset
+  );
+  const customIdentityBlock = botCustom
+    ? [
+        `Custom Identity: Your name is "${botCustom.botName || 'Luminess'}" (${botCustom.tagline || 'Living Desktop AI Companion'}).`,
+        botCustom.userName ? `Call the user "${botCustom.userName}".` : '',
+        botCustom.personality?.platformTone
+          ? `Style preset: ${botCustom.personality.platformTone} (formality=${botCustom.personality.formality ?? 40}/100, humor=${botCustom.personality.humor ?? 72}/100, verbosity=${botCustom.personality.verbosity ?? 45}/100).`
+          : '',
+        botCustom.personality?.customPrompt
+          ? `User Custom Persona Instructions: ${botCustom.personality.customPrompt}`
+          : '',
+        activePreset?.systemPromptAddon
+          ? `Active Agent Preset Instructions (${activePreset.name}): ${activePreset.systemPromptAddon}`
+          : '',
+        botCustom.angerSettings?.enabled
+          ? `Emotional Anger Bounds: Get visibly annoyed around anger >= ${botCustom.angerSettings.angerThreshold} and furious around >= ${botCustom.angerSettings.furiousThreshold}${botCustom.angerSettings.hostileKeywords?.length ? `; react strongly to hostile keywords (${botCustom.angerSettings.hostileKeywords.join(', ')})` : ''}.`
+          : 'Emotional Anger Bounds: Calm mode enabled (stay composed even under provocation).',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
 
   const systemInstruction = `
-You are Luminess Assist, an expressive, capable conversational AI desktop companion living on the user's Windows PC.
+You are ${botCustom?.botName || 'Luminess Assist'}, an expressive, capable conversational AI desktop companion living on the user's Windows PC.
+${customIdentityBlock}
 ${getPersonalityPromptContext()}
 ${memoryPrompt}
 ${pcSummary}
@@ -1766,14 +2521,20 @@ Do not wrap the JSON in markdown code blocks.
             functionCalls = oauthRes.functionCalls;
             modelContent = oauthRes.modelContent;
           } else {
-            // Seamlessly fall back to local conversational AI with search & memory if Google Cloud project isn't provisioned yet
-            return await runOfflineAgent(
-              history,
-              onToolStart,
-              onEmotion,
-              onRequestPermission,
-              onTimerComplete
+            const normErr = normalizeAIError(
+              {
+                status: 403,
+                message:
+                  'PERMISSION_DENIED: Google OAuth could not resolve an active Gemini project for this account. Add a Gemini API key, use Custom API (no preset), or switch to OpenCode/KiloCode Local Agent in Settings.',
+              },
+              'gemini'
             );
+            onEmotion('confusion');
+            return {
+              role: 'assistant',
+              content: `⚠️ **${normErr.title}**\n\n${normErr.message}\n\n*Action: ${normErr.actionLabel}* (Reference: \`${normErr.diagnosticRef}\`)`,
+              emotion: 'confusion',
+            };
           }
         }
       } catch (reqErr: any) {

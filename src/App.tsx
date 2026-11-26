@@ -135,6 +135,14 @@ const PROVIDER_INFO: Record<
     placeholder: 'Paste OpenAI API Key (sk-...)',
     colorClass: 'codex',
   },
+  custom: {
+    name: 'Custom API',
+    mark: '⚙',
+    keyUrl: '',
+    btnLabel: 'Any Custom API / No Preset (OpenAI / Anthropic / Gemini / Proxy)',
+    placeholder: 'Paste Any API Key (optional for local/no-auth endpoints)',
+    colorClass: 'custom',
+  },
   offline: {
     name: 'Local AI',
     mark: '⚡',
@@ -155,6 +163,7 @@ function App() {
     gemini: getProviderApiKey('gemini'),
     claude: getProviderApiKey('claude'),
     codex: getProviderApiKey('codex'),
+    custom: getProviderApiKey('custom'),
     offline: getProviderApiKey('offline'),
   }));
   const [showKey, setShowKey] = useState<boolean>(false);
@@ -1398,6 +1407,7 @@ function App() {
       gemini: getProviderApiKey('gemini'),
       claude: getProviderApiKey('claude'),
       codex: getProviderApiKey('codex'),
+      custom: getProviderApiKey('custom'),
       offline: getProviderApiKey('offline'),
     });
     setSelectedProviderState(getSelectedProvider());
@@ -1435,21 +1445,28 @@ function App() {
   };
 
   const handleSaveProviderKeysFromVaultBox = async (
-    keys: { gemini: string; claude: string; codex: string },
+    keys: { gemini: string; claude: string; codex: string; custom?: string },
     activeProvider: AIProvider
   ) => {
-    await saveAllProviderKeysToMachine(keys);
+    const cleanKeys = {
+      gemini: keys.gemini.trim(),
+      claude: keys.claude.trim(),
+      codex: keys.codex.trim(),
+      custom: (keys.custom ?? providerKeys.custom ?? '').trim(),
+    };
+    await saveAllProviderKeysToMachine(cleanKeys);
     setSelectedProvider(activeProvider);
     setProviderKeys({
-      gemini: keys.gemini,
-      claude: keys.claude,
-      codex: keys.codex,
-      offline: 'opencode-local',
+      ...cleanKeys,
+      offline: 'offline-local',
     });
     setSelectedProviderState(activeProvider);
   };
 
-  const handleVerifyAndConnect = async (providerToVerify?: AIProvider, keyToVerify?: string) => {
+  const handleVerifyAndConnect = async (
+    providerToVerify?: AIProvider,
+    keyToVerify?: string
+  ) => {
     const prov = providerToVerify || selectedProvider;
     const currentKey = (keyToVerify !== undefined ? keyToVerify : providerKeys[prov] || '').trim();
 
@@ -1457,21 +1474,42 @@ function App() {
     setNormalizedError(null);
     setEmotion('curiosity');
 
-    await saveAllProviderKeysToMachine({
-      gemini: prov === 'gemini' ? currentKey : providerKeys.gemini || '',
-      claude: prov === 'claude' ? currentKey : providerKeys.claude || '',
-      codex: prov === 'codex' ? currentKey : providerKeys.codex || '',
+    const updatedKeys = {
+      gemini: prov === 'gemini' ? currentKey : (providerKeys.gemini || '').trim(),
+      claude: prov === 'claude' ? currentKey : (providerKeys.claude || '').trim(),
+      codex: prov === 'codex' ? currentKey : (providerKeys.codex || '').trim(),
+      custom: prov === 'custom' ? currentKey : (providerKeys.custom || '').trim(),
+    };
+
+    // Persist exact updated keys (fix stale state overwrite bug)
+    await saveAllProviderKeysToMachine(updatedKeys);
+    setProviderKeys({
+      ...updatedKeys,
+      offline: 'offline-local',
     });
 
-    (['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).forEach((p) => {
-      setProviderApiKey(p, providerKeys[p] || '');
+    (['gemini', 'claude', 'codex', 'custom'] as const).forEach((p) => {
+      setProviderApiKey(p, updatedKeys[p]);
     });
     setSelectedProvider(prov);
+    setSelectedProviderState(prov);
     if (prov === 'gemini') {
       setApiKey(currentKey);
     }
 
-    const result = await verifyProviderConnection(prov, currentKey);
+    const result = await verifyProviderConnection(prov, currentKey, {
+      baseUrl: appConfig.custom_api_endpoint,
+      apiFormat: appConfig.custom_api_format,
+      model:
+        prov === 'custom'
+          ? appConfig.custom_api_model
+          : prov === 'gemini'
+            ? appConfig.gemini_model
+            : prov === 'claude'
+              ? appConfig.claude_model
+              : appConfig.codex_model,
+      customHeadersJson: appConfig.custom_api_headers,
+    });
     setIsVerifying(false);
 
     if (result.success) {
@@ -1509,7 +1547,7 @@ function App() {
         void handleGoogleLogin();
         break;
       case 'choose_another_provider': {
-        const order: AIProvider[] = ['gemini', 'claude', 'codex', 'offline'];
+        const order: AIProvider[] = ['gemini', 'claude', 'codex', 'custom', 'offline'];
         const next = order[(order.indexOf(selectedProvider) + 1) % order.length];
         setSelectedProviderState(next);
         setNormalizedError(null);
