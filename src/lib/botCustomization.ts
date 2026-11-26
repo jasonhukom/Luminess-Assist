@@ -628,14 +628,15 @@ export function applyBotAppearanceCssVars(customization: BotCustomizationManifes
   root.style.setProperty('--bot-shell-bg', appearance.shellBg);
   root.style.setProperty('--bot-scale', String(appearance.scale));
 
-  root.style.setProperty('--robot-glow-idle', hexToRgba(appearance.glowColor, 0.52));
-  root.style.setProperty('--robot-glow-joy', hexToRgba(appearance.joyColor, 0.6));
-  root.style.setProperty('--robot-glow-love', hexToRgba(appearance.loveColor, 0.6));
-  root.style.setProperty('--robot-glow-thinking', hexToRgba(appearance.thinkingColor, 0.55));
-  root.style.setProperty('--robot-glow-sad', hexToRgba(appearance.idleColor, 0.45));
-  root.style.setProperty('--robot-glow-anger', hexToRgba(appearance.angerColor, 0.68));
-  root.style.setProperty('--robot-glow-furious', hexToRgba(appearance.furiousColor, 0.78));
-  root.style.setProperty('--panel-glow', hexToRgba(appearance.glowColor, 0.3));
+  root.style.setProperty('--robot-glow-idle', appearance.glowColor || appearance.idleColor);
+  root.style.setProperty('--robot-glow-joy', appearance.joyColor);
+  root.style.setProperty('--robot-glow-love', appearance.loveColor);
+  root.style.setProperty('--robot-glow-curiosity', appearance.thinkingColor);
+  root.style.setProperty('--robot-glow-sadness', appearance.idleColor);
+  root.style.setProperty('--robot-glow-annoyed', appearance.angerColor);
+  root.style.setProperty('--robot-glow-anger', appearance.angerColor);
+  root.style.setProperty('--robot-glow-furious', appearance.furiousColor);
+  root.style.setProperty('--panel-glow', appearance.glowColor || appearance.idleColor);
 }
 
 export function buildAiForkCustomizePrompt(manifest: BotCustomizationManifest): string {

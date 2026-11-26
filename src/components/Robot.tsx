@@ -8,6 +8,7 @@ import './Robot.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getAutonomousRemark, recordPersonalityEvent } from '../lib/personality.ts';
+import type { BotCustomizationManifest } from '../lib/botCustomization.ts';
 
 export type Emotion =
   | 'joy'
@@ -57,9 +58,18 @@ interface HeartParticle {
   duration: number;
 }
 
+export interface BotAngerTriggerSignal {
+  seq: number;
+  amount: number;
+  reason?: string;
+  calm?: boolean;
+}
+
 interface RobotProps {
   emotion: Emotion;
   size: number;
+  customization?: BotCustomizationManifest;
+  angerTriggerSignal?: BotAngerTriggerSignal | null;
   onResize: (newSize: number, anchor?: { clientX: number; clientY: number }) => void;
   onClick: () => void;
   onEmotionChange?: (emotion: Emotion) => void;
@@ -200,11 +210,19 @@ const BROKEN_FACE: FaceConfig = {
 const LONELY_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 const BROKEN_REPAIR_SECONDS = 30;
 
-function getFrustrationStage(val: number): FrustrationStage {
-  if (val >= 80) return 4;
-  if (val >= 60) return 3;
-  if (val >= 40) return 2;
-  if (val >= 20) return 1;
+function getFrustrationStage(
+  val: number,
+  angerThreshold = 20,
+  furiousThreshold = 60
+): FrustrationStage {
+  const t1 = Math.max(5, angerThreshold);
+  const t3 = Math.max(t1 + 15, furiousThreshold);
+  const t2 = Math.round((t1 + t3) / 2);
+  const t4 = Math.min(95, t3 + 20);
+  if (val >= t4) return 4;
+  if (val >= t3) return 3;
+  if (val >= t2) return 2;
+  if (val >= t1) return 1;
   return 0;
 }
 
@@ -219,6 +237,8 @@ function getCrackStage(damage: number): CrackStage {
 export function Robot({
   emotion,
   size,
+  customization,
+  angerTriggerSignal,
   onResize,
   onClick,
   onEmotionChange,
@@ -285,8 +305,10 @@ export function Robot({
   const hoverHeartAccumRef = useRef<number>(0);
   const sootheHeartAccumRef = useRef<number>(0);
   const lastBounceTimeRef = useRef<number>(0);
-  const lastActivityTimeRef = useRef<number>(Date.now());
+  const lastActivityTimeRef = useRef<number>(0);
   const lastImpactTimeRef = useRef<number>(0);
+  const customizationRef = useRef<BotCustomizationManifest | undefined>(customization);
+  const lastAngerSeqRef = useRef<number>(0);
   const idleBusyRef = useRef<boolean>(false);
   const autonomousBusyRef = useRef<boolean>(false);
   const heartIdCounterRef = useRef<number>(1);
@@ -349,11 +371,67 @@ export function Robot({
   }, []);
 
   useEffect(() => {
-    recordUserActivity();
-  }, [emotion, recordUserActivity]);
+    customizationRef.current = customization;
+  }, [customization]);
+
+  useEffect(() => {
+    if (lastActivityTimeRef.current === 0) {
+      lastActivityTimeRef.current = Date.now();
+    } else {
+      lastActivityTimeRef.current = Date.now();
+    }
+    const t = window.setTimeout(() => {
+      setIsWhiteBot(false);
+      setIsLonelySad((prev) => (prev ? false : prev));
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [emotion]);
+
+  useEffect(() => {
+    if (!angerTriggerSignal || angerTriggerSignal.seq === lastAngerSeqRef.current) return;
+    lastAngerSeqRef.current = angerTriggerSignal.seq;
+    const timer = window.setTimeout(() => {
+      const cfg = customizationRef.current?.angerSettings;
+      if (angerTriggerSignal.calm) {
+        frustrationRef.current = 0;
+        damageRef.current = 0;
+        isBrokenRef.current = false;
+        setIsBroken(false);
+        setDamage(0);
+        setFrustration(0);
+        setBrokenCountdown(0);
+        const calmList = cfg?.customCalmRemarks;
+        if (calmList && calmList.length > 0) {
+          const picked = calmList[Math.floor(Math.random() * calmList.length)];
+          setAutonomousRemark(picked);
+        }
+        return;
+      }
+      if (cfg && !cfg.enabled) return;
+      const gain = Math.max(5, Math.min(100, angerTriggerSignal.amount || 30));
+      const next = Math.min(100, frustrationRef.current + gain);
+      frustrationRef.current = next;
+      setFrustration(next);
+      setIsImpactShaking(true);
+      if (impactShakeTimerRef.current) window.clearTimeout(impactShakeTimerRef.current);
+      impactShakeTimerRef.current = window.setTimeout(() => setIsImpactShaking(false), 520);
+      if (angerTriggerSignal.reason) {
+        setAutonomousRemark(angerTriggerSignal.reason);
+        if (autonomousRemarkTimerRef.current) window.clearTimeout(autonomousRemarkTimerRef.current);
+        autonomousRemarkTimerRef.current = window.setTimeout(
+          () => setAutonomousRemark(null),
+          3200
+        );
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [angerTriggerSignal]);
 
   // 15-minute untouched check: white bot only shows if not interacted with at all for 15 whole minutes
   useEffect(() => {
+    if (lastActivityTimeRef.current === 0) {
+      lastActivityTimeRef.current = Date.now();
+    }
     const interval = window.setInterval(() => {
       if (Date.now() - lastActivityTimeRef.current >= LONELY_THRESHOLD_MS) {
         setIsWhiteBot(true);
@@ -445,9 +523,13 @@ export function Robot({
   // Robot is completely broken: stop all reactions and start the repair countdown
   const breakRobot = useCallback(() => {
     if (isBrokenRef.current) return;
+    const repairSecs = Math.max(
+      5,
+      customizationRef.current?.angerSettings?.repairSeconds ?? BROKEN_REPAIR_SECONDS
+    );
     isBrokenRef.current = true;
     setIsBroken(true);
-    setBrokenCountdown(BROKEN_REPAIR_SECONDS);
+    setBrokenCountdown(repairSecs);
     setIsDizzy(false);
     isDizzyRef.current = false;
     setIsPatting(false);
@@ -460,17 +542,32 @@ export function Robot({
   const registerWallImpact = useCallback((impactSpeed: number) => {
     if (impactSpeed < 9.5 || isBrokenRef.current) return;
     lastImpactTimeRef.current = Date.now();
+    const angerCfg = customizationRef.current?.angerSettings;
+    if (angerCfg && (!angerCfg.enabled || !angerCfg.triggers.wallImpact)) {
+      setIsImpactShaking(true);
+      if (impactShakeTimerRef.current) window.clearTimeout(impactShakeTimerRef.current);
+      impactShakeTimerRef.current = window.setTimeout(() => setIsImpactShaking(false), 320);
+      return;
+    }
+
+    const sensitivity = angerCfg?.wallImpactSensitivity ?? 1.0;
+    const angerMidThreshold = Math.max(
+      10,
+      Math.round(((angerCfg?.angerThreshold ?? 20) + (angerCfg?.furiousThreshold ?? 60)) / 2)
+    );
+    const allowBreak = angerCfg?.breakOnMaxDamage !== false;
+
     recordPersonalityEvent('wall_impact', { impactSpeed });
-    const gain = Math.round(Math.min(30, Math.max(16, impactSpeed * 0.52)));
+    const gain = Math.round(Math.min(35, Math.max(12, impactSpeed * 0.52) * sensitivity));
     const prevFrust = frustrationRef.current;
     const nextFrust = Math.min(100, prevFrust + gain);
     frustrationRef.current = nextFrust;
     setFrustration(nextFrust);
 
     // Once it's already mad, every further wall hit slowly cracks it until it breaks
-    if (prevFrust >= 40) {
-      const dmgGain = prevFrust >= 80 ? 16 : prevFrust >= 60 ? 11 : 6;
-      const nextDmg = Math.min(100, damageRef.current + dmgGain);
+    if (prevFrust >= angerMidThreshold && allowBreak) {
+      const dmgGain = Math.round((prevFrust >= 80 ? 16 : prevFrust >= 60 ? 11 : 6) * sensitivity);
+      const nextDmg = Math.min(100, damageRef.current + Math.max(3, dmgGain));
       damageRef.current = nextDmg;
       setDamage(nextDmg);
       if (nextDmg >= 100) {
@@ -491,27 +588,29 @@ export function Robot({
   useEffect(() => {
     if (!isBroken) return;
     const id = window.setInterval(() => {
-      setBrokenCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+      setBrokenCountdown((prev) => {
+        if (prev <= 1) {
+          recordPersonalityEvent('repaired');
+          isBrokenRef.current = false;
+          setIsBroken(false);
+          damageRef.current = 0;
+          setDamage(0);
+          frustrationRef.current = 0;
+          setFrustration(0);
+          setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
+          setIsRecovering(true);
+          if (recoveryTimerRef.current) window.clearTimeout(recoveryTimerRef.current);
+          recoveryTimerRef.current = window.setTimeout(() => setIsRecovering(false), 420);
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => window.clearInterval(id);
   }, [isBroken]);
 
   useEffect(() => {
     onBrokenCountdownChangeRef.current?.(isBroken ? brokenCountdown : 0);
-    if (isBroken && brokenCountdown <= 0) {
-      // Fully repaired: reset damage and anger, shake it off
-      recordPersonalityEvent('repaired');
-      isBrokenRef.current = false;
-      setIsBroken(false);
-      damageRef.current = 0;
-      setDamage(0);
-      frustrationRef.current = 0;
-      setFrustration(0);
-      setTilt({ deg: 0, scaleX: 1, scaleY: 1 });
-      setIsRecovering(true);
-      if (recoveryTimerRef.current) window.clearTimeout(recoveryTimerRef.current);
-      recoveryTimerRef.current = window.setTimeout(() => setIsRecovering(false), 420);
-    }
   }, [isBroken, brokenCountdown]);
 
   // Very slow self-healing of cracks when left calm for a minute (not while broken)
@@ -1053,6 +1152,12 @@ export function Robot({
         dizzyEnergyRef.current += (dragSpeed - 14) * 0.14 + reversalBonus;
         if (dizzyEnergyRef.current >= 95) {
           triggerDizzy(2700);
+          const angerCfg = customizationRef.current?.angerSettings;
+          if (angerCfg?.enabled && angerCfg.triggers.rapidShake && !isDizzyRef.current) {
+            const nextF = Math.min(100, frustrationRef.current + Math.round(14 * (angerCfg.wallImpactSensitivity ?? 1)));
+            frustrationRef.current = nextF;
+            setFrustration(nextF);
+          }
         } else if (isDizzyRef.current) {
           triggerDizzy(2700);
         }
@@ -1295,7 +1400,14 @@ export function Robot({
   };
 
   // Resolve active visual emotion according to strict priority hierarchy
-  const frustrationStage = getFrustrationStage(frustration);
+  const customAnger = customization?.angerSettings;
+  const customAppearance = customization?.appearance;
+  const customVisualMode = customization?.visualMode || 'robot';
+  const frustrationStage = getFrustrationStage(
+    frustration,
+    customAnger?.angerThreshold ?? 20,
+    customAnger?.furiousThreshold ?? 60
+  );
   const crackStage: CrackStage = isBroken ? 4 : getCrackStage(damage);
   const idleBusy =
     isHovered ||
@@ -1405,22 +1517,57 @@ export function Robot({
   */ else if (crackStage >= 2 && isImpactShaking) {
     statusPillText = crackStage >= 3 ? '💔 I\'m breaking!!' : '💥 *crack*';
   } else if (frustrationStage === 4 && (isImpactShaking || isReturning || isHovered)) {
-    statusPillText = '💢 STOP THROWING ME!';
+    const fList = customAnger?.customFuriousPhrases;
+    const picked =
+      fList && fList.length > 0 ? fList[frustration % fList.length] : 'STOP THROWING ME!';
+    statusPillText = `💢 ${picked}`;
   } else if (frustrationStage === 3 && (isImpactShaking || isReturning)) {
-    statusPillText = '😠 Watch it!';
+    const fList = customAnger?.customFuriousPhrases;
+    const picked =
+      fList && fList.length > 0 ? fList[frustration % fList.length] : 'Watch it!';
+    statusPillText = `😠 ${picked}`;
   } else if (frustrationStage === 2 && isImpactShaking) {
-    statusPillText = '😤 Hey!';
+    const aList = customAnger?.customAnnoyedPhrases;
+    const picked = aList && aList.length > 0 ? aList[frustration % aList.length] : 'Hey!';
+    statusPillText = `😤 ${picked}`;
   } else if (isReturning) {
     statusPillText = 'Boomerang Return!';
   } else if (autonomousRemark) {
     statusPillText = autonomousRemark;
   }
 
+  const pickFrameMediaUrl = (): string => {
+    if (customVisualMode === 'image') {
+      return (customization?.avatarImageUrl || '').trim();
+    }
+    if (customVisualMode === 'sprite_frames') {
+      const fc = customization?.framesConfig || {};
+      if (isBroken && fc.broken) return fc.broken;
+      if (frustrationStage >= 3 && fc.furious) return fc.furious;
+      if ((visualEmotion === 'anger' || frustrationStage >= 1) && fc.anger) return fc.anger;
+      if ((visualEmotion === 'joy' || visualEmotion === 'love') && fc.happy) return fc.happy;
+      if ((visualEmotion === 'curiosity' || emotion === 'curiosity') && fc.thinking) {
+        return fc.thinking;
+      }
+      return (fc.idle || customization?.avatarImageUrl || '').trim();
+    }
+    return '';
+  };
+
+  const activeImageUrl = pickFrameMediaUrl();
+  const activeVideoUrl = customVisualMode === 'video' ? (customization?.videoUrl || '').trim() : '';
+  const showCustomVideo = Boolean(activeVideoUrl);
+  const showCustomImage = !showCustomVideo && Boolean(activeImageUrl);
+  const accessory = customAppearance?.accessory || 'none';
+  const chassisModel = customAppearance?.model || 'classic';
+  const shellStopTop = customAppearance?.shellBg || '#26273b';
+
   return (
     <div
       ref={containerRef}
       className={[
         'robot-container',
+        `model-${chassisModel}`,
         `emotion-${visualEmotion}`,
         `frustration-stage-${frustrationStage}`,
         `crack-stage-${crackStage}`,
@@ -1453,7 +1600,7 @@ export function Robot({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
-      title="Click to chat • Double-tap to pat head • Drag & flick to move • Scroll wheel to resize"
+      title={`${customization?.botName || 'Luminess'} • Click to chat • Double-tap to pat head • Drag & flick to move • Scroll wheel to resize`}
     >
       <div className="robot-glow-bg"></div>
       <div className="robot-glow-core"></div>
@@ -1476,7 +1623,7 @@ export function Robot({
           >
             <path
               d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-              fill="#f472b6"
+              fill={customAppearance?.loveColor || '#f472b6'}
             />
           </svg>
         ))}
@@ -1484,169 +1631,302 @@ export function Robot({
 
       {statusPillText && <div className="robot-status-pill">{statusPillText}</div>}
 
-      <svg
-        key={patBounceKey > 0 ? `pat-${patBounceKey}` : 'base'}
-        className={`robot-svg ${patBounceKey > 0 && isPatting ? 'pat-bounce-anim' : ''}`}
-        viewBox="0 0 200 200"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <radialGradient id="screen-glare" cx="35%" cy="30%" r="65%">
-            <stop offset="0%" stopColor="rgba(255,255,255,0.18)" />
-            <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
-            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-          </radialGradient>
-
-          <linearGradient id="head-shell" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#26273b" />
-            <stop offset="100%" stopColor="#141522" />
-          </linearGradient>
-
-          <filter id="neon-eye-glow" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur1" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur2" />
-            <feMerge>
-              <feMergeNode in="blur2" />
-              <feMergeNode in="blur1" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-
-          <filter id="antenna-bloom" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        {/* Antenna Group */}
-        <g className="robot-antenna-group">
-          <rect x="95" y="12" width="10" height="36" rx="5" className="robot-antenna-stem" />
-          <circle
-            cx="100"
-            cy="12"
-            r="10"
-            className="robot-antenna-bulb"
-            filter="url(#antenna-bloom)"
+      {showCustomVideo ? (
+        <div className="robot-media-shell">
+          <video
+            className="robot-media-video"
+            src={activeVideoUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
           />
-          {/* Orbiting stars when dizzy */}
-          {visualEmotion === 'dizzy' && (
-            <g className="dizzy-stars" filter="url(#neon-eye-glow)">
-              <circle cx="72" cy="14" r="3.2" className="dizzy-star star-1" />
-              <circle cx="128" cy="14" r="3.2" className="dizzy-star star-2" />
-              <circle cx="100" cy="4" r="2.5" className="dizzy-star star-3" />
-            </g>
-          )}
-        </g>
+        </div>
+      ) : showCustomImage ? (
+        <div className="robot-media-shell">
+          <img
+            className="robot-media-img"
+            src={activeImageUrl}
+            alt={customization?.botName || 'Luminess'}
+          />
+        </div>
+      ) : (
+        <svg
+          key={patBounceKey > 0 ? `pat-${patBounceKey}` : 'base'}
+          className={`robot-svg ${patBounceKey > 0 && isPatting ? 'pat-bounce-anim' : ''}`}
+          viewBox="0 0 200 200"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <radialGradient id="screen-glare" cx="35%" cy="30%" r="65%">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.18)" />
+              <stop offset="55%" stopColor="rgba(255,255,255,0.04)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+            </radialGradient>
 
-        <g className="robot-head-group">
-          {/* Ear panels */}
-          <rect x="24" y="80" width="20" height="40" rx="10" className="robot-ear left-ear" />
-          <rect x="156" y="80" width="20" height="40" rx="10" className="robot-ear right-ear" />
+            <linearGradient id="head-shell" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={shellStopTop} />
+              <stop offset="100%" stopColor="#141522" />
+            </linearGradient>
 
-          {/* Head */}
-          <rect x="40" y="40" width="120" height="120" rx="35" className="robot-head" />
+            <filter id="neon-eye-glow" x="-120%" y="-120%" width="340%" height="340%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur1" />
+              <feGaussianBlur in="SourceGraphic" stdDeviation="4.5" result="blur2" />
+              <feMerge>
+                <feMergeNode in="blur2" />
+                <feMergeNode in="blur1" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
 
-          {/* Comic anger vein symbol when frustration is high (stage 3 or 4) */}
-          {frustrationStage >= 3 && !isDizzy && !isPatting && !isBroken && (
-            <g className="anger-vein-mark" filter="url(#neon-eye-glow)">
-              <path d="M 136 46 Q 142 52 136 58" />
-              <path d="M 148 46 Q 142 52 148 58" />
-              <path d="M 136 46 Q 142 52 148 46" />
-              <path d="M 136 58 Q 142 52 148 58" />
-            </g>
-          )}
+            <filter id="antenna-bloom" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-          {/* Screen Base */}
-          <rect x="50" y="55" width="100" height="85" rx="20" className="robot-screen" />
-          <rect x="50" y="55" width="100" height="85" rx="20" fill="url(#screen-glare)" opacity="0.85" />
-
-          {/* Dynamic Glowing Eyes, Brows, Blush & Mouth */}
-          <g
-            className="eyes-container"
-            filter="url(#neon-eye-glow)"
-            style={{
-              transform: `translate(${gaze.x}px, ${gaze.y}px)`,
-            }}
-          >
-            {/* Cheek blush ovals */}
-            {face.blush && (
-              <g className="cheek-blush-group">
-                <ellipse cx="64" cy="109" rx="9" ry="4.5" className="cheek-blush" />
-                <ellipse cx="136" cy="109" rx="9" ry="4.5" className="cheek-blush" />
+          {/* Antenna Group */}
+          <g className="robot-antenna-group">
+            <rect x="95" y="12" width="10" height="36" rx="5" className="robot-antenna-stem" />
+            <circle
+              cx="100"
+              cy="12"
+              r="10"
+              className="robot-antenna-bulb"
+              filter="url(#antenna-bloom)"
+            />
+            {/* Orbiting stars when dizzy */}
+            {visualEmotion === 'dizzy' && (
+              <g className="dizzy-stars" filter="url(#neon-eye-glow)">
+                <circle cx="72" cy="14" r="3.2" className="dizzy-star star-1" />
+                <circle cx="128" cy="14" r="3.2" className="dizzy-star star-2" />
+                <circle cx="100" cy="4" r="2.5" className="dizzy-star star-3" />
               </g>
-            )}
-
-            {/* Eyebrows */}
-            {face.leftBrow && <path className="brow left-brow" d={face.leftBrow} />}
-            {face.rightBrow && <path className="brow right-brow" d={face.rightBrow} />}
-
-            {/* Eyes (X when broken, swirling spirals when dizzy, normal filled shapes otherwise) */}
-            {visualEmotion === 'broken' ? (
-              <>
-                <path className="eye-broken" d={face.left} />
-                <path className="eye-broken" d={face.right} />
-              </>
-            ) : visualEmotion === 'dizzy' ? (
-              <>
-                <path className="eye-spiral left-spiral" d={face.left} />
-                <path className="eye-spiral right-spiral" d={face.right} />
-              </>
-            ) : (
-              <>
-                <path className="eye left-eye" d={face.left} />
-                <path className="eye right-eye" d={face.right} />
-              </>
-            )}
-
-            {/* Mouth */}
-            {face.mouth && <path className="mouth" d={face.mouth} style={{ opacity: 1 }} />}
-
-            {/* Sweat drop accent for fear / embarrassment */}
-            {face.sweatDrop && (
-              <path
-                className="sweat-drop"
-                d="M 141 68 C 141 68, 146 76, 146 80 A 5 5 0 1 1 136 80 C 136 76, 141 68, 141 68 Z"
-              />
             )}
           </g>
 
-          {/* Screen Glare Overlay */}
+          <g className="robot-head-group">
+            {/* Ear panels */}
+            <rect x="24" y="80" width="20" height="40" rx="10" className="robot-ear left-ear" />
+            <rect x="156" y="80" width="20" height="40" rx="10" className="robot-ear right-ear" />
 
+            {/* Head */}
+            <rect
+              x="40"
+              y="40"
+              width="120"
+              height="120"
+              rx={chassisModel === 'orb' ? 60 : chassisModel === 'retro' ? 14 : 35}
+              className="robot-head"
+            />
 
-          {/* Cracks that slowly spread across the shell as it keeps hitting walls */}
-          {crackStage >= 1 && (
-            <g className="robot-cracks">
-              <path d="M 52 62 L 61 70 L 57 78 L 67 87" />
-              {crackStage >= 2 && <path d="M 148 66 L 139 75 L 144 83 L 135 93" />}
-              {crackStage >= 3 && (
+            {/* Optional Accessories Overlay */}
+            {accessory !== 'none' && (
+              <g className="robot-accessory-group">
+                {accessory === 'headphones' && (
+                  <>
+                    <path
+                      d="M 30 92 C 30 34, 170 34, 170 92"
+                      fill="none"
+                      stroke="var(--current-glow)"
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                    />
+                    <rect
+                      x="18"
+                      y="74"
+                      width="18"
+                      height="46"
+                      rx="9"
+                      fill="#1e293b"
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                    <rect
+                      x="164"
+                      y="74"
+                      width="18"
+                      height="46"
+                      rx="9"
+                      fill="#1e293b"
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                  </>
+                )}
+                {accessory === 'cat_ears' && (
+                  <>
+                    <polygon
+                      points="46,56 36,16 74,40"
+                      fill={shellStopTop}
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                    <polygon points="48,50 42,26 65,42" fill="var(--current-glow)" opacity="0.55" />
+                    <polygon
+                      points="154,56 164,16 126,40"
+                      fill={shellStopTop}
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                    <polygon points="152,50 158,26 135,42" fill="var(--current-glow)" opacity="0.55" />
+                  </>
+                )}
+                {accessory === 'wizard_hat' && (
+                  <>
+                    <ellipse
+                      cx="100"
+                      cy="42"
+                      rx="58"
+                      ry="11"
+                      fill="#1e1b4b"
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                    <polygon
+                      points="66,42 103,4 136,42"
+                      fill="#312e81"
+                      stroke="var(--current-glow)"
+                      strokeWidth="2.5"
+                    />
+                  </>
+                )}
+                {accessory === 'visor' && (
+                  <rect
+                    x="48"
+                    y="75"
+                    width="104"
+                    height="36"
+                    rx="14"
+                    fill="var(--current-glow)"
+                    fillOpacity="0.16"
+                    stroke="var(--current-glow)"
+                    strokeWidth="2.2"
+                  />
+                )}
+                {accessory === 'halo' && (
+                  <ellipse
+                    cx="100"
+                    cy="22"
+                    rx="34"
+                    ry="7"
+                    fill="none"
+                    stroke="#fde047"
+                    strokeWidth="3.5"
+                    filter="url(#neon-eye-glow)"
+                  />
+                )}
+                {accessory === 'crown' && (
+                  <polygon
+                    points="64,42 70,18 88,32 100,14 112,32 130,18 136,42"
+                    fill="#fbbf24"
+                    stroke="#fef08a"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </g>
+            )}
+
+            {/* Comic anger vein symbol when frustration is high (stage 3 or 4) */}
+            {frustrationStage >= 3 && !isDizzy && !isPatting && !isBroken && (
+              <g className="anger-vein-mark" filter="url(#neon-eye-glow)">
+                <path d="M 136 46 Q 142 52 136 58" />
+                <path d="M 148 46 Q 142 52 148 58" />
+                <path d="M 136 46 Q 142 52 148 46" />
+                <path d="M 136 58 Q 142 52 148 58" />
+              </g>
+            )}
+
+            {/* Screen Base */}
+            <rect x="50" y="55" width="100" height="85" rx="20" className="robot-screen" />
+            <rect x="50" y="55" width="100" height="85" rx="20" fill="url(#screen-glare)" opacity="0.85" />
+
+            {/* Dynamic Glowing Eyes, Brows, Blush & Mouth */}
+            <g
+              className="eyes-container"
+              filter="url(#neon-eye-glow)"
+              style={{
+                transform: `translate(${gaze.x}px, ${gaze.y}px)`,
+              }}
+            >
+              {/* Cheek blush ovals */}
+              {face.blush && (
+                <g className="cheek-blush-group">
+                  <ellipse cx="64" cy="109" rx="9" ry="4.5" className="cheek-blush" />
+                  <ellipse cx="136" cy="109" rx="9" ry="4.5" className="cheek-blush" />
+                </g>
+              )}
+
+              {/* Eyebrows */}
+              {face.leftBrow && <path className="brow left-brow" d={face.leftBrow} />}
+              {face.rightBrow && <path className="brow right-brow" d={face.rightBrow} />}
+
+              {/* Eyes (X when broken, swirling spirals when dizzy, normal filled shapes otherwise) */}
+              {visualEmotion === 'broken' ? (
                 <>
-                  <path d="M 97 140 L 103 131 L 97 123 L 105 113" />
-                  <path d="M 42 118 L 53 123 L 49 132" />
+                  <path className="eye-broken" d={face.left} />
+                  <path className="eye-broken" d={face.right} />
+                </>
+              ) : visualEmotion === 'dizzy' ? (
+                <>
+                  <path className="eye-spiral left-spiral" d={face.left} />
+                  <path className="eye-spiral right-spiral" d={face.right} />
+                </>
+              ) : (
+                <>
+                  <path className="eye left-eye" d={face.left} />
+                  <path className="eye right-eye" d={face.right} />
                 </>
               )}
-              {crackStage >= 4 && (
-                <>
-                  <path d="M 158 128 L 147 122 L 151 111" />
-                  <path d="M 122 41 L 117 51 L 125 58 L 120 66" />
-                  <path d="M 70 150 L 76 142 L 72 136" />
-                </>
+
+              {/* Mouth */}
+              {face.mouth && <path className="mouth" d={face.mouth} style={{ opacity: 1 }} />}
+
+              {/* Sweat drop accent for fear / embarrassment */}
+              {face.sweatDrop && (
+                <path
+                  className="sweat-drop"
+                  d="M 141 68 C 141 68, 146 76, 146 80 A 5 5 0 1 1 136 80 C 136 76, 141 68, 141 68 Z"
+                />
               )}
             </g>
-          )}
 
-          {/* Little sparks while broken */}
-          {isBroken && !isFlying && (
-            <g className="broken-sparks">
-              <circle cx="58" cy="60" r="2.2" className="spark spark-1" />
-              <circle cx="146" cy="70" r="1.8" className="spark spark-2" />
-              <circle cx="104" cy="146" r="2" className="spark spark-3" />
-            </g>
-          )}
-        </g>
-      </svg>
+            {/* Cracks that slowly spread across the shell as it keeps hitting walls */}
+            {crackStage >= 1 && (
+              <g className="robot-cracks">
+                <path d="M 52 62 L 61 70 L 57 78 L 67 87" />
+                {crackStage >= 2 && <path d="M 148 66 L 139 75 L 144 83 L 135 93" />}
+                {crackStage >= 3 && (
+                  <>
+                    <path d="M 97 140 L 103 131 L 97 123 L 105 113" />
+                    <path d="M 42 118 L 53 123 L 49 132" />
+                  </>
+                )}
+                {crackStage >= 4 && (
+                  <>
+                    <path d="M 158 128 L 147 122 L 151 111" />
+                    <path d="M 122 41 L 117 51 L 125 58 L 120 66" />
+                    <path d="M 70 150 L 76 142 L 72 136" />
+                  </>
+                )}
+              </g>
+            )}
+
+            {/* Little sparks while broken */}
+            {isBroken && !isFlying && (
+              <g className="broken-sparks">
+                <circle cx="58" cy="60" r="2.2" className="spark spark-1" />
+                <circle cx="146" cy="70" r="1.8" className="spark spark-2" />
+                <circle cx="104" cy="146" r="2" className="spark spark-3" />
+              </g>
+            )}
+          </g>
+        </svg>
+      )}
     </div>
   );
 }

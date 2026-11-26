@@ -3,10 +3,16 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import './App.css';
 import { Robot } from './components/Robot.tsx';
 import { LuminessBootScreen } from './components/LuminessBootScreen.tsx';
-import type { Emotion, VisualEmotion } from './components/Robot.tsx';
+import type { BotAngerTriggerSignal, Emotion, VisualEmotion } from './components/Robot.tsx';
 import { ChatPanel } from './components/ChatPanel.tsx';
 import { FloatingHistoryBox } from './components/FloatingHistoryBox.tsx';
-import { FloatingSettingsBox } from './components/FloatingSettingsBox.tsx';
+import { FloatingSettingsBox, type SettingsTabId } from './components/FloatingSettingsBox.tsx';
+import {
+  applyBotAppearanceCssVars,
+  createDefaultBotCustomization,
+  fetchForkManifestFromGitHub,
+  type CustomApiFormat,
+} from './lib/botCustomization.ts';
 import {
   runAgent,
   getGoogleSession,
@@ -174,6 +180,8 @@ function App() {
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [normalizedError, setNormalizedError] = useState<NormalizedAIError | null>(null);
+  const [verifiedBanner, setVerifiedBanner] = useState<string | null>(null);
+  const [angerTriggerSignal, setAngerTriggerSignal] = useState<BotAngerTriggerSignal | null>(null);
   const [connectionState, setConnectionState] = useState<AIConnectionState>(() => {
     if (!hasAnyProviderKey() && !getGoogleSession()) return 'not_configured';
     return 'ready_to_sign_in';
@@ -192,6 +200,8 @@ function App() {
   // Two New Independent Floating UI Boxes (History Box & Storage/Settings Box)
   const [historyBoxOpen, setHistoryBoxOpen] = useState<boolean>(false);
   const [settingsBoxOpen, setSettingsBoxOpen] = useState<boolean>(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>('connectors');
+  const [settingsTabSeq, setSettingsTabSeq] = useState<number>(0);
   const [historyBoxPos, setHistoryBoxPos] = useState<FloatingBoxPosition>(() => {
     const cfg = getCachedAppConfig();
     return cfg.floating_positions?.history || { x: 48, y: 80, width: 350, height: 470, visible: false };
@@ -332,6 +342,26 @@ function App() {
       const status = await getMachineStorageStatus();
       setStorageStatus(status);
       void refreshLocalAiStatus();
+
+      const forkCfg = cfg.bot_customization;
+      if (
+        forkCfg?.autoSyncOnStartup &&
+        forkCfg.repo &&
+        forkCfg.repo !== 'jasonhukom/Luminess-Assist'
+      ) {
+        const synced = await fetchForkManifestFromGitHub(
+          forkCfg.repo,
+          forkCfg.branch || 'main',
+          forkCfg
+        );
+        if (synced.ok && synced.manifest) {
+          const updated = await saveAppConfigToMachine({
+            ...cfg,
+            bot_customization: synced.manifest,
+          });
+          setAppConfig(updated);
+        }
+      }
     };
 
     void initMachineData();
@@ -1401,8 +1431,14 @@ function App() {
     setEmotion('idle');
   };
 
+  // Apply live customized bot appearance CSS variables whenever config updates
+  useEffect(() => {
+    applyBotAppearanceCssVars(appConfig.bot_customization || createDefaultBotCustomization());
+  }, [appConfig]);
+
   const handleOpenApiModal = async () => {
     setNormalizedError(null);
+    setVerifiedBanner(null);
     setProviderKeys({
       gemini: getProviderApiKey('gemini'),
       claude: getProviderApiKey('claude'),
@@ -1411,6 +1447,17 @@ function App() {
       offline: getProviderApiKey('offline'),
     });
     setSelectedProviderState(getSelectedProvider());
+    // Keep desktop bot & chat connected inline by opening Floating Settings & Connectors on the Connectors tab
+    setSettingsTab('connectors');
+    setSettingsTabSeq((s) => s + 1);
+    setSettingsBoxOpen(true);
+    setShowApiModal(false);
+    setEmotion('curiosity');
+  };
+
+  const handleOpenSetupWizard = () => {
+    setNormalizedError(null);
+    setVerifiedBanner(null);
     setChatOpen(false);
     setHistoryBoxOpen(false);
     setSettingsBoxOpen(false);
@@ -1515,14 +1562,15 @@ function App() {
     if (result.success) {
       setConnectionState('connected_and_verified');
       setNormalizedError(null);
+      setVerifiedBanner(result.resolvedInfo || `${prov.toUpperCase()} verified & ready!`);
       localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
       const nextCfg: AppConfigJson = { ...appConfig, installation_storage_prompted: true };
       void saveAppConfigToMachine(nextCfg);
       setAppConfig(nextCfg);
       setShowApiModal(false);
       setEmotion('joy');
-      setChatOpen(false);
     } else if (result.error) {
+      setVerifiedBanner(null);
       setNormalizedError(result.error);
       if (result.error.kind === 'account_ineligible') {
         setConnectionState('account_ineligible');
@@ -1638,6 +1686,22 @@ function App() {
     }
 
     recordChatInteraction(text);
+
+    const angerCfg = appConfig.bot_customization?.angerSettings;
+    if (angerCfg?.enabled && angerCfg.triggers?.hostileWords && angerCfg.hostileKeywords.length > 0) {
+      const lowerText = text.toLowerCase();
+      const matched = angerCfg.hostileKeywords.some(
+        (kw) => kw.trim().length >= 2 && lowerText.includes(kw.trim().toLowerCase())
+      );
+      if (matched) {
+        const picked =
+          angerCfg.customAnnoyedPhrases[
+            Math.floor(Math.random() * Math.max(1, angerCfg.customAnnoyedPhrases.length))
+          ] || '😠 Hey, watch your words!';
+        setAngerTriggerSignal({ seq: Date.now(), amount: 28, reason: picked });
+      }
+    }
+
     setMessages(newHistory);
     setIsProcessing(true);
     setEmotion('curiosity');
@@ -1779,6 +1843,7 @@ function App() {
               <Robot
                 emotion={emotion}
                 size={118}
+                customization={appConfig.bot_customization}
                 onResize={setRobotSize}
                 onClick={() => setEmotion('joy')}
                 onVisualEmotionChange={setVisualEmotion}
@@ -1827,7 +1892,7 @@ function App() {
 
             {/* Provider Selection Tabs */}
             <div className="provider-tabs">
-              {(['gemini', 'claude', 'codex', 'offline'] as AIProvider[]).map((p) => {
+              {(['custom', 'gemini', 'claude', 'codex', 'offline'] as AIProvider[]).map((p) => {
                 const info = PROVIDER_INFO[p];
                 const isActive = selectedProvider === p;
                 return (
@@ -1999,10 +2064,10 @@ function App() {
                 <div className="offline-mode-card">
                   <div className="offline-mode-badge">
                     <Zap size={14} />
-                    <span>Local AI • Ollama / llama.cpp / OpenCode / Built-in</span>
+                    <span>Local AI • OpenCode / KiloCode / Ollama / Built-in</span>
                   </div>
                   <p className="offline-mode-desc">
-                    Luminess Assist connects automatically to local model servers (Ollama on :11434, llama.cpp on :8080, LM Studio on :1234), OpenCode CLI, or its built-in local conversational engine with persistent memory and web search.
+                    Luminess Assist connects directly to bundled CLI agents (OpenCode &amp; KiloCode), local model servers (Ollama :11434, llama.cpp :8080, LM Studio :1234), or its built-in conversational engine.
                   </p>
                   <button
                     type="button"
@@ -2016,19 +2081,93 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
-                    onClick={() =>
-                      void invoke('open_item', { target: PROVIDER_INFO[selectedProvider].keyUrl }).catch(() => {
-                        window.open(PROVIDER_INFO[selectedProvider].keyUrl, '_blank', 'noopener,noreferrer');
-                      })
+                  {PROVIDER_INFO[selectedProvider].keyUrl && (
+                    <button
+                      type="button"
+                      className={`provider-keylink-btn ${PROVIDER_INFO[selectedProvider].colorClass}`}
+                      onClick={() =>
+                        void invoke('open_item', {
+                          target: PROVIDER_INFO[selectedProvider].keyUrl,
+                        }).catch(() => {
+                          window.open(
+                            PROVIDER_INFO[selectedProvider].keyUrl,
+                            '_blank',
+                            'noopener,noreferrer'
+                          );
+                        })
+                      }
+                    >
+                      <KeyRound size={14} />
+                      <span>{PROVIDER_INFO[selectedProvider].btnLabel}</span>
+                      <ExternalLink size={13} />
+                    </button>
+                  )}
+
+                  {selectedProvider === 'custom' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '6px' }}>
+                      <select
+                        className="setup-storage-select"
+                        value={appConfig.custom_api_format || 'openai-chat'}
+                        onChange={(e) =>
+                          void handleUpdateConfig({
+                            ...appConfig,
+                            custom_api_format: e.target.value as CustomApiFormat,
+                          })
+                        }
+                      >
+                        <option value="openai-chat">Format: OpenAI Chat Completions (/chat/completions)</option>
+                        <option value="openai-responses">Format: OpenAI Responses (/responses)</option>
+                        <option value="anthropic">Format: Anthropic Messages (/messages)</option>
+                        <option value="gemini">Format: Gemini REST (:generateContent)</option>
+                      </select>
+                      <input
+                        type="text"
+                        className="floating-input"
+                        placeholder="Base URL (e.g. https://openrouter.ai/api/v1 or http://127.0.0.1:4000/v1)"
+                        value={appConfig.custom_api_endpoint || ''}
+                        onChange={(e) =>
+                          setAppConfig((prev) => ({ ...prev, custom_api_endpoint: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    className="floating-input"
+                    style={{ marginBottom: '6px' }}
+                    placeholder={
+                      selectedProvider === 'gemini'
+                        ? 'Model ID (default: gemini-2.5-flash)'
+                        : selectedProvider === 'claude'
+                          ? 'Model ID (default: claude-sonnet-4-20250514)'
+                          : selectedProvider === 'codex'
+                            ? 'Model ID (default: gpt-4o)'
+                            : 'Model ID (any string, e.g. deepseek-chat)'
                     }
-                  >
-                    <KeyRound size={14} />
-                    <span>{PROVIDER_INFO[selectedProvider].btnLabel}</span>
-                    <ExternalLink size={13} />
-                  </button>
+                    value={
+                      selectedProvider === 'gemini'
+                        ? appConfig.gemini_model
+                        : selectedProvider === 'claude'
+                          ? appConfig.claude_model
+                          : selectedProvider === 'codex'
+                            ? appConfig.codex_model
+                            : appConfig.custom_api_model
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAppConfig((prev) => ({
+                        ...prev,
+                        ...(selectedProvider === 'gemini'
+                          ? { gemini_model: val }
+                          : selectedProvider === 'claude'
+                            ? { claude_model: val }
+                            : selectedProvider === 'codex'
+                              ? { codex_model: val }
+                              : { custom_api_model: val }),
+                      }));
+                    }}
+                  />
 
                   <div className="api-input-group">
                     <input
@@ -2070,6 +2209,23 @@ function App() {
                   </button>
                 </>
               )}
+
+              <button
+                type="button"
+                className="floating-btn-secondary"
+                style={{ width: '100%', marginTop: '6px' }}
+                onClick={() => {
+                  localStorage.setItem('LUMINNESS_SETUP_COMPLETED', 'true');
+                  void handleUpdateConfig({ ...appConfig, installation_storage_prompted: true });
+                  setShowApiModal(false);
+                  setSettingsTab('look');
+                  setSettingsTabSeq((s) => s + 1);
+                  setSettingsBoxOpen(true);
+                }}
+              >
+                <Sparkles size={13} />
+                <span>Customize Bot Look, Anger Rules & Connectors Next to Live Bot</span>
+              </button>
             </div>
           </div>
         </div>
@@ -2138,6 +2294,8 @@ function App() {
               <Robot
                 emotion={emotion}
                 size={robotSize}
+                customization={appConfig.bot_customization}
+                angerTriggerSignal={angerTriggerSignal}
                 onResize={handleResizeRobot}
                 onClick={handleRobotClick}
                 onVisualEmotionChange={setVisualEmotion}
@@ -2175,7 +2333,7 @@ function App() {
             </div>
           )}
 
-          {/* Floating Box 2: Storage Options / Settings (config.json) */}
+          {/* Floating Box 2: Unified Settings, Connectors & Live Bot Customizer */}
           {settingsBoxOpen && (
             <div ref={settingsBoxWrapRef} style={{ display: 'contents' }}>
               <FloatingSettingsBox
@@ -2188,15 +2346,32 @@ function App() {
                 providerKeys={providerKeys}
                 googleUser={googleUser}
                 isLoggingIn={isLoggingIn}
+                isVerifying={isVerifying}
+                connectionError={normalizedError}
+                verifiedBanner={verifiedBanner}
                 hardwareReport={hardwareReport}
                 localServers={localServers}
                 isScanningLocalAi={isScanningLocalAi}
+                robotSize={robotSize}
+                initialTab={settingsTab}
+                externalTabSeq={settingsTabSeq}
                 onUpdateConfig={handleUpdateConfig}
                 onSelectStorageTier={handleSelectStorageTier}
                 onSaveProviderKeys={handleSaveProviderKeysFromVaultBox}
+                onVerifyConnection={handleVerifyAndConnect}
                 onGoogleLogin={handleGoogleLogin}
                 onGoogleLogout={handleGoogleLogout}
                 onRefreshLocalAi={refreshLocalAiStatus}
+                onResizeRobot={(next) => handleResizeRobot(next)}
+                onTriggerBotAnger={(amount, reason, calm) =>
+                  setAngerTriggerSignal({ seq: Date.now(), amount, reason, calm })
+                }
+                onOpenExternalUrl={handleOpenExternalUrl}
+                onOpenSetupWizard={handleOpenSetupWizard}
+                onRunAiForkCustomize={(prompt) => {
+                  setChatOpen(true);
+                  void handleSendMessage(prompt);
+                }}
                 onClose={() => setSettingsBoxOpen(false)}
               />
             </div>

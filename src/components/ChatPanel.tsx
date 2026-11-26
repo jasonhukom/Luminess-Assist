@@ -281,7 +281,7 @@ export function ChatPanel({
             type="button"
             className="icon-btn"
             onClick={onOpenApiModal}
-            title="Google Account & Sign-In Settings"
+            title="Connectors, API Keys & Account Setup (Connected with Bot)"
           >
             <User size={15} />
           </button>
