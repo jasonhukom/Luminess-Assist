@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ChatSession } from './chatHistory.ts';
+import {
+  createDefaultBotCustomization,
+  mergeBotCustomization,
+  type BotCustomizationManifest,
+  type CustomApiFormat,
+} from './botCustomization.ts';
 
 export type StorageTierId = 'lightweight' | 'recommended' | 'extended' | 'large' | 'unlimited';
 
@@ -102,7 +108,13 @@ export interface AppConfigJson {
   gemini_model: string;
   claude_model: string;
   codex_model: string;
-  local_ai_runtime: 'auto' | 'ollama' | 'openai_compatible' | 'opencode' | 'builtin';
+  custom_api_format: CustomApiFormat;
+  custom_api_endpoint: string;
+  custom_api_model: string;
+  custom_api_headers: string;
+  active_agent_preset: string;
+  agent_cli_command: string;
+  local_ai_runtime: 'auto' | 'ollama' | 'openai_compatible' | 'opencode' | 'kilocode' | 'builtin';
   local_ai_endpoint: string;
   local_ai_model: string;
   storage_tier: StorageTierId;
@@ -116,6 +128,7 @@ export interface AppConfigJson {
     history: FloatingBoxPosition;
     settings: FloatingBoxPosition;
   };
+  bot_customization: BotCustomizationManifest;
   updated_at: number;
 }
 
@@ -177,6 +190,12 @@ export function createDefaultAppConfig(): AppConfigJson {
     gemini_model: 'gemini-2.5-flash',
     claude_model: 'claude-sonnet-4-20250514',
     codex_model: 'gpt-4o',
+    custom_api_format: 'openai-chat',
+    custom_api_endpoint: '',
+    custom_api_model: '',
+    custom_api_headers: '',
+    active_agent_preset: 'direct-custom',
+    agent_cli_command: 'opencode',
     local_ai_runtime: 'auto',
     local_ai_endpoint: 'http://127.0.0.1:11434',
     local_ai_model: 'qwen2.5-coder:latest',
@@ -189,22 +208,32 @@ export function createDefaultAppConfig(): AppConfigJson {
     google_account_email: null,
     floating_positions: {
       history: { x: 48, y: 72, width: 350, height: 460 },
-      settings: { x: 420, y: 72, width: 400, height: 500 },
+      settings: { x: 420, y: 72, width: 430, height: 560 },
     },
+    bot_customization: createDefaultBotCustomization(),
     updated_at: Date.now(),
   };
 }
 
 let cachedConfig: AppConfigJson = (() => {
+  const defaults = createDefaultAppConfig();
   const raw = readFallbackStorage(LOCAL_CONFIG_FALLBACK_KEY);
   if (raw) {
     try {
-      return { ...createDefaultAppConfig(), ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw) as Partial<AppConfigJson>;
+      return {
+        ...defaults,
+        ...parsed,
+        bot_customization: mergeBotCustomization(
+          defaults.bot_customization,
+          parsed.bot_customization
+        ),
+      };
     } catch {
       // ignore
     }
   }
-  return createDefaultAppConfig();
+  return defaults;
 })();
 
 let cachedDb: LuminessDatabaseSchema = (() => {
@@ -257,13 +286,18 @@ export async function loadAppConfigFromMachine(): Promise<AppConfigJson> {
   try {
     const cfg = await invoke<AppConfigJson>('get_app_config');
     if (cfg && typeof cfg === 'object') {
+      const defaults = createDefaultAppConfig();
       cachedConfig = {
-        ...createDefaultAppConfig(),
+        ...defaults,
         ...cfg,
         floating_positions: {
-          ...createDefaultAppConfig().floating_positions,
+          ...defaults.floating_positions,
           ...(cfg.floating_positions || {}),
         },
+        bot_customization: mergeBotCustomization(
+          defaults.bot_customization,
+          cfg.bot_customization
+        ),
       };
       writeFallbackStorage(LOCAL_CONFIG_FALLBACK_KEY, JSON.stringify(cachedConfig));
       return cachedConfig;
@@ -279,9 +313,18 @@ export function getCachedAppConfig(): AppConfigJson {
 }
 
 export async function saveAppConfigToMachine(partial: Partial<AppConfigJson>): Promise<AppConfigJson> {
+  const defaults = createDefaultAppConfig();
+  const nextBotCustomization = partial.bot_customization
+    ? mergeBotCustomization(
+        cachedConfig.bot_customization || defaults.bot_customization,
+        partial.bot_customization
+      )
+    : cachedConfig.bot_customization || defaults.bot_customization;
+
   const next: AppConfigJson = {
     ...cachedConfig,
     ...partial,
+    bot_customization: nextBotCustomization,
     updated_at: Date.now(),
   };
   if (partial.storage_tier) {
@@ -292,7 +335,11 @@ export async function saveAppConfigToMachine(partial: Partial<AppConfigJson>): P
   try {
     const saved = await invoke<AppConfigJson>('save_app_config', { config: next });
     if (saved) {
-      cachedConfig = { ...next, ...saved };
+      cachedConfig = {
+        ...next,
+        ...saved,
+        bot_customization: mergeBotCustomization(nextBotCustomization, saved.bot_customization),
+      };
       writeFallbackStorage(LOCAL_CONFIG_FALLBACK_KEY, JSON.stringify(cachedConfig));
     }
   } catch {

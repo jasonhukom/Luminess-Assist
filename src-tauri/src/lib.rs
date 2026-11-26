@@ -1781,7 +1781,9 @@ pub fn run() {
             check_local_ai_hardware,
             probe_local_ai_servers,
             local_ai_chat_completion,
-            perform_web_search
+            perform_web_search,
+            http_proxy_request,
+            fetch_github_fork_manifest
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

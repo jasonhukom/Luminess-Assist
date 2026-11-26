@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
@@ -206,10 +207,12 @@ pub fn get_app_data_dir() -> PathBuf {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default)]
 pub struct MachineCredentialsVault {
     pub gemini_api_key: String,
     pub claude_api_key: String,
     pub codex_api_key: String,
+    pub custom_api_key: String,
     pub search_api_key: String,
     pub google_oauth_session_json: String,
     pub updated_at: u64,
@@ -268,6 +271,7 @@ pub fn save_machine_credentials(
     gemini_api_key: Option<String>,
     claude_api_key: Option<String>,
     codex_api_key: Option<String>,
+    custom_api_key: Option<String>,
     search_api_key: Option<String>,
     google_oauth_session_json: Option<String>,
 ) -> Result<MachineCredentialsVault, String> {
@@ -280,6 +284,9 @@ pub fn save_machine_credentials(
     }
     if let Some(x) = codex_api_key {
         vault.codex_api_key = x.trim().to_string();
+    }
+    if let Some(k) = custom_api_key {
+        vault.custom_api_key = k.trim().to_string();
     }
     if let Some(s) = search_api_key {
         vault.search_api_key = s.trim().to_string();
@@ -300,6 +307,12 @@ pub struct AppConfigJson {
     pub gemini_model: String,
     pub claude_model: String,
     pub codex_model: String,
+    pub custom_api_format: String,
+    pub custom_api_endpoint: String,
+    pub custom_api_model: String,
+    pub custom_api_headers: String,
+    pub active_agent_preset: String,
+    pub agent_cli_command: String,
     pub local_ai_runtime: String,
     pub local_ai_endpoint: String,
     pub local_ai_model: String,
@@ -311,6 +324,7 @@ pub struct AppConfigJson {
     pub memory_sync_enabled: bool,
     pub google_account_email: Option<String>,
     pub floating_positions: serde_json::Value,
+    pub bot_customization: serde_json::Value,
     pub updated_at: u64,
 }
 
@@ -322,6 +336,12 @@ impl Default for AppConfigJson {
             gemini_model: "gemini-2.5-flash".to_string(),
             claude_model: "claude-sonnet-4-20250514".to_string(),
             codex_model: "gpt-4o".to_string(),
+            custom_api_format: "openai-chat".to_string(),
+            custom_api_endpoint: "".to_string(),
+            custom_api_model: "".to_string(),
+            custom_api_headers: "".to_string(),
+            active_agent_preset: "direct-custom".to_string(),
+            agent_cli_command: "opencode".to_string(),
             local_ai_runtime: "auto".to_string(),
             local_ai_endpoint: "http://127.0.0.1:11434".to_string(),
             local_ai_model: "qwen2.5-coder:latest".to_string(),
@@ -334,8 +354,9 @@ impl Default for AppConfigJson {
             google_account_email: None,
             floating_positions: serde_json::json!({
                 "history": { "x": 64, "y": 80, "width": 360, "height": 470 },
-                "settings": { "x": 448, "y": 80, "width": 410, "height": 520 }
+                "settings": { "x": 448, "y": 80, "width": 430, "height": 560 }
             }),
+            bot_customization: serde_json::json!({}),
             updated_at: now_unix_ms(),
         }
     }
@@ -1011,3 +1032,244 @@ ConvertTo-Json -InputObject @($results) -Depth 4 -Compress
     .await
     .map_err(|e| format!("Web search task error: {}", e))?
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HttpProxyResponse {
+    pub ok: bool,
+    pub status: u16,
+    pub status_text: String,
+    pub body: String,
+}
+
+async fn execute_http_proxy(
+    url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+    timeout_secs: u64,
+) -> Result<HttpProxyResponse, String> {
+    let trimmed_url = url.trim().to_string();
+    if !(trimmed_url.starts_with("http://") || trimmed_url.starts_with("https://")) {
+        return Err("Only http:// and https:// URLs are supported.".to_string());
+    }
+
+    let req_payload = serde_json::json!({
+        "url": trimmed_url,
+        "method": if method.trim().is_empty() { "GET".to_string() } else { method.trim().to_uppercase() },
+        "headers": headers,
+        "body": body,
+        "timeoutSecs": timeout_secs.clamp(5, 180),
+    });
+    let payload_json = serde_json::to_string(&req_payload)
+        .map_err(|e| format!("Failed to encode HTTP proxy payload: {}", e))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let ps_script = r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Net.Http
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
+} catch {}
+
+$rawIn = $env:LUMINESS_HTTP_REQ
+if (-not $rawIn) { throw 'Missing request payload' }
+$req = $rawIn | ConvertFrom-Json
+
+$handler = New-Object System.Net.Http.HttpClientHandler
+$client = New-Object System.Net.Http.HttpClient($handler)
+$client.Timeout = [TimeSpan]::FromSeconds([int]$req.timeoutSecs)
+
+try {
+    $methodObj = New-Object System.Net.Http.HttpMethod([string]$req.method)
+    $msg = New-Object System.Net.Http.HttpRequestMessage($methodObj, [string]$req.url)
+    $hasAccept = $false
+    $contentType = 'application/json'
+
+    if ($req.headers) {
+        foreach ($prop in $req.headers.PSObject.Properties) {
+            $k = [string]$prop.Name
+            $v = [string]$prop.Value
+            if (-not $k) { continue }
+            if ($k -ieq 'Content-Type') {
+                $contentType = $v
+            } elseif ($k -ieq 'Accept') {
+                $hasAccept = $true
+                $null = $msg.Headers.TryAddWithoutValidation($k, $v)
+            } else {
+                $null = $msg.Headers.TryAddWithoutValidation($k, $v)
+            }
+        }
+    }
+    if (-not $hasAccept) {
+        $null = $msg.Headers.TryAddWithoutValidation('Accept', 'application/json, text/plain, */*')
+    }
+    $null = $msg.Headers.TryAddWithoutValidation('User-Agent', 'LuminessAssist/1.2')
+
+    if ($null -ne $req.body -and [string]$req.method -notin @('GET', 'HEAD')) {
+        $mediaType = ($contentType -split ';')[0].Trim()
+        if (-not $mediaType) { $mediaType = 'application/json' }
+        $msg.Content = New-Object System.Net.Http.StringContent([string]$req.body, [System.Text.Encoding]::UTF8, $mediaType)
+    }
+
+    $resp = $client.SendAsync($msg).GetAwaiter().GetResult()
+    $statusCode = [int]$resp.StatusCode
+    $statusText = [string]$resp.ReasonPhrase
+    $respBody = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+
+    ConvertTo-Json -InputObject @{
+        ok = ($statusCode -ge 200 -and $statusCode -lt 300)
+        status = $statusCode
+        status_text = $statusText
+        body = [string]$respBody
+    } -Compress
+} finally {
+    $client.Dispose()
+}
+"#;
+
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps_script]);
+        cmd.env("LUMINESS_HTTP_REQ", payload_json);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to launch HTTP proxy: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<HttpProxyResponse>(&stdout) {
+                return Ok(parsed);
+            }
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if !stderr.is_empty() {
+            format!("HTTP request failed: {}", stderr)
+        } else {
+            "HTTP proxy returned empty output.".to_string()
+        })
+    })
+    .await
+    .map_err(|e| format!("HTTP proxy join error: {}", e))?
+}
+
+#[tauri::command]
+pub async fn http_proxy_request(
+    url: String,
+    method: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    body: Option<String>,
+    timeout_secs: Option<u64>,
+) -> Result<HttpProxyResponse, String> {
+    execute_http_proxy(
+        url,
+        method.unwrap_or_else(|| "GET".to_string()),
+        headers.unwrap_or_default(),
+        body,
+        timeout_secs.unwrap_or(60),
+    )
+    .await
+}
+
+fn parse_github_slug(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let cleaned = trimmed
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("github.com/")
+        .trim_start_matches("raw.githubusercontent.com/")
+        .trim_end_matches(".git")
+        .trim_matches('/');
+
+    let mut parts = cleaned.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+
+    let valid_part = |s: &str| {
+        !s.is_empty()
+            && !s.contains("..")
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    };
+
+    if valid_part(owner) && valid_part(repo) {
+        Some(format!("{}/{}", owner, repo))
+    } else {
+        None
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GitHubForkManifestResult {
+    pub ok: bool,
+    pub slug: String,
+    pub branch: String,
+    pub raw_url: String,
+    pub manifest: serde_json::Value,
+    pub repo_meta: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn fetch_github_fork_manifest(
+    repo_or_url: String,
+    branch: Option<String>,
+) -> Result<GitHubForkManifestResult, String> {
+    let slug = parse_github_slug(&repo_or_url).ok_or_else(|| {
+        "Invalid GitHub repository format. Use owner/repo or https://github.com/owner/repo.".to_string()
+    })?;
+    let branch_name = branch
+        .unwrap_or_else(|| "main".to_string())
+        .trim()
+        .to_string();
+    let active_branch = if branch_name.is_empty() {
+        "main".to_string()
+    } else {
+        branch_name
+    };
+
+    let raw_url = format!(
+        "https://raw.githubusercontent.com/{}/{}/luminess.bot.json?t={}",
+        slug,
+        active_branch,
+        now_unix_ms()
+    );
+
+    let raw_resp = execute_http_proxy(raw_url.clone(), "GET".to_string(), HashMap::new(), None, 20).await?;
+    if !raw_resp.ok {
+        return Err(format!(
+            "Could not load luminess.bot.json from {} (branch '{}', HTTP {}). Make sure the fork contains luminess.bot.json.",
+            slug, active_branch, raw_resp.status
+        ));
+    }
+
+    let manifest: serde_json::Value = serde_json::from_str(&raw_resp.body)
+        .map_err(|e| format!("Fork luminess.bot.json is invalid JSON: {}", e))?;
+
+    let mut repo_meta = serde_json::json!({});
+    let api_url = format!("https://api.github.com/repos/{}", slug);
+    if let Ok(meta_resp) =
+        execute_http_proxy(api_url, "GET".to_string(), HashMap::new(), None, 15).await
+    {
+        if meta_resp.ok {
+            if let Ok(parsed_meta) = serde_json::from_str::<serde_json::Value>(&meta_resp.body) {
+                repo_meta = parsed_meta;
+            }
+        }
+    }
+
+    Ok(GitHubForkManifestResult {
+        ok: true,
+        slug,
+        branch: active_branch,
+        raw_url,
+        manifest,
+        repo_meta,
+    })
+}
+

@@ -1,0 +1,176 @@
+{
+  "schemaVersion": "1.2.0",
+  "botName": "Luminess",
+  "tagline": "Living Desktop AI Companion",
+  "userName": "",
+  "repo": "jasonhukom/Luminess-Assist",
+  "upstreamRepo": "jasonhukom/Luminess-Assist",
+  "branch": "main",
+  "platformBaseUrl": "http://127.0.0.1:8000",
+  "platformPairingCode": "",
+  "autoSyncOnStartup": false,
+  "visualMode": "robot",
+  "avatarImageUrl": "",
+  "videoUrl": "",
+  "framesConfig": {
+    "idle": "",
+    "happy": "",
+    "thinking": "",
+    "anger": "",
+    "furious": "",
+    "coding": "",
+    "broken": ""
+  },
+  "appearance": {
+    "model": "classic",
+    "paletteName": "Neon Cyan",
+    "idleColor": "#38bdf8",
+    "glowColor": "#0ea5e9",
+    "joyColor": "#22d3ee",
+    "loveColor": "#f472b6",
+    "thinkingColor": "#a855f7",
+    "angerColor": "#f97316",
+    "furiousColor": "#ef4444",
+    "shellBg": "#0f172a",
+    "accessory": "none",
+    "scale": 1.0
+  },
+  "personality": {
+    "archetype": "lively",
+    "platformTone": "friendly",
+    "formality": 40,
+    "humor": 72,
+    "verbosity": 45,
+    "customPrompt": ""
+  },
+  "angerSettings": {
+    "enabled": true,
+    "wallImpactSensitivity": 1.0,
+    "maxPatience": 100,
+    "angerThreshold": 20,
+    "furiousThreshold": 60,
+    "breakOnMaxDamage": true,
+    "repairSeconds": 30,
+    "triggers": {
+      "wallImpact": true,
+      "hostileWords": true,
+      "rapidShake": true,
+      "repeatedInterruptions": false
+    },
+    "hostileKeywords": [
+      "stupid",
+      "idiot",
+      "useless",
+      "shut up",
+      "hate you",
+      "trash"
+    ],
+    "customAnnoyedPhrases": [
+      "Hey! Watch the screen edges!",
+      "Not a stress ball!",
+      "Easy on the thrusters..."
+    ],
+    "customFuriousPhrases": [
+      "MY CHASSIS!",
+      "STOP THROWING ME!",
+      "WARNING: HULL CRIT!"
+    ],
+    "customCalmRemarks": [
+      "Finally calmed down.",
+      "Systems nominal again."
+    ]
+  },
+  "apiConfig": {
+    "activePresetId": "direct-custom",
+    "requirePreset": false,
+    "customBaseUrl": "",
+    "customApiFormat": "openai-chat",
+    "customModel": "",
+    "customHeadersJson": "",
+    "temperature": 0.7
+  },
+  "agentPresets": [
+    {
+      "id": "direct-custom",
+      "name": "Custom API (No Preset)",
+      "kind": "api",
+      "provider": "custom",
+      "apiFormat": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "",
+      "description": "Use any API key, custom base URL, and any model ID without preset lock-in."
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "kind": "api",
+      "provider": "gemini",
+      "apiFormat": "gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "model": "gemini-2.5-flash",
+      "description": "Google Gemini models via API key or Google OAuth."
+    },
+    {
+      "id": "claude",
+      "name": "Anthropic Claude",
+      "kind": "api",
+      "provider": "claude",
+      "apiFormat": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "model": "claude-sonnet-4-20250514",
+      "description": "Anthropic Messages API (Claude 4 / Sonnet / Opus)."
+    },
+    {
+      "id": "codex",
+      "name": "OpenAI / Codex",
+      "kind": "api",
+      "provider": "codex",
+      "apiFormat": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-4o",
+      "description": "OpenAI Chat Completions or Responses API."
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter Multi-Model",
+      "kind": "api",
+      "provider": "custom",
+      "apiFormat": "openai-chat",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "model": "anthropic/claude-sonnet-4",
+      "description": "Route across any model on OpenRouter with one API key."
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode Local Agent",
+      "kind": "local-cli",
+      "provider": "offline",
+      "apiFormat": "openai-chat",
+      "baseUrl": "http://127.0.0.1:4096",
+      "model": "opencode-default",
+      "cliCommand": "opencode",
+      "description": "Bundled OpenCode CLI autonomous local coding & system agent."
+    },
+    {
+      "id": "kilocode",
+      "name": "KiloCode Local Agent",
+      "kind": "local-cli",
+      "provider": "offline",
+      "apiFormat": "openai-chat",
+      "baseUrl": "",
+      "model": "kilocode-default",
+      "cliCommand": "kilocode",
+      "description": "Bundled KiloCode (@kilocode/cli) autonomous local agent."
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama / LM Studio Local",
+      "kind": "local-server",
+      "provider": "offline",
+      "apiFormat": "openai-chat",
+      "baseUrl": "http://127.0.0.1:11434",
+      "model": "qwen2.5-coder:latest",
+      "description": "Run local weights offline via Ollama, LM Studio, or llama.cpp."
+    }
+  ]
+}
