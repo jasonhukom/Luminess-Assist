@@ -787,15 +787,92 @@ pub fn probe_local_ai_servers() -> Result<Vec<LocalAiServerInfo>, String> {
         },
     });
 
-    // 4. Built-in Local Conversational Engine + OpenCode CLI
+    // 4. Probe OpenCode & KiloCode local CLI agents (without spawning visible console windows)
+    let probe_cli_version = |bins: &[&str]| -> (bool, String) {
+        for bin in bins {
+            let mut cmd = Command::new(bin);
+            cmd.arg("--version");
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            if let Ok(out) = cmd.output() {
+                if out.status.success() {
+                    let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    return (
+                        true,
+                        if ver.is_empty() {
+                            format!("{} CLI detected", bin)
+                        } else {
+                            ver
+                        },
+                    );
+                }
+            }
+            // Check npm global .cmd shim explicitly on Windows if PATH differs in Tauri shell
+            if let Ok(appdata) = env::var("APPDATA") {
+                let shim = PathBuf::from(appdata).join("npm").join(format!("{}.cmd", bin));
+                if shim.exists() {
+                    let mut shim_cmd = Command::new(&shim);
+                    shim_cmd.arg("--version");
+                    #[cfg(target_os = "windows")]
+                    shim_cmd.creation_flags(CREATE_NO_WINDOW);
+                    if let Ok(out) = shim_cmd.output() {
+                        if out.status.success() {
+                            let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                            return (
+                                true,
+                                if ver.is_empty() {
+                                    format!("{} CLI detected", bin)
+                                } else {
+                                    ver
+                                },
+                            );
+                        }
+                    }
+                    return (true, format!("Installed at {}", shim.display()));
+                }
+            }
+        }
+        (false, String::new())
+    };
+
+    let (opencode_online, opencode_ver) = probe_cli_version(&["opencode"]);
     servers.push(LocalAiServerInfo {
-        name: "Luminess Native Local AI + OpenCode".to_string(),
+        name: "OpenCode CLI Local Agent".to_string(),
+        kind: "opencode".to_string(),
+        endpoint: "cli://opencode".to_string(),
+        online: opencode_online,
+        models: vec!["opencode-local-agent".to_string()],
+        notes: if opencode_online {
+            format!("OpenCode CLI ready ({}).", opencode_ver)
+        } else {
+            "OpenCode CLI not detected on PATH. Install via `npm install -g opencode-ai`.".to_string()
+        },
+    });
+
+    let (kilocode_online, kilocode_ver) = probe_cli_version(&["kilocode", "kilo"]);
+    servers.push(LocalAiServerInfo {
+        name: "KiloCode CLI Local Agent".to_string(),
+        kind: "kilocode".to_string(),
+        endpoint: "cli://kilocode".to_string(),
+        online: kilocode_online,
+        models: vec!["kilocode-local-agent".to_string()],
+        notes: if kilocode_online {
+            format!("KiloCode CLI ready ({}).", kilocode_ver)
+        } else {
+            "KiloCode CLI not detected on PATH. Install via `npm install -g @kilocode/cli`.".to_string()
+        },
+    });
+
+    // 5. Built-in Local Conversational Engine + CLI Agents
+    servers.push(LocalAiServerInfo {
+        name: "Luminess Native Local AI + Agents".to_string(),
         kind: "builtin".to_string(),
         endpoint: "local://luminess-native".to_string(),
         online: true,
         models: vec![
             "luminess-local-v2".to_string(),
             "opencode-local-agent".to_string(),
+            "kilocode-local-agent".to_string(),
         ],
         notes: "Always-on local conversational engine with PC tool execution, persistent memory, and web search.".to_string(),
     });

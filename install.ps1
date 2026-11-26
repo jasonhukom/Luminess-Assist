@@ -225,20 +225,60 @@ if ($InstalledExe) {
 }
 
 # ==============================================================================
-# Optional / Recommended: OpenCode Offline Agent Setup
+# Local Agent CLI Setup: OpenCode & KiloCode
 # ==============================================================================
+# Refresh PATH so recently installed Node.js / npm global shims are discoverable
+$ExtraBinDirs = @(
+    "$env:ProgramFiles\nodejs",
+    "$env:LOCALAPPDATA\Programs\nodejs",
+    "$env:APPDATA\npm"
+)
+foreach ($Dir in $ExtraBinDirs) {
+    if ((Test-Path $Dir) -and ($env:Path -notlike "*$Dir*")) {
+        $env:Path = "$Dir;$env:Path"
+    }
+}
+
+if (-not (Get-Command npm -ErrorAction SilentlyContinue) -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+    Write-Host "`n>>> Node.js / npm not found. Installing Node.js LTS via winget for OpenCode & KiloCode..." -ForegroundColor Cyan
+    try {
+        winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements | Out-Null
+        foreach ($Dir in $ExtraBinDirs) {
+            if ((Test-Path $Dir) -and ($env:Path -notlike "*$Dir*")) {
+                $env:Path = "$Dir;$env:Path"
+            }
+        }
+    } catch {
+        Write-Host ">>> [NOTE] Automatic Node.js install skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
-        Write-Host "`n>>> Setting up OpenCode CLI for local offline assistant & agent mode..." -ForegroundColor Cyan
+        Write-Host "`n>>> Installing OpenCode CLI (opencode-ai) for local agent mode..." -ForegroundColor Cyan
         try {
-            npm install -g --allow-scripts=opencode-ai opencode-ai | Out-Null
-            Write-Host ">>> [SUCCESS] OpenCode CLI installed for local offline mode." -ForegroundColor Green
+            npm install -g opencode-ai | Out-Null
+            Write-Host ">>> [SUCCESS] OpenCode CLI installed (command: opencode)." -ForegroundColor Green
         } catch {
             Write-Host ">>> [NOTE] OpenCode global install skipped: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     } else {
-        Write-Host "`n>>> [VERIFIED] OpenCode CLI detected on system for offline agent mode." -ForegroundColor Green
+        Write-Host "`n>>> [VERIFIED] OpenCode CLI already installed on system." -ForegroundColor Green
     }
+
+    if (-not ((Get-Command kilocode -ErrorAction SilentlyContinue) -or (Get-Command kilo -ErrorAction SilentlyContinue))) {
+        Write-Host ">>> Installing KiloCode CLI (@kilocode/cli) for local agent mode..." -ForegroundColor Cyan
+        try {
+            npm install -g @kilocode/cli | Out-Null
+            Write-Host ">>> [SUCCESS] KiloCode CLI installed (commands: kilo / kilocode)." -ForegroundColor Green
+        } catch {
+            Write-Host ">>> [NOTE] KiloCode global install skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host ">>> [VERIFIED] KiloCode CLI already installed on system." -ForegroundColor Green
+    }
+} else {
+    Write-Host "`n>>> [NOTE] npm was not found on PATH. Install Node.js LTS then run: npm install -g opencode-ai @kilocode/cli" -ForegroundColor Yellow
 }
 
 Write-Host "`n==============================================================================" -ForegroundColor DarkCyan

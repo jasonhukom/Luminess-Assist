@@ -16,6 +16,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import { runOfflineAgent } from './offlineAi.ts';
+import { saveAppConfigToMachine } from './memoryAndStorage.ts';
 import type { Message } from './gemini.ts';
 
 describe('Offline AI Engine', () => {
@@ -140,6 +141,7 @@ describe('Offline AI Engine', () => {
   });
 
   it('routes general chatter and coding prompts to OpenCode offline agent', async () => {
+    await saveAppConfigToMachine({ local_ai_runtime: 'auto', agent_cli_command: 'opencode' });
     const history: Message[] = [{ role: 'user', content: 'write a python script to ping a server' }];
     const res = await runOfflineAgent(
       history,
@@ -152,5 +154,22 @@ describe('Offline AI Engine', () => {
     expect(res.content).toContain('OpenCode');
     expect(res.emotion).toBe('joy');
     expect(mockToolStart).toHaveBeenCalledWith('OpenCode Agent: Running prompt locally...');
+  });
+
+  it('routes prompts to KiloCode CLI when configured as local runtime', async () => {
+    await saveAppConfigToMachine({ local_ai_runtime: 'kilocode' });
+    const history: Message[] = [{ role: 'user', content: 'refactor my utility module locally' }];
+    const res = await runOfflineAgent(
+      history,
+      mockToolStart,
+      mockEmotion,
+      mockRequestPermission,
+      mockTimerComplete
+    );
+
+    expect(res.content).toContain('KiloCode');
+    expect(res.emotion).toBe('joy');
+    expect(mockToolStart).toHaveBeenCalledWith('KiloCode Agent: Running prompt locally...');
+    await saveAppConfigToMachine({ local_ai_runtime: 'auto' });
   });
 });

@@ -4,6 +4,8 @@ import { executeToolOnPc } from './gemini.ts';
 import {
   callLocalModelServer,
   discoverLocalAiServers,
+  executeCliAgentPrompt,
+  executeKiloCodePrompt,
   executeOpenCodePrompt,
 } from './opencode.ts';
 import {
@@ -492,19 +494,39 @@ export async function runOfflineAgent(
     }
   }
 
-  // 14. OpenCode CLI fallback for coding / shell prompts
+  // 14. Local CLI Agent fallback / primary dispatch (OpenCode, KiloCode, or custom CLI agent)
   if (userText.length > 0) {
     onEmotion('curiosity');
     try {
-      const openCodeRes = await executeOpenCodePrompt(userText, onToolStart);
-      if (openCodeRes && openCodeRes.success && openCodeRes.output.trim().length > 0) {
-        if (openCodeRes.toolActions && openCodeRes.toolActions.length > 0) {
-          executedActions.push(...openCodeRes.toolActions);
+      const cliOpts = { model: cfg.local_ai_model };
+      const customCli = (cfg.agent_cli_command || '').trim();
+      const customBinLower = customCli.toLowerCase();
+
+      const primaryRes =
+        cfg.local_ai_runtime === 'kilocode'
+          ? await executeKiloCodePrompt(userText, onToolStart, cliOpts)
+          : customCli &&
+              customBinLower !== 'opencode' &&
+              customBinLower !== 'kilocode' &&
+              customBinLower !== 'kilo'
+            ? await executeCliAgentPrompt(customCli, userText, onToolStart, cliOpts)
+            : await executeOpenCodePrompt(userText, onToolStart, cliOpts);
+
+      const finalAgentRes =
+        primaryRes && primaryRes.success && primaryRes.output.trim().length > 0
+          ? primaryRes
+          : cfg.local_ai_runtime === 'kilocode'
+            ? await executeOpenCodePrompt(userText, onToolStart, cliOpts)
+            : await executeKiloCodePrompt(userText, onToolStart, cliOpts);
+
+      if (finalAgentRes && finalAgentRes.success && finalAgentRes.output.trim().length > 0) {
+        if (finalAgentRes.toolActions && finalAgentRes.toolActions.length > 0) {
+          executedActions.push(...finalAgentRes.toolActions);
         }
         onEmotion('joy');
         return {
           role: 'assistant',
-          content: openCodeRes.output,
+          content: finalAgentRes.output,
           emotion: 'joy',
           toolActions: executedActions.length > 0 ? executedActions : undefined,
         };
