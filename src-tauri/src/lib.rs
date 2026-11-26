@@ -1783,7 +1783,9 @@ pub fn run() {
             local_ai_chat_completion,
             perform_web_search,
             http_proxy_request,
-            fetch_github_fork_manifest
+            fetch_github_fork_manifest,
+            get_media_stream_url,
+            scan_local_music
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

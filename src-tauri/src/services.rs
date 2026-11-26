@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
@@ -1368,6 +1370,454 @@ pub async fn fetch_github_fork_manifest(
         raw_url,
         manifest,
         repo_meta,
+    })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LocalMusicTrack {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub file_path: String,
+    pub ext: String,
+    pub size_bytes: u64,
+    pub stream_url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScanLocalMusicResult {
+    pub ok: bool,
+    pub folder: String,
+    pub tracks: Vec<LocalMusicTrack>,
+}
+
+struct MediaServerState {
+    port: u16,
+    token: String,
+    tracks: Arc<Mutex<HashMap<String, PathBuf>>>,
+    path_to_key: Arc<Mutex<HashMap<String, String>>>,
+    seq: Arc<Mutex<u64>>,
+}
+
+static MEDIA_SERVER: OnceLock<Result<MediaServerState, String>> = OnceLock::new();
+
+fn audio_mime_for_ext(ext: &str) -> Option<&'static str> {
+    match ext.to_ascii_lowercase().as_str() {
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "ogg" => Some("audio/ogg"),
+        "flac" => Some("audio/flac"),
+        "m4a" | "mp4" => Some("audio/mp4"),
+        "aac" => Some("audio/aac"),
+        "webm" => Some("audio/webm"),
+        "opus" => Some("audio/opus"),
+        _ => None,
+    }
+}
+
+fn parse_byte_range(range_header: &str, file_len: u64) -> Option<(u64, u64)> {
+    let trimmed = range_header.trim();
+    let spec = trimmed.strip_prefix("bytes=")?.split(',').next()?.trim();
+    let (start_str, end_str) = spec.split_once('-')?;
+
+    if start_str.is_empty() {
+        let suffix_len: u64 = end_str.trim().parse().ok()?;
+        if suffix_len == 0 || file_len == 0 {
+            return None;
+        }
+        let start = file_len.saturating_sub(suffix_len);
+        return Some((start, file_len - 1));
+    }
+
+    let start: u64 = start_str.trim().parse().ok()?;
+    if start >= file_len {
+        return None;
+    }
+
+    let end = if end_str.trim().is_empty() {
+        file_len - 1
+    } else {
+        let parsed_end: u64 = end_str.trim().parse().ok()?;
+        parsed_end.min(file_len - 1)
+    };
+
+    if end < start {
+        return None;
+    }
+
+    Some((start, end))
+}
+
+fn write_http_error(stream: &mut TcpStream, status: &str, message: &str) {
+    let response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n{}",
+        status,
+        message.len(),
+        message
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+fn handle_media_http(
+    mut stream: TcpStream,
+    tracks: &Arc<Mutex<HashMap<String, PathBuf>>>,
+    session_token: &str,
+) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let mut header_buf = Vec::with_capacity(2048);
+    let mut chunk = [0u8; 1024];
+
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                header_buf.extend_from_slice(&chunk[..n]);
+                if header_buf.windows(4).any(|w| w == b"\r\n\r\n") || header_buf.len() >= 16384 {
+                    break;
+                }
+            }
+            Err(_) => return,
+        }
+    }
+
+    let header_str = String::from_utf8_lossy(&header_buf);
+    let mut lines = header_str.lines();
+    let request_line = lines.next().unwrap_or("");
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let raw_target = parts.next().unwrap_or("");
+
+    if method == "OPTIONS" {
+        let resp = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range\r\nConnection: close\r\n\r\n";
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
+
+    if method != "GET" && method != "HEAD" {
+        write_http_error(&mut stream, "405 Method Not Allowed", "Method Not Allowed");
+        return;
+    }
+
+    let path_only = raw_target.split('?').next().unwrap_or("");
+    let segments: Vec<&str> = path_only.trim_start_matches('/').split('/').collect();
+    if segments.len() != 3 || segments[0] != "stream" || segments[1] != session_token {
+        write_http_error(&mut stream, "403 Forbidden", "Forbidden");
+        return;
+    }
+
+    let track_key = segments[2]
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    let file_path = {
+        let guard = match tracks.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                write_http_error(&mut stream, "500 Internal Server Error", "Lock error");
+                return;
+            }
+        };
+        guard.get(&track_key).cloned()
+    };
+
+    let Some(path) = file_path else {
+        write_http_error(&mut stream, "404 Not Found", "Track not found");
+        return;
+    };
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("mp3");
+    let mime = audio_mime_for_ext(ext).unwrap_or("application/octet-stream");
+
+    let mut file = match fs::File::open(&path) {
+        Ok(f) => f,
+        Err(_) => {
+            write_http_error(&mut stream, "404 Not Found", "Unable to open audio file");
+            return;
+        }
+    };
+
+    let file_len = match file.metadata() {
+        Ok(m) => m.len(),
+        Err(_) => {
+            write_http_error(&mut stream, "500 Internal Server Error", "Metadata error");
+            return;
+        }
+    };
+
+    let mut range_header_val: Option<String> = None;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("range") {
+                range_header_val = Some(value.trim().to_string());
+                break;
+            }
+        }
+    }
+
+    let (status_line, start, end, content_range_hdr) = if let Some(rh) = range_header_val {
+        if file_len == 0 {
+            write_http_error(&mut stream, "416 Range Not Satisfiable", "Empty audio file");
+            return;
+        }
+        match parse_byte_range(&rh, file_len) {
+            Some((s, e)) => (
+                "HTTP/1.1 206 Partial Content",
+                s,
+                e,
+                format!("Content-Range: bytes {}-{}/{}\r\n", s, e, file_len),
+            ),
+            None => {
+                let resp = format!(
+                    "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+                    file_len
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                return;
+            }
+        }
+    } else if file_len == 0 {
+        (
+            "HTTP/1.1 200 OK",
+            0,
+            0,
+            String::new(),
+        )
+    } else {
+        (
+            "HTTP/1.1 200 OK",
+            0,
+            file_len - 1,
+            String::new(),
+        )
+    };
+
+    let content_len = if file_len == 0 { 0 } else { end - start + 1 };
+    let headers = format!(
+        "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Accept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        status_line, mime, content_len, content_range_hdr
+    );
+    if stream.write_all(headers.as_bytes()).is_err() {
+        return;
+    }
+
+    if method == "HEAD" || content_len == 0 {
+        return;
+    }
+
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return;
+    }
+
+    let mut remaining = content_len;
+    let mut buf = [0u8; 65536];
+    while remaining > 0 {
+        let to_read = (remaining as usize).min(buf.len());
+        match file.read(&mut buf[..to_read]) {
+            Ok(0) => break,
+            Ok(n) => {
+                if stream.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+                remaining -= n as u64;
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+fn ensure_media_server() -> Result<&'static MediaServerState, String> {
+    let res = MEDIA_SERVER.get_or_init(|| {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|e| format!("Failed to start local audio streaming server: {}", e))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to read audio server address: {}", e))?
+            .port();
+        let token = format!("lm{}", now_unix_ms());
+        let tracks = Arc::new(Mutex::new(HashMap::new()));
+        let path_to_key = Arc::new(Mutex::new(HashMap::new()));
+        let seq = Arc::new(Mutex::new(0u64));
+
+        let tracks_bg = Arc::clone(&tracks);
+        let token_bg = token.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let tracks_req = Arc::clone(&tracks_bg);
+                let token_req = token_bg.clone();
+                thread::spawn(move || handle_media_http(stream, &tracks_req, &token_req));
+            }
+        });
+
+        Ok(MediaServerState {
+            port,
+            token,
+            tracks,
+            path_to_key,
+            seq,
+        })
+    });
+
+    match res {
+        Ok(state) => Ok(state),
+        Err(err) => Err(err.clone()),
+    }
+}
+
+fn register_media_file(path: &Path) -> Result<(String, String), String> {
+    if !path.is_file() {
+        return Err(format!("Audio file does not exist: {}", path.display()));
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if audio_mime_for_ext(&ext).is_none() {
+        return Err(format!("Unsupported audio extension: .{}", ext));
+    }
+
+    let state = ensure_media_server()?;
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path_str = canonical.to_string_lossy().to_string();
+
+    let key = {
+        let mut path_map = state
+            .path_to_key
+            .lock()
+            .map_err(|_| "Media index lock poisoned".to_string())?;
+        if let Some(existing) = path_map.get(&path_str) {
+            existing.clone()
+        } else {
+            let mut seq = state
+                .seq
+                .lock()
+                .map_err(|_| "Media sequence lock poisoned".to_string())?;
+            *seq += 1;
+            let new_key = format!("t{}", *seq);
+            path_map.insert(path_str, new_key.clone());
+            let mut tracks = state
+                .tracks
+                .lock()
+                .map_err(|_| "Media tracks lock poisoned".to_string())?;
+            tracks.insert(new_key.clone(), canonical);
+            new_key
+        }
+    };
+
+    let url = format!(
+        "http://127.0.0.1:{}/stream/{}/{}.{}",
+        state.port, state.token, key, ext
+    );
+    Ok((key, url))
+}
+
+fn default_music_folder() -> PathBuf {
+    let home = env::var("USERPROFILE")
+        .or_else(|_| env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    Path::new(&home).join("Music")
+}
+
+fn collect_audio_files(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) {
+    if depth > 4 || out.len() >= 250 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if out.len() >= 250 {
+            break;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_audio_files(&path, depth + 1, out);
+        } else if path.is_file() {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if audio_mime_for_ext(ext).is_some() {
+                out.push(path);
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_media_stream_url(file_path: String) -> Result<String, String> {
+    let trimmed = file_path.trim();
+    if trimmed.is_empty() {
+        return Err("Missing audio file path.".to_string());
+    }
+    let (_, url) = register_media_file(Path::new(trimmed))?;
+    Ok(url)
+}
+
+#[tauri::command]
+pub fn scan_local_music(directory: Option<String>) -> Result<ScanLocalMusicResult, String> {
+    let target = directory
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_music_folder);
+
+    if !target.exists() {
+        return Ok(ScanLocalMusicResult {
+            ok: true,
+            folder: target.to_string_lossy().to_string(),
+            tracks: Vec::new(),
+        });
+    }
+
+    let mut files = Vec::new();
+    collect_audio_files(&target, 0, &mut files);
+    files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    let mut tracks = Vec::with_capacity(files.len());
+    for file_path in files {
+        let Ok((key, stream_url)) = register_media_file(&file_path) else {
+            continue;
+        };
+        let ext = file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_else(|| "mp3".to_string());
+        let stem = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Untitled Track")
+            .trim()
+            .to_string();
+        let (artist, title) = if let Some((left, right)) = stem.split_once(" - ") {
+            (left.trim().to_string(), right.trim().to_string())
+        } else {
+            ("Local Music".to_string(), stem)
+        };
+        let size_bytes = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+        let fp_str = file_path.to_string_lossy().to_string();
+
+        tracks.push(LocalMusicTrack {
+            id: format!("local:{}", key),
+            title,
+            artist,
+            file_path: fp_str,
+            ext,
+            size_bytes,
+            stream_url,
+        });
+    }
+
+    Ok(ScanLocalMusicResult {
+        ok: true,
+        folder: target.to_string_lossy().to_string(),
+        tracks,
     })
 }
 
